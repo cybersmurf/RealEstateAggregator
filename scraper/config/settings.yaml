@@ -37,6 +37,12 @@ sources:
     enabled: false  # Může vyžadovat Playwright
     scraper_class: "ProdejmeToScraper"
 
+  - id: "00000000-0000-0000-0000-000000000004"
+    name: "Sreality"
+    base_url: "https://www.sreality.cz"
+    enabled: true
+    scraper_class: "SrealityScraper"
+
 # Scheduler configuration
 scheduler:
   enabled: true

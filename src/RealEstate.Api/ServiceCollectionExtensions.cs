@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Playwright;
 using Pgvector.EntityFrameworkCore;
 using RealEstate.Api.Services;
 using RealEstate.Domain.Repositories;
@@ -16,17 +15,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISourceService, SourceService>();
         services.AddScoped<IAnalysisService, AnalysisService>();
         services.AddScoped<IScrapingService, ScrapingService>();
-        services.AddScoped<IPlaywrightScrapingOrchestrator, PlaywrightScrapingOrchestrator>();
-        services.AddScoped<IRemaxScrapingService, RemaxScrapingService>();
 
         // Repositories
         services.AddScoped<IListingRepository, ListingRepository>();
-
-        // Playwright
-        services.AddSingleton(async sp =>
-        {
-            return await Microsoft.Playwright.Playwright.CreateAsync();
-        });
 
         services.AddHttpClient("ScraperApi", (sp, client) =>
         {

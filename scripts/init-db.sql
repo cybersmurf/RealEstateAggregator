@@ -267,7 +267,8 @@ VALUES
     ('REMAX', 'RE/MAX Czech Republic', 'https://www.remax-czech.cz', true, true, true, 'Python'),
     ('MMR', 'M&M Reality', 'https://www.mmreality.cz', true, true, true, 'Python'),
     ('PRODEJMETO', 'Prodejme.to', 'https://www.prodejme.to', true, true, true, 'Python'),
-    ('ZNOJMOREALITY', 'Znojmo Reality', 'https://www.znojmoreality.cz', true, true, true, 'Python')
+    ('ZNOJMOREALITY', 'Znojmo Reality', 'https://www.znojmoreality.cz', true, true, true, 'Python'),
+    ('SREALITY', 'Sreality', 'https://www.sreality.cz', true, true, true, 'Python')
 ON CONFLICT (code) DO NOTHING;
 
 -- ============================================================================

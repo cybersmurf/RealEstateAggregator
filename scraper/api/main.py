@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict
 import yaml
 from pathlib import Path
+import os
 
 from .schemas import ScrapeTriggerRequest, ScrapeTriggerResponse, ScrapeJob
 from core.runner import run_scrape_job
@@ -46,12 +47,21 @@ async def startup_event():
         if not db_config:
             raise ValueError("Missing 'database' section in config")
         
+        db_config = {
+            **db_config,
+            "host": os.getenv("DB_HOST", db_config.get("host", "localhost")),
+            "port": int(os.getenv("DB_PORT", db_config.get("port", 5432))),
+            "database": os.getenv("DB_NAME", db_config.get("database", "realestate_dev")),
+            "user": os.getenv("DB_USER", db_config.get("user", "postgres")),
+            "password": os.getenv("DB_PASSWORD", db_config.get("password", "dev")),
+        }
+
         db_manager = init_db_manager(
-            host=db_config.get("host", "localhost"),
-            port=db_config.get("port", 5432),
-            database=db_config.get("database", "realestate_dev"),
-            user=db_config.get("user", "postgres"),
-            password=db_config.get("password", "dev"),
+            host=db_config.get("host"),
+            port=db_config.get("port"),
+            database=db_config.get("database"),
+            user=db_config.get("user"),
+            password=db_config.get("password"),
             min_size=db_config.get("min_connections", 5),
             max_size=db_config.get("max_connections", 20),
         )

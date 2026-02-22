@@ -44,12 +44,14 @@ async def run_scrape_job(
             "MMR",
             "PRODEJMETO",
             "ZNOJMOREALITY",
+            "SREALITY",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
         from core.scrapers.remax_scraper import RemaxScraper
         from core.scrapers.mmreality_scraper import MmRealityScraper
         from core.scrapers.prodejmeto_scraper import ProdejmeToScraper
+        from core.scrapers.sreality_scraper import SrealityScraper
         from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper
 
         scraped_count = 0
@@ -81,6 +83,13 @@ async def run_scrape_job(
             count = await scraper.run(full_rescan=request.full_rescan)
             scraped_count += count
             logger.info(f"Job {job_id}: Znojmo Reality scraped {count} listings")
+
+        if "SREALITY" in source_codes:
+            logger.info(f"Job {job_id}: Scraping Sreality...")
+            scraper = SrealityScraper()
+            count = await scraper.run(full_rescan=request.full_rescan)
+            scraped_count += count
+            logger.info(f"Job {job_id}: Sreality scraped {count} listings")
 
         # Success
         job.status = "Succeeded"

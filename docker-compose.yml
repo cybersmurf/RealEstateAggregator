@@ -34,7 +34,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=realestate_dev;Username=postgres;Password=dev
+      - ConnectionStrings__RealEstate=Host=postgres;Database=realestate_dev;Username=postgres;Password=dev
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,7 +66,7 @@ services:
     volumes:
       - ./scraper:/app
       - ./logs/scraper:/app/logs
-    command: python -m core.scheduler
+    command: python run_api.py
 
   # pgAdmin (volitelné - pro správu DB)
   pgadmin:

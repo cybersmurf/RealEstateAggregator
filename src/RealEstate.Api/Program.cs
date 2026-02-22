@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using RealEstate.Api;
 using RealEstate.Api.Endpoints;
 using RealEstate.Infrastructure;
@@ -13,8 +14,6 @@ builder.Services.AddRealEstateDb(builder.Configuration);
 builder.Services.AddRealEstateServices();
 builder.Services.AddStorageService(builder.Configuration);
 
-// Playwright scraping (alternative to Python scraper)
-builder.Services.AddPlaywrightScraping();
 
 var app = builder.Build();
 
@@ -22,6 +21,11 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<RealEstateDbContext>();
+    await dbContext.Database.MigrateAsync();
+    await DbInitializer.SeedAsync(dbContext);
 }
 else
 {
@@ -31,7 +35,6 @@ else
 // Enable static files for local storage serving
 app.UseStaticFiles();
 
-app.MapScrapingPlaywrightEndpoints();
 app.MapListingEndpoints();
 app.MapSourceEndpoints();
 app.MapAnalysisEndpoints();

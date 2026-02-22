@@ -46,7 +46,7 @@ Spustí scraping job v pozadí.
 **Request body:**
 ```json
 {
-  "source_codes": ["REMAX", "MMR", "PRODEJMETO", "ZNOJMOREALITY"],
+  "source_codes": ["REMAX", "MMR", "PRODEJMETO", "ZNOJMOREALITY", "SREALITY"],
   "full_rescan": false
 }
 ```
@@ -93,6 +93,7 @@ scraper/
 │       ├── remax_scraper.py
 │       ├── mmreality_scraper.py
 │       ├── prodejmeto_scraper.py
+│       ├── sreality_scraper.py
 │       └── znojmoreality_scraper.py
 ├── config/
 │   └── settings.yaml    # Konfigurace
@@ -112,7 +113,7 @@ HttpClient POST http://localhost:8001/v1/scrape/run
   ↓
 Python FastAPI spustí background job
   ↓
-Job runner zavolá scrapers (Remax, MMR, Prodejme.to, Znojmo Reality)
+Job runner zavolá scrapers (Remax, MMR, Prodejme.to, Znojmo Reality, Sreality)
 ```
 
 ## 📝 Implementace scraperů
