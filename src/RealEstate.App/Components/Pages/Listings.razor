@@ -35,13 +35,13 @@
                     <MudButton Size="Size.Small"
                                Color="Color.Primary"
                                Variant="Variant.Text"
-                               OnClick="@(() => NavigateToDetail(context.Id))">
+                               @onclick="@(async () => await NavigateToDetailAsync(context.Id))">
                         Detail
                     </MudButton>
                     <MudButton Size="Size.Small"
                                Color="Color.Secondary"
                                Variant="Variant.Text"
-                               OnClick="@(() => CreateAnalysisAsync(context.Id))">
+                               @onclick="@(async () => await CreateAnalysisAsync(context.Id))">
                         Udělej analýzu
                     </MudButton>
                 </MudTd>
@@ -78,9 +78,10 @@
         _items = result?.Items.ToList() ?? new List<ListingSummaryDto>();
     }
 
-    private void NavigateToDetail(Guid id)
+    private async Task NavigateToDetailAsync(Guid id)
     {
         Navigation.NavigateTo($"/listings/{id}");
+        await Task.CompletedTask;
     }
 
     private async Task CreateAnalysisAsync(Guid id)
