@@ -43,7 +43,11 @@ if (app.Environment.IsDevelopment())
     {
         using var scope = app.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<RealEstateDbContext>();
-        await dbContext.Database.MigrateAsync();
+        
+        // 🔥 Use EnsureCreatedAsync instead of MigrateAsync to avoid column naming conflicts
+        // This creates the database schema from scratch if needed
+        await dbContext.Database.EnsureCreatedAsync();
+        
         await DbInitializer.SeedAsync(dbContext);
     }
 }

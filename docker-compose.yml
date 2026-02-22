@@ -15,7 +15,7 @@ services:
       - "${DB_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      # 🔥 Removed init-db.sql - EF Core handles schema creation via migrations
     networks:
       - realestate-network
     healthcheck:
