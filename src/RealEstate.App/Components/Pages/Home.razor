@@ -1,7 +1,64 @@
 ﻿@page "/"
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Real Estate Aggregator</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="pa-4">
+    <MudContainer MaxWidth="MaxWidth.Large">
+        <MudPaper Class="pa-8 mb-4" Elevation="0" Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <MudStack>
+                <MudText Typo="Typo.h2" Class="fw-bold">🏠 Real Estate Aggregator</MudText>
+                <MudText Typo="Typo.h6">Inteligentní agregátor nemovitostí se sémantickým vyhledáváním</MudText>
+            </MudStack>
+        </MudPaper>
 
-Welcome to your new app.
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard>
+                    <MudCardContent>
+                        <MudStack Spacing="2">
+                            <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Large" Color="Color.Primary" />
+                            <MudText Typo="Typo.h6">3 zdroje</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.TextSecondary">REMAX, M&M Reality, Prodejme.to</MudText>
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard>
+                    <MudCardContent>
+                        <MudStack Spacing="2">
+                            <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Large" Color="Color.Success" />
+                            <MudText Typo="Typo.h6">Sémantické hledání</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.TextSecondary">S pgvector embeddings</MudText>
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard>
+                    <MudCardContent>
+                        <MudStack Spacing="2">
+                            <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Warning" />
+                            <MudText Typo="Typo.h6">AI Analýza</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.TextSecondary">S Copilot & Perplexity</MudText>
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+
+        <MudPaper Class="pa-6 mt-6" Elevation="1">
+            <MudStack Spacing="3">
+                <MudText Typo="Typo.h5" Class="fw-bold">Začínáme</MudText>
+                <MudText>Klikni na <strong>Inzeráty</strong> v levé navigaci pro prohlédnutí dostupných nemovitostí.</MudText>
+                <div>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" Href="/listings" Icon="@Icons.Material.Filled.ListAlt" IconColor="Color.Inherit">
+                        Prohlédnout inzeráty
+                    </MudButton>
+                </div>
+            </MudStack>
+        </MudPaper>
+    </MudContainer>
+</div>
