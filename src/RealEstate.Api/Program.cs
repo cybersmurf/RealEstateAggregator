@@ -15,7 +15,12 @@ var scraperApiBaseUrl = Environment.GetEnvironmentVariable("SCRAPER_API_BASE_URL
 
 var connectionString = $"Host={dbHost};Port={dbPort};Database={dbName};Username={dbUser};Password={dbPassword}";
 builder.Configuration["ConnectionStrings:RealEstate"] = connectionString;
-builder.Configuration["ScraperApi:BaseUrl"] = scraperApiBaseUrl;
+
+// Ensure environment variable takes precedence for all sources
+if (!string.IsNullOrEmpty(scraperApiBaseUrl))
+{
+    builder.Configuration["ScraperApi:BaseUrl"] = scraperApiBaseUrl;
+}
 
 builder.Services
     .AddEndpointsApiExplorer()

@@ -44,7 +44,7 @@ services:
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - SCRAPER_API_BASE_URL=${SCRAPER_API_BASE_URL}
+      - SCRAPER_API_BASE_URL=http://realestate-scraper:8001
       - SKIP_EF_MIGRATIONS=true
     depends_on:
       postgres:

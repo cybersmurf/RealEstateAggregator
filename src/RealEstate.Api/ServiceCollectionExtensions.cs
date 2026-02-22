@@ -22,8 +22,18 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpClient("ScraperApi", (sp, client) =>
         {
-            var configuration = sp.GetRequiredService<IConfiguration>();
-            var scraperApiUrl = configuration["ScraperApi:BaseUrl"] ?? "http://localhost:8001";
+            // Read from environment variable OR configuration, environment takes precedence
+            var scraperApiUrl = Environment.GetEnvironmentVariable("SCRAPER_API_BASE_URL");
+            Console.WriteLine($"[DEBUG] SCRAPER_API_BASE_URL from env: {scraperApiUrl}");
+            
+            if (string.IsNullOrEmpty(scraperApiUrl))
+            {
+                var configuration = sp.GetRequiredService<IConfiguration>();
+                scraperApiUrl = configuration["ScraperApi:BaseUrl"] ?? "http://localhost:8001";
+                Console.WriteLine($"[DEBUG] ScraperApi:BaseUrl from config: {scraperApiUrl}");
+            }
+            
+            Console.WriteLine($"[DEBUG] Final ScraperApi URL: {scraperApiUrl}");
             client.BaseAddress = new Uri(scraperApiUrl);
             client.Timeout = TimeSpan.FromMinutes(2);
         });
