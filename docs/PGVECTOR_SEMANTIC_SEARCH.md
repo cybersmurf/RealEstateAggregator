@@ -2,7 +2,7 @@
 
 **Datum**: 22. února 2026  
 **Verze**: 1.0  
-**Stack**: PostgreSQL 15+ • pgvector • OpenAI Embeddings • .NET 9 • Npgsql
+**Stack**: PostgreSQL 15+ • pgvector • OpenAI Embeddings • .NET 10 • Npgsql
 
 ---
 
@@ -16,7 +16,7 @@
 └───────────────────────┬─────────────────────────────────────────┘
                         │ HTTP POST
 ┌───────────────────────▼─────────────────────────────────────────┐
-│                    .NET 9 API                                    │
+│                    .NET 10 API                                   │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │  EmbeddingService (OpenAI Client)                        │  │
@@ -226,14 +226,14 @@ CREATE INDEX idx_scrape_runs_started_at ON scrape_runs(started_at DESC);
 -- Vložení zdrojů
 INSERT INTO sources (id, code, name, base_url, supports_url_scrape, supports_list_scrape, scraper_type)
 VALUES 
-    (gen_random_uuid(), 'REMAX', 'RE/MAX', 'https://www.remax-czech.cz', true, true, 'Python'),
+    (gen_random_uuid(), 'REMAX', 'RE/MAX', 'https://www.remax-czech.cz', true, true, 'PlaywrightDotNet'),
     (gen_random_uuid(), 'MMR', 'M&M Reality', 'https://www.mmreality.cz', true, true, 'Python'),
     (gen_random_uuid(), 'PRODEJMETO', 'Prodejme.to', 'https://www.prodejme.to', true, true, 'Python');
 ```
 
 ---
 
-## 🔧 .NET 9 Implementace
+## 🔧 .NET 10 Implementace
 
 ### 1. NuGet packages
 

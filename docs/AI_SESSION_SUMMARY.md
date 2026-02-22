@@ -212,7 +212,7 @@ try {
                         │ asyncpg
                         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│          Python Scraper API (FastAPI :8000)                  │
+│          Python Scraper API (FastAPI :8001)                  │
 │  Endpoints:                                                  │
 │    POST /v1/scrape/run   → run_scrape_job()                  │
 │    GET  /v1/scrape/jobs/{id} → job status                    │
@@ -418,7 +418,7 @@ dotnet run --project src/RealEstate.App --urls "http://localhost:5002"
 # 5. (Optional) Start Python Scraper API
 cd scraper
 python run_api.py
-# → Běží na http://localhost:8000
+# → Běží na http://localhost:8001
 ```
 
 ### Testing Scraper
@@ -430,20 +430,20 @@ curl -X POST http://localhost:5001/api/scraping/trigger \
   -d '{"sourceCodes":["REMAX"],"fullRescan":false}'
 
 # Direct test Python API
-curl -X POST http://localhost:8000/v1/scrape/run \
+curl -X POST http://localhost:8001/v1/scrape/run \
   -H "Content-Type: application/json" \
   -d '{"source_codes":["REMAX"],"full_rescan":false}'
 
 # Check job status
-curl http://localhost:8000/v1/scrape/jobs/{job_id}
+curl http://localhost:8001/v1/scrape/jobs/{job_id}
 ```
 
 ### URLs
 - **Blazor UI:** http://localhost:5002
 - **API:** http://localhost:5001
 - **Swagger:** http://localhost:5001/swagger (pokud enabled)
-- **Python Scraper API:** http://localhost:8000
-- **Python API Docs:** http://localhost:8000/docs
+- **Python Scraper API:** http://localhost:8001
+- **Python API Docs:** http://localhost:8001/docs
 
 ---
 

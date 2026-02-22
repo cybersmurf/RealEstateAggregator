@@ -11,7 +11,7 @@
 ### ✅ Co je hotovo (70%)
 
 #### 1. **Projektová struktura** ✅ 100%
-- .NET 9 Solution s 6 projekty (Api, App, Domain, Infrastructure, Background, Tests)
+- .NET 10 Solution s 6 projekty (Api, App, Domain, Infrastructure, Background, Tests)
 - Python scraper struktura s modulární architekturou
 - Kompletní adresářová hierarchie
 - Docker Compose orchestrace pro celý stack
@@ -29,7 +29,7 @@
 
 #### 3. **Infrastructure Layer** ✅ 90%
 - `RealEstateDbContext` s kompletní konfigurací entit
-- Entity Framework Core 9 integrace
+- Entity Framework Core 10 integrace
 - PostgreSQL provider (Npgsql)
 - Repository pattern implementován
 - Connection string management
@@ -48,19 +48,18 @@
 
 #### 5. **Presentation Layer** ✅ 60%
 - Blazor Web App s MudBlazor 9
-- Stránky: Home, Listings, Counter, Weather, Error, NotFound
+- Stránky: Home, Listings, ListingDetail, Error, NotFound
 - Základní layout a navigace
 - HTTP client konfigurace
 
 **CHYBÍ**: Plná funkcionalita Listings page, detail view, pokročilé filtry, responsivní design
 
-#### 6. **Python Scraper** ✅ 40%
+#### 6. **Scraping** ✅ 40%
+- .NET Playwright scraping pro REMAX (list + detail)
+- Python Scraper API (FastAPI) pro MMR/Prodejme.to
 - Strukturace: core/, scrapers/, config/, api/
-- BaseScraperu koncept (async, metrics)
-- RemaxScraper částečně implementován (list pages + hybrid HTTP/Playwright)
-- Browser manager (Playwright integration)
+- BaseScraper koncept (async, metrics)
 - Utils (timer, metrics)
-- FastAPI pro scraping API
 
 **CHYBÍ**: MM Reality scraper, Prodejme.to scraper, scheduler, error recovery, DB persistence
 
@@ -300,7 +299,7 @@
 - ✅ Architektura je čistá (Domain-Driven Design, Repository pattern)
 - ✅ Separace concerns (.NET backend, Python scraping)
 - ✅ Dokumentace je vynikající
-- ✅ Moderní stack (.NET 9, Python 3.12, PostgreSQL, MudBlazor)
+- ✅ Moderní stack (.NET 10, Python 3.12, PostgreSQL, MudBlazor)
 
 ### Co potřebuje pozornost:
 - ⚠️ **PRIORITA 1**: Vytvořit EF migrations + seed data

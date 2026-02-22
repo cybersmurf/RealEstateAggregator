@@ -1,7 +1,7 @@
 # API Contracts - Real Estate Aggregator
 
 **Verze API**: v1  
-**Base URL**: `https://localhost:5001/api/v1`  
+**Base URL**: `http://localhost:5001/api/v1`  
 **Datum**: 22. února 2026
 
 ---
