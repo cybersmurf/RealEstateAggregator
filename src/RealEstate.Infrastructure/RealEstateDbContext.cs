@@ -19,6 +19,7 @@ public sealed class RealEstateDbContext : DbContext
     public DbSet<UserListingState> UserListingStates => Set<UserListingState>();
     public DbSet<AnalysisJob> AnalysisJobs => Set<AnalysisJob>();
     public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();
+    public DbSet<UserListingPhoto> UserListingPhotos => Set<UserListingPhoto>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -209,6 +210,33 @@ public sealed class RealEstateDbContext : DbContext
                 .WithMany(s => s.ScrapeRuns)
                 .HasForeignKey(e => e.SourceId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ============================================================================
+        // UserListingPhoto - User's own photos from property visits
+        // ============================================================================
+        modelBuilder.Entity<UserListingPhoto>(entity =>
+        {
+            entity.ToTable("user_listing_photos", "re_realestate");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.StoredUrl).HasColumnName("stored_url").HasMaxLength(500).IsRequired();
+            entity.Property(e => e.OriginalFileName).HasColumnName("original_file_name").HasMaxLength(255).IsRequired();
+            entity.Property(e => e.FileSizeBytes).HasColumnName("file_size_bytes");
+            entity.Property(e => e.TakenAt).HasColumnName("taken_at").HasColumnType("timestamptz");
+            entity.Property(e => e.UploadedAt).HasColumnName("uploaded_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+            entity.Property(e => e.Notes).HasColumnName("notes").HasMaxLength(1000);
+
+            // Foreign key to Listing (cascade delete - if listing deleted, photos deleted too)
+            entity.HasOne(e => e.Listing)
+                .WithMany()
+                .HasForeignKey(e => e.ListingId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Indexes
+            entity.HasIndex(e => e.ListingId);
+            entity.HasIndex(e => e.UploadedAt);
         });
     }
 }

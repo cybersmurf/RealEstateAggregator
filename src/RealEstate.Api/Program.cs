@@ -11,6 +11,7 @@ builder.Services
 // Custom services
 builder.Services.AddRealEstateDb(builder.Configuration);
 builder.Services.AddRealEstateServices();
+builder.Services.AddStorageService(builder.Configuration);
 
 // Playwright scraping (alternative to Python scraper)
 builder.Services.AddPlaywrightScraping();
@@ -22,6 +23,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Enable static files for local storage serving
+app.UseStaticFiles();
 
 app.UseHttpsRedirection();
 

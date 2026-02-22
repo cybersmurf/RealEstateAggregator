@@ -22,6 +22,9 @@ public static class ListingEndpoints
         group.MapPost("/{id:guid}/state", UpdateListingUserState)
             .WithName("UpdateListingUserState");
 
+        // User photo upload endpoints
+        group.MapUserPhotoEndpoints();
+
         return app;
     }
 
