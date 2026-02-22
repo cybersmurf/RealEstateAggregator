@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Pgvector.EntityFrameworkCore;
 using RealEstate.Domain.Entities;
+using RealEstate.Domain.Enums;
 
 namespace RealEstate.Infrastructure;
 
@@ -68,8 +69,16 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.Region).HasColumnName("region");
             entity.Property(e => e.District).HasColumnName("district");
             entity.Property(e => e.Municipality).HasColumnName("municipality");
-            entity.Property(e => e.PropertyType).HasColumnName("property_type");
-            entity.Property(e => e.OfferType).HasColumnName("offer_type");
+            entity.Property(e => e.PropertyType)
+                .HasColumnName("property_type")
+                .HasConversion(
+                    v => v == PropertyType.House ? "Dům" : v == PropertyType.Apartment ? "Byt" : v.ToString(),
+                    v => v == "Dům" ? PropertyType.House : v == "Byt" ? PropertyType.Apartment : PropertyType.Other);
+            entity.Property(e => e.OfferType)
+                .HasColumnName("offer_type")
+                .HasConversion(
+                    v => v.ToString() == "Rent" ? "Pronájem" : "Prodej",
+                    v => v == "Pronájem" ? OfferType.Rent : OfferType.Sale);
             entity.Property(e => e.Price).HasColumnName("price").HasColumnType("numeric(15,2)");
             entity.Property(e => e.PriceNote).HasColumnName("price_note");
             entity.Property(e => e.AreaBuiltUp).HasColumnName("area_built_up");
