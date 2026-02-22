@@ -27,26 +27,42 @@ SCRAPE_JOBS: Dict[str, ScrapeJob] = {}
 @app.on_event("startup")
 async def startup_event():
     """Inicializace při startu aplikace."""
-    # Načti config ze settings.yaml
-    config_path = Path(__file__).parent.parent / "config" / "settings.yaml"
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    
-    # Inicializuj DB manager
-    db_config = config.get("database", {})
-    db_manager = init_db_manager(
-        host=db_config.get("host", "localhost"),
-        port=db_config.get("port", 5432),
-        database=db_config.get("database", "realestate_dev"),
-        user=db_config.get("user", "postgres"),
-        password=db_config.get("password", "dev"),
-        min_size=db_config.get("min_connections", 5),
-        max_size=db_config.get("max_connections", 20),
-    )
-    
-    # Připoj k databázi
-    await db_manager.connect()
-    print(f"✓ Database connected to {db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
+    try:
+        # Načti config ze settings.yaml
+        config_path = Path(__file__).parent.parent / "config" / "settings.yaml"
+        
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+        
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+        
+        if not config:
+            raise ValueError("Empty config file")
+        
+        # Inicializuj DB manager
+        db_config = config.get("database", {})
+        
+        if not db_config:
+            raise ValueError("Missing 'database' section in config")
+        
+        db_manager = init_db_manager(
+            host=db_config.get("host", "localhost"),
+            port=db_config.get("port", 5432),
+            database=db_config.get("database", "realestate_dev"),
+            user=db_config.get("user", "postgres"),
+            password=db_config.get("password", "dev"),
+            min_size=db_config.get("min_connections", 5),
+            max_size=db_config.get("max_connections", 20),
+        )
+        
+        # Připoj k databázi
+        await db_manager.connect()
+        print(f"✓ Database connected to {db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
+        
+    except Exception as exc:
+        print(f"❌ Startup failed: {exc}")
+        raise
 
 
 @app.on_event("shutdown")

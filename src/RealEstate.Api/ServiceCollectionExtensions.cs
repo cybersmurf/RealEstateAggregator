@@ -28,9 +28,11 @@ public static class ServiceCollectionExtensions
             return await Microsoft.Playwright.Playwright.CreateAsync();
         });
 
-        services.AddHttpClient("ScraperApi", client =>
+        services.AddHttpClient("ScraperApi", (sp, client) =>
         {
-            client.BaseAddress = new Uri("http://localhost:8001"); // URL Python FastAPI
+            var configuration = sp.GetRequiredService<IConfiguration>();
+            var scraperApiUrl = configuration["ScraperApi:BaseUrl"] ?? "http://localhost:8001";
+            client.BaseAddress = new Uri(scraperApiUrl);
             client.Timeout = TimeSpan.FromMinutes(2);
         });
 

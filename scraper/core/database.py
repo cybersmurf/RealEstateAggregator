@@ -217,29 +217,31 @@ class DatabaseManager:
         Upsert fotek pro listing.
         
         Smaže staré fotky a vloží nové.
+        WICHTIG: Běží v transakci, aby DELETE+INSERT byly atomické.
         """
-        # Smazat staré fotky
-        await conn.execute(
-            "DELETE FROM re_realestate.listing_photos WHERE listing_id = $1",
-            listing_id
-        )
-        
-        # Vložit nové fotky
-        for idx, photo_url in enumerate(photo_urls[:20]):  # Max 20 photos
-            photo_id = uuid4()
+        async with conn.transaction():
+            # Smazat staré fotky
             await conn.execute(
-                """
-                INSERT INTO re_realestate.listing_photos (
-                    id, listing_id, original_url, "order", created_at
-                )
-                VALUES ($1, $2, $3, $4, $5)
-                """,
-                photo_id,
-                listing_id,
-                photo_url,
-                idx,
-                datetime.utcnow()
+                "DELETE FROM re_realestate.listing_photos WHERE listing_id = $1",
+                listing_id
             )
+            
+            # Vložit nové fotky
+            for idx, photo_url in enumerate(photo_urls[:20]):  # Max 20 photos
+                photo_id = uuid4()
+                await conn.execute(
+                    """
+                    INSERT INTO re_realestate.listing_photos (
+                        id, listing_id, original_url, "order", created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5)
+                    """,
+                    photo_id,
+                    listing_id,
+                    photo_url,
+                    idx,
+                    datetime.utcnow()
+                )
         
         logger.debug(f"Upserted {len(photo_urls)} photos for listing {listing_id}")
 

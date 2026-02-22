@@ -56,6 +56,8 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=dev
       - PYTHONUNBUFFERED=1
+    ports:
+      - "8001:8001"
     depends_on:
       postgres:
         condition: service_healthy
