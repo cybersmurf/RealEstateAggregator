@@ -49,22 +49,34 @@ public sealed class RemaxListScraper
         var items = new List<RemaxListItem>();
 
         // Extended selector fallback chain - pokus se najít liste element s různými CSS třídami
-        // Nejdřív zkusí REMAX-specificke selektory, pak generičtější selektory
+        // Nejdřív zkusí REMAX-specificke selektory (aktuální HTML struktura), pak staré, pak generičtější selektory
         var selectors = new[]
         {
-            // REMAX-specificke
+            // REMAX CURRENT (2024-2025): pl-items__item
+            ".pl-items__item",
+            "div[class*='pl-items'][class*='__item']",
+            
+            // REMAX CURRENT (2024-2025): catalog-hp__list-item
+            ".catalog-hp__list-item",
+            "div[class*='catalog'][class*='list']",
+            
+            // REMAX-specific (older versions)
             ".remax-search-result-item",
             ".remax-item",
             "div[class*='remax'][class*='item']",
-            "div[class*='property'][class*='item']",
-            "div[class*='realty'][class*='item']",
             
-            // Generické
+            // Generic property listing selectors
+            "div[class*='property'][class*='item']",
             ".property-item",
             ".property-card",
             ".listing-item",
+            
+            // Realty-specific
             ".realty-item",
             ".search-result",
+            "div[class*='realty'][class*='item']",
+            
+            // Generic fallbacks
             ".product-item",
             ".real-estate-item",
             "article[class*='property']",
@@ -72,8 +84,8 @@ public sealed class RemaxListScraper
             "div[data-property-id]",
             "div[data-listing-id]",
             
-            // Poslední pokus - všechny divy v .search-results
-            ".search-results > div"
+            // Last resort - find all divs with links to details
+            "div[class*='item'] a[href*='nemovitost']"
         };
 
         var cards = new List<IElementHandle>();
@@ -91,26 +103,58 @@ public sealed class RemaxListScraper
         if (cards.Count == 0)
         {
             _logger?.LogWarning("RemaxListScraper: No property cards found with any selector. Page HTML might have changed.");
+            
+            // Debug: Get page structure
+            var pageTitle = await page.TitleAsync();
+            var bodyText = await page.InnerTextAsync("body");
+            var allDivs = await page.QuerySelectorAllAsync("div[class*='property'], div[class*='item'], article");
+            
+            _logger?.LogWarning("Page title: {Title}", pageTitle);
+            _logger?.LogWarning("Found {DivCount} divs with property/item/article patterns", allDivs.Count);
+            
+            if (bodyText.Length > 500)
+                _logger?.LogWarning("Page text (first 500 chars): {Text}...", bodyText[..500]);
+            else
+                _logger?.LogWarning("Full page text: {Text}", bodyText);
         }
 
         foreach (var card in cards)
         {
             try
             {
-                var titleEl = await card.QuerySelectorAsync(
-                    ".remax-search-result-title a, .property-title a, h2 a, h3 a");
-                var locEl = await card.QuerySelectorAsync(
-                    ".remax-search-result-location, .property-location, .location");
-                var priceEl = await card.QuerySelectorAsync(
-                    ".remax-search-result-price, .property-price, .price");
+                // Extract from data attributes (most reliable)
+                var dataTitle = await card.GetAttributeAsync("data-title");
+                var dataPrice = await card.GetAttributeAsync("data-price");
+                
+                // Find detail link
+                var linkEl = await card.QuerySelectorAsync("a[href*='nemovitost'], a[href*='detail'], h2 a, .pl-items__link");
+                var href = (await linkEl?.GetAttributeAsync("href")!) ?? string.Empty;
 
-                var title = (await titleEl?.InnerTextAsync()!)?.Trim() ?? string.Empty;
-                var href = (await titleEl?.GetAttributeAsync("href")!) ?? string.Empty;
+                // Fallback: Extract from visible text if data attributes missing
+                var title = dataTitle;
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    var titleEl = await card.QuerySelectorAsync("h2, .pl-items__item-info h2, [class*='title']");
+                    title = (await titleEl?.InnerTextAsync()!)?.Trim() ?? string.Empty;
+                }
+
+                // Extract location
+                var locEl = await card.QuerySelectorAsync(".pl-items__item-info p, .property-location, .location");
                 var location = (await locEl?.InnerTextAsync()!)?.Trim() ?? string.Empty;
-                var priceText = (await priceEl?.InnerTextAsync()!)?.Trim() ?? string.Empty;
+                
+                // Extract price
+                var priceText = dataPrice;
+                if (string.IsNullOrWhiteSpace(priceText))
+                {
+                    var priceEl = await card.QuerySelectorAsync(".pl-items__item-price, .property-price, .price");
+                    priceText = (await priceEl?.InnerTextAsync()!)?.Trim() ?? string.Empty;
+                }
 
-                if (string.IsNullOrWhiteSpace(href))
+                if (string.IsNullOrWhiteSpace(href) && !string.IsNullOrWhiteSpace(dataTitle))
+                {
+                    _logger?.LogDebug("RemaxListScraper: Card has data-title but no link found: {Title}", dataTitle);
                     continue;
+                }
 
                 var absoluteUrl = href.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                     ? href
@@ -125,9 +169,11 @@ public sealed class RemaxListScraper
                 };
 
                 items.Add(item);
+                _logger?.LogDebug("RemaxListScraper: Added item: {Title} ({Url})", item.Title, item.DetailUrl);
             }
-            catch
+            catch (Exception ex)
             {
+                _logger?.LogWarning(ex, "RemaxListScraper: Error parsing card");
                 // Přeskočit chybné karty
                 continue;
             }
