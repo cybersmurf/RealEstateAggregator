@@ -13,6 +13,8 @@ var dbUser = Environment.GetEnvironmentVariable("DB_USER") ?? "postgres";
 var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "dev";
 var scraperApiBaseUrl = Environment.GetEnvironmentVariable("SCRAPER_API_BASE_URL") ?? "http://localhost:8001";
 
+Console.WriteLine($"[STARTUP] SCRAPER_API_BASE_URL={scraperApiBaseUrl}");
+
 var connectionString = $"Host={dbHost};Port={dbPort};Database={dbName};Username={dbUser};Password={dbPassword}";
 builder.Configuration["ConnectionStrings:RealEstate"] = connectionString;
 
