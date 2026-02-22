@@ -13,7 +13,7 @@ builder.Services.AddMudServices();
 // Add HttpClient for API communication
 builder.Services.AddHttpClient("RealEstateApi", client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["ApiBaseUrl"] ?? "https://localhost:5001");
+    client.BaseAddress = new Uri(builder.Configuration["ApiBaseUrl"] ?? "http://localhost:5001");
 });
 
 // Register HttpClient as singleton for DI
