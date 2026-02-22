@@ -1,6 +1,8 @@
 @page "/listings"
 
 @inject HttpClient Http
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
 
 <MudPaper Class="pa-4">
     <MudStack Spacing="2">
@@ -78,24 +80,31 @@
 
     private void NavigateToDetail(Guid id)
     {
-        // NavigationManager.NavigateTo($"/listings/{id}");
+        Navigation.NavigateTo($"/listings/{id}");
     }
 
     private async Task CreateAnalysisAsync(Guid id)
     {
-        var request = new AnalysisJobCreateDto
+        try
         {
-            StorageProvider = "GoogleDrive"
-        };
+            var request = new AnalysisJobCreateDto
+            {
+                StorageProvider = "GoogleDrive"
+            };
 
-        var response = await Http.PostAsJsonAsync($"api/analysis/listing/{id}", request);
-        if (!response.IsSuccessStatusCode)
-        {
-            // show snackbar
-            return;
+            var response = await Http.PostAsJsonAsync($"api/analysis/listing/{id}", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Chyba při vytváření analýzy", Severity.Error);
+                return;
+            }
+
+            Snackbar.Add("Analýza byla úspěšně vytvořena", Severity.Success);
         }
-
-        // optional: poll job / show snackbar
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
     }
 
     // Client-side DTO models (shared with API)

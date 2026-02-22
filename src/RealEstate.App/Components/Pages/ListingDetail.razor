@@ -25,9 +25,9 @@
                 <MudStack Spacing="2">
                     <MudText Typo="Typo.h4">@_listing.Title</MudText>
                     <MudStack Row="true" Spacing="2">
-                        <MudChip Size="Size.Small" Color="Color.Primary">@_listing.SourceName</MudChip>
-                        <MudChip Size="Size.Small" Color="Color.Secondary">@_listing.PropertyType</MudChip>
-                        <MudChip Size="Size.Small" Color="Color.Info">@_listing.OfferType</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">@_listing.SourceName</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@_listing.PropertyType</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info">@_listing.OfferType</MudChip>
                     </MudStack>
                     <MudText Typo="Typo.h5" Color="Color.Success">
                         @(_listing.Price?.ToString("N0") ?? "Cena není uvedena") Kč
@@ -43,7 +43,7 @@
             @if (_listing.Photos.Any())
             {
                 <MudPaper Class="pa-4">
-                    <MudCarousel Style="height:400px;" ShowArrows="true" ShowBullets="true" EnableSwipeGesture="true" AutoCycle="false">
+                    <MudCarousel TData="object" Style="height:400px;" ShowArrows="true" ShowBullets="true" EnableSwipeGesture="true" AutoCycle="false">
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {
                             <MudCarouselItem>
