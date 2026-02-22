@@ -84,13 +84,13 @@ for img in soup.find_all('img'):
 ```python
 title_lower = title.lower()
 
-if "dům" or "vila" in title_lower:
+if "dům" in title_lower or "domu" in title_lower or "vila" in title_lower:
     → "Dům"
-elif "byt" in title_lower:
+elif "byt" in title_lower or "bytu" in title_lower:
     → "Byt"
 elif "pozemek" in title_lower:
     → "Pozemek"
-elif "komerč" or "sklado" or "kancelář" in title_lower:
+elif "komerč" in title_lower or "sklado" in title_lower or "kancelář" in title_lower:
     → "Komerční"
 else:
     → "Ostatní"
@@ -161,11 +161,19 @@ Scraper loguje:
 
 ## TODO
 
-- [ ] Implementovat DB persistence v `_save_listing()`
+- [x] Implementovat DB persistence v `_save_listing()` (✅ Hotovo - asyncpg + upsert)
 - [ ] Přidat retry logiku pro failed requests
-- [ ] Mapování na DB schema (PropertyType enum mapping)
+- [x] Mapování na DB schema (PropertyType enum mapping) (✅ Hotovo - české → anglické)
 - [ ] Extrakce dalších detailů (počet pokojů, konstrukce, stav)
 - [ ] Unit testy s mock HTML
+
+## Implementace
+
+**Database persistence** (od 22. února 2026):
+- Používá `asyncpg` connection pool
+- Upsert na základě `(source_id, external_id)` - nové insertuji, existující updatuji
+- Automatické mapování enumů: "Dům" → "House", "Prodej" → "Sale"
+- Synchronizace fotek do `listing_photos` tabulky
 
 ## Poznámky
 

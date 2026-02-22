@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 
 from ..browser import get_browser_manager
 from ..utils import timer, scraper_metrics_context
+from ..database import get_db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,19 @@ class RemaxScraper:
         self.use_playwright_for_details = use_playwright_for_details
         self.scraped_count = 0
         self._http_client: Optional[httpx.AsyncClient] = None
+    
+    async def run(self, full_rescan: bool = False) -> int:
+        """
+        Hlavní entry point volaný z runner.py.
+        
+        Args:
+            full_rescan: Pokud True, scrapuje všechny stránky, jinak jen prvních 5
+            
+        Returns:
+            Počet úspěšně scrapnutých inzerátů
+        """
+        max_pages = 100 if full_rescan else 5
+        return await self.scrape(max_pages=max_pages)
     
     async def scrape(self, max_pages: int = 5) -> int:
         """
@@ -280,14 +294,13 @@ class RemaxScraper:
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         """
-        Uloží listing do databáze.
-        
-        TODO: Implementovat DB persistence
-        - asyncpg / SQLAlchemy
-        - INSERT/UPDATE into Listings, ListingPhotos
-        - Normalizace dat podle DB schema
+        Uloží listing do databáze pomocí DatabaseManager.
         """
-        # Pro testování jen logujeme
-        logger.info(f"Would save listing: {listing.get('title', 'N/A')[:50]} | {listing.get('price', 'N/A')} Kč | {listing.get('location_text', 'N/A')[:40]}")
-        # await db.save_listing(listing)
-        pass
+        try:
+            db = get_db_manager()
+            listing_id = await db.upsert_listing(listing)
+            logger.info(f"Saved listing {listing_id}: {listing.get('title', 'N/A')[:50]} | {listing.get('price', 'N/A')} Kč")
+        except Exception as exc:
+            logger.error(f"Failed to save listing: {exc}")
+            raise
+

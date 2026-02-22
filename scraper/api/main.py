@@ -6,9 +6,12 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from uuid import uuid4
 from datetime import datetime
 from typing import Dict
+import yaml
+from pathlib import Path
 
 from .schemas import ScrapeTriggerRequest, ScrapeTriggerResponse, ScrapeJob
 from ..core.runner import run_scrape_job
+from ..core.database import init_db_manager, get_db_manager
 
 app = FastAPI(
     title="RealEstate Scraper API",
@@ -19,6 +22,42 @@ app = FastAPI(
 # V jednoduché verzi držíme joby jen v paměti
 # V produkci bys použil Redis, PostgreSQL, nebo jiné persistent storage
 SCRAPE_JOBS: Dict[str, ScrapeJob] = {}
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Inicializace při startu aplikace."""
+    # Načti config ze settings.yaml
+    config_path = Path(__file__).parent.parent / "config" / "settings.yaml"
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    
+    # Inicializuj DB manager
+    db_config = config.get("database", {})
+    db_manager = init_db_manager(
+        host=db_config.get("host", "localhost"),
+        port=db_config.get("port", 5432),
+        database=db_config.get("database", "realestate_dev"),
+        user=db_config.get("user", "postgres"),
+        password=db_config.get("password", "dev"),
+        min_size=db_config.get("min_connections", 5),
+        max_size=db_config.get("max_connections", 20),
+    )
+    
+    # Připoj k databázi
+    await db_manager.connect()
+    print(f"✓ Database connected to {db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup při ukončení aplikace."""
+    try:
+        db_manager = get_db_manager()
+        await db_manager.disconnect()
+        print("✓ Database disconnected")
+    except:
+        pass
 
 
 @app.get("/")
