@@ -232,7 +232,7 @@ class DatabaseManager:
                 await conn.execute(
                     """
                     INSERT INTO re_realestate.listing_photos (
-                        id, listing_id, original_url, "order", created_at
+                        id, listing_id, original_url, order_index, created_at
                     )
                     VALUES ($1, $2, $3, $4, $5)
                     """,

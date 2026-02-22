@@ -10,8 +10,8 @@ import yaml
 from pathlib import Path
 
 from .schemas import ScrapeTriggerRequest, ScrapeTriggerResponse, ScrapeJob
-from ..core.runner import run_scrape_job
-from ..core.database import init_db_manager, get_db_manager
+from core.runner import run_scrape_job
+from core.database import init_db_manager, get_db_manager
 
 app = FastAPI(
     title="RealEstate Scraper API",

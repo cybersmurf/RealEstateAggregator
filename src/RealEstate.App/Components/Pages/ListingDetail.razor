@@ -262,9 +262,20 @@
             _userState.Status = status;
             _userState.LastUpdated = DateTime.Now;
 
-            var response = await Http.PutAsJsonAsync($"api/listings/{Id}/state", _userState);
+            var request = new ListingUserStateUpdateDto
+            {
+                Status = _userState.Status,
+                Notes = _userState.Notes
+            };
+
+            var response = await Http.PostAsJsonAsync($"api/listings/{Id}/state", request);
             if (response.IsSuccessStatusCode)
             {
+                var updated = await response.Content.ReadFromJsonAsync<ListingUserStateDto>();
+                if (updated is not null)
+                {
+                    _userState = updated;
+                }
                 Snackbar.Add("Stav uložen", Severity.Success);
             }
             else
@@ -284,9 +295,20 @@
         {
             _userState.LastUpdated = DateTime.Now;
 
-            var response = await Http.PutAsJsonAsync($"api/listings/{Id}/state", _userState);
+            var request = new ListingUserStateUpdateDto
+            {
+                Status = _userState.Status,
+                Notes = _userState.Notes
+            };
+
+            var response = await Http.PostAsJsonAsync($"api/listings/{Id}/state", request);
             if (response.IsSuccessStatusCode)
             {
+                var updated = await response.Content.ReadFromJsonAsync<ListingUserStateDto>();
+                if (updated is not null)
+                {
+                    _userState = updated;
+                }
                 Snackbar.Add("Poznámky uloženy", Severity.Success);
             }
             else
@@ -304,7 +326,12 @@
     {
         try
         {
-            var response = await Http.PostAsJsonAsync("api/analysis", new { ListingId = Id });
+            var request = new AnalysisJobCreateDto
+            {
+                StorageProvider = "GoogleDrive"
+            };
+
+            var response = await Http.PostAsJsonAsync($"api/analysis/listing/{Id}", request);
             if (response.IsSuccessStatusCode)
             {
                 Snackbar.Add("Analýza byla vytvořena", Severity.Success);
@@ -320,50 +347,4 @@
         }
     }
 
-    // DTO classes (copy from API contracts)
-    public class ListingDetailDto
-    {
-        public Guid Id { get; set; }
-        public string SourceName { get; set; } = string.Empty;
-        public string SourceCode { get; set; } = string.Empty;
-        public string SourceUrl { get; set; } = string.Empty;
-        public string Title { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public string LocationText { get; set; } = string.Empty;
-        public string? Region { get; set; }
-        public string? District { get; set; }
-        public string? Municipality { get; set; }
-        public string PropertyType { get; set; } = string.Empty;
-        public string OfferType { get; set; } = string.Empty;
-        public decimal? Price { get; set; }
-        public string? PriceNote { get; set; }
-        public double? AreaBuiltUp { get; set; }
-        public double? AreaLand { get; set; }
-        public int? Rooms { get; set; }
-        public bool? HasKitchen { get; set; }
-        public string? ConstructionType { get; set; }
-        public string? Condition { get; set; }
-        public DateTime FirstSeenAt { get; set; }
-        public DateTime? LastSeenAt { get; set; }
-        public DateTime? CreatedAtSource { get; set; }
-        public DateTime? UpdatedAtSource { get; set; }
-        public bool IsActive { get; set; }
-        public IReadOnlyList<ListingPhotoDto> Photos { get; set; } = Array.Empty<ListingPhotoDto>();
-        public ListingUserStateDto? UserState { get; set; }
-    }
-
-    public class ListingPhotoDto
-    {
-        public Guid Id { get; set; }
-        public string OriginalUrl { get; set; } = string.Empty;
-        public string? StoredUrl { get; set; }
-        public int Order { get; set; }
-    }
-
-    public class ListingUserStateDto
-    {
-        public string Status { get; set; } = "New";
-        public string? Notes { get; set; }
-        public DateTime? LastUpdated { get; set; }
-    }
 }

@@ -54,14 +54,14 @@
 
 **CHYBÍ**: Plná funkcionalita Listings page, detail view, pokročilé filtry, responsivní design
 
-#### 6. **Scraping** ✅ 40%
+#### 6. **Scraping** ✅ 80%
 - .NET Playwright scraping pro REMAX (list + detail)
-- Python Scraper API (FastAPI) pro MMR/Prodejme.to
+- Python Scraper API (FastAPI) pro MMR/Prodejme.to/Znojmo Reality
 - Strukturace: core/, scrapers/, config/, api/
 - BaseScraper koncept (async, metrics)
 - Utils (timer, metrics)
 
-**CHYBÍ**: MM Reality scraper, Prodejme.to scraper, scheduler, error recovery, DB persistence
+**CHYBÍ**: Scheduler, error recovery
 
 #### 7. **Docker & DevOps** ✅ 90%
 - docker-compose.yml (PostgreSQL, API, Scraper, pgAdmin)
@@ -78,17 +78,17 @@
 
 ### 1. **Database & Migrations** ⚠️ KRITICKÉ
 - [ ] EF Core Initial Migration
-- [ ] Seed data pro Sources (Remax, MM Reality, Prodejme.to)
+- [ ] Seed data pro Sources (Remax, MM Reality, Prodejme.to, Znojmo Reality)
 - [ ] Databázové indexy performance tuning
 - [ ] Migration apply skripty pro produkci
 
 ### 2. **Python Scrapers** ⚠️ VYSOKÁ PRIORITA
-- [ ] MM Reality scraper implementace
-- [ ] Prodejme.to scraper implementace
+- [x] MM Reality scraper implementace
+- [x] Znojmo Reality scraper implementace
+- [x] Prodejme.to scraper implementace
 - [ ] Scheduler (APScheduler nebo cron-based)
 - [ ] Error handling a retry logika
 - [ ] Rate limiting a respectování robots.txt
-- [ ] Persistence do PostgreSQL (INSERT/UPSERT listings)
 
 ### 3. **Blazor Frontend** ⚠️ VYSOKÁ PRIORITA
 - [ ] Listings page - kompletní funkcionalita
@@ -155,7 +155,7 @@
 
 2. ✅ **Seed data pro Sources**
    - Vytvořit `DbInitializer.cs`
-   - Přidat 3 sources: Remax, MM Reality, Prodejme.to
+    - Přidat 4 sources: Remax, MM Reality, Prodejme.to, Znojmo Reality
    - Spustit při aplikačním startu v Development mode
 
 3. ✅ **Dockerfiles**
@@ -170,10 +170,10 @@
    - DB persistence (INSERT/UPDATE)
    - Error handling
 
-5. ✅ **Implementovat MM Reality scraper**
-   - List pages + detail pages
-   - Same logic jako Remax
-   - DB persistence
+5. ✅ **Implementovat Znojmo Reality scraper**
+    - Listing pages bez paginace
+    - Detail pages s parametry v tabulce
+    - DB persistence
 
 6. ✅ **Scheduler**
    - Jednoduchý APScheduler job

@@ -7,7 +7,7 @@ from typing import Optional, List, Dict
 from uuid import UUID
 from datetime import datetime
 
-from ..api.schemas import ScrapeTriggerRequest, ScrapeJob
+from api.schemas import ScrapeTriggerRequest, ScrapeJob
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +39,18 @@ async def run_scrape_job(
 
     try:
         # Určit, které zdroje scrapovat
-        source_codes: List[str] = request.source_codes or ["REMAX", "MMR", "PRODEJMETO"]
+        source_codes: List[str] = request.source_codes or [
+            "REMAX",
+            "MMR",
+            "PRODEJMETO",
+            "ZNOJMOREALITY",
+        ]
         
         # Import scraperů až tady, aby byly lazy loaded
-        from ..core.scrapers.remax_scraper import RemaxScraper
-        from ..core.scrapers.mmreality_scraper import MmRealityScraper
-        from ..core.scrapers.prodejmeto_scraper import ProdejmeToScraper
+        from core.scrapers.remax_scraper import RemaxScraper
+        from core.scrapers.mmreality_scraper import MmRealityScraper
+        from core.scrapers.prodejmeto_scraper import ProdejmeToScraper
+        from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper
 
         scraped_count = 0
 
@@ -68,6 +74,13 @@ async def run_scrape_job(
             count = await scraper.run(full_rescan=request.full_rescan)
             scraped_count += count
             logger.info(f"Job {job_id}: Prodejme.to scraped {count} listings")
+
+        if "ZNOJMOREALITY" in source_codes:
+            logger.info(f"Job {job_id}: Scraping Znojmo Reality...")
+            scraper = ZnojmoRealityScraper()
+            count = await scraper.run(full_rescan=request.full_rescan)
+            scraped_count += count
+            logger.info(f"Job {job_id}: Znojmo Reality scraped {count} listings")
 
         # Success
         job.status = "Succeeded"

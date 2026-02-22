@@ -29,8 +29,8 @@
 │  │  • Controllers  • Services  • DTOs  • Validators        │   │
 │  └─────────────────────┬───────────────────────────────────┘   │
 │                        │                                         │
-│  ┌─────────────────────▼───────────────────────────────────┐   │
-│  │           Background Services (IHostedService)          │   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │     Background Services (IHostedService, planned)       │   │
 │  │  • AnalysisJobProcessor  • CloudStorageUploader         │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └───────────────────────┬─────────────────────────────────────────┘
@@ -73,7 +73,7 @@
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │  Scraping Orchestrators                                  │  │
 │  │  • Playwright (.NET) – REMAX                             │  │
-│  │  • Python Scraper API – MMR, Prodejme.to, další         │  │
+│  │  • Python Scraper API – MMR, Prodejme.to, Znojmo Reality│  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -520,18 +520,16 @@ public class ListingsController : ControllerBase
 
 ```
 scraper/
-├── scrapers/
-│   ├── __init__.py
-│   ├── base_scraper.py
-│   ├── remax_scraper.py
-│   ├── mmreality_scraper.py
-│   └── prodejme_to_scraper.py
 ├── core/
 │   ├── __init__.py
-│   ├── models.py           # Dataclasses
-│   ├── db.py               # DB connection & operations
 │   ├── runner.py           # Orchestrator
-│   └── normalizer.py       # Data normalization
+│   ├── database.py         # DB connection & operations
+│   └── scrapers/
+│       ├── __init__.py
+│       ├── remax_scraper.py
+│       ├── mmreality_scraper.py
+│       ├── prodejmeto_scraper.py
+│       └── znojmoreality_scraper.py
 ├── config/
 │   ├── settings.yaml
 │   └── logging.yaml

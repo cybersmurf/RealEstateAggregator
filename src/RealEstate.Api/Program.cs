@@ -23,11 +23,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+else
+{
+    app.UseHttpsRedirection();
+}
 
 // Enable static files for local storage serving
 app.UseStaticFiles();
-
-app.UseHttpsRedirection();
 
 app.MapScrapingPlaywrightEndpoints();
 app.MapListingEndpoints();

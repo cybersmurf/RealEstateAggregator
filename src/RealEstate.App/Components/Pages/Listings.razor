@@ -108,48 +108,4 @@
         }
     }
 
-    // Client-side DTO models (shared with API)
-    public sealed class ListingSummaryDto
-    {
-        public Guid Id { get; set; }
-        public string SourceName { get; set; } = string.Empty;
-        public string SourceCode { get; set; } = string.Empty;
-        public string Title { get; set; } = string.Empty;
-        public string LocationText { get; set; } = string.Empty;
-        public string? Region { get; set; }
-        public string? District { get; set; }
-        public string? Municipality { get; set; }
-        public string PropertyType { get; set; } = string.Empty;
-        public string OfferType { get; set; } = string.Empty;
-        public decimal? Price { get; set; }
-        public string? PriceNote { get; set; }
-        public double? AreaBuiltUp { get; set; }
-        public double? AreaLand { get; set; }
-        public DateTime FirstSeenAt { get; set; }
-        public DateTime? UpdatedAtSource { get; set; }
-        public bool IsActive { get; set; }
-        public string UserStatus { get; set; } = "New";
-        public bool HasNotes { get; set; }
-        public DateTime? UserStatusLastUpdated { get; set; }
-    }
-
-    public sealed class ListingFilterDto
-    {
-        public string? SearchText { get; set; }
-        public int Page { get; set; } = 1;
-        public int PageSize { get; set; } = 50;
-    }
-
-    public sealed class PagedResultDto<T>
-    {
-        public IReadOnlyList<T> Items { get; set; } = Array.Empty<T>();
-        public int Page { get; set; }
-        public int PageSize { get; set; }
-        public int TotalCount { get; set; }
-    }
-
-    public sealed class AnalysisJobCreateDto
-    {
-        public string StorageProvider { get; set; } = "GoogleDrive";
-    }
 }

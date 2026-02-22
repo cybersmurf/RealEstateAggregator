@@ -5,6 +5,7 @@ using RealEstate.Api.Contracts.Listings;
 using RealEstate.Domain.Entities;
 using RealEstate.Domain.Enums;
 using RealEstate.Domain.Repositories;
+using RealEstate.Infrastructure;
 
 namespace RealEstate.Api.Services;
 
@@ -14,10 +15,13 @@ namespace RealEstate.Api.Services;
 public class ListingService : IListingService
 {
     private readonly IListingRepository _repository;
+    private readonly RealEstateDbContext _dbContext;
+    private static readonly Guid DefaultUserId = new("00000000-0000-0000-0000-000000000001");
 
-    public ListingService(IListingRepository repository)
+    public ListingService(IListingRepository repository, RealEstateDbContext dbContext)
     {
         _repository = repository;
+        _dbContext = dbContext;
     }
 
     public async Task<PagedResultDto<ListingSummaryDto>> SearchAsync(
@@ -73,7 +77,7 @@ public class ListingService : IListingService
         if (entity is null)
             return null;
 
-        var userState = entity.UserStates.FirstOrDefault();
+        var userState = entity.UserStates.FirstOrDefault(s => s.UserId == DefaultUserId);
 
         return new ListingDetailDto
         {
@@ -128,10 +132,66 @@ public class ListingService : IListingService
         ListingUserStateUpdateDto request,
         CancellationToken cancellationToken)
     {
-        // TODO: Implementovat přes UserListingStateRepository
-        // Pro MVP jednoduše vrátíme null
-        await Task.CompletedTask;
-        return null;
+        var listing = await _repository.GetByIdAsync(listingId, cancellationToken);
+        if (listing is null)
+        {
+            return null;
+        }
+
+        var normalizedStatus = NormalizeStatus(request.Status);
+        var userState = await _dbContext.UserListingStates
+            .FirstOrDefaultAsync(
+                s => s.ListingId == listingId && s.UserId == DefaultUserId,
+                cancellationToken);
+
+        if (userState is null)
+        {
+            userState = new UserListingState
+            {
+                Id = Guid.NewGuid(),
+                ListingId = listingId,
+                UserId = DefaultUserId,
+                Status = normalizedStatus,
+                Notes = request.Notes,
+                LastUpdated = DateTime.UtcNow
+            };
+            _dbContext.UserListingStates.Add(userState);
+        }
+        else
+        {
+            userState.Status = normalizedStatus;
+            userState.Notes = request.Notes;
+            userState.LastUpdated = DateTime.UtcNow;
+            _dbContext.UserListingStates.Update(userState);
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return new ListingUserStateDto
+        {
+            Status = userState.Status,
+            Notes = userState.Notes,
+            LastUpdated = userState.LastUpdated
+        };
+    }
+
+    private static string NormalizeStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return "New";
+        }
+
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "New",
+            "Liked",
+            "Disliked",
+            "ToVisit",
+            "Visited"
+        };
+
+        return allowed.Contains(status) ? status : "New";
     }
 
     /// <summary>
@@ -228,7 +288,8 @@ public class ListingService : IListingService
         // User Status - přes navigační vlastnost UserStates
         if (!string.IsNullOrWhiteSpace(filter.UserStatus))
         {
-            predicate = predicate.And(x => x.UserStates.Any(s => s.Status == filter.UserStatus));
+            predicate = predicate.And(x =>
+                x.UserStates.Any(s => s.UserId == DefaultUserId && s.Status == filter.UserStatus));
         }
 
         // Jen aktivní inzeráty
@@ -270,7 +331,7 @@ public class ListingService : IListingService
 
     private static ListingSummaryDto MapToSummaryDto(Listing entity)
     {
-        var userState = entity.UserStates.FirstOrDefault();
+        var userState = entity.UserStates.FirstOrDefault(s => s.UserId == DefaultUserId);
 
         return new ListingSummaryDto
         {

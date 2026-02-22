@@ -46,7 +46,7 @@ Spustí scraping job v pozadí.
 **Request body:**
 ```json
 {
-  "source_codes": ["REMAX", "MMR", "PRODEJMETO"],
+  "source_codes": ["REMAX", "MMR", "PRODEJMETO", "ZNOJMOREALITY"],
   "full_rescan": false
 }
 ```
@@ -92,7 +92,8 @@ scraper/
 │   └── scrapers/
 │       ├── remax_scraper.py
 │       ├── mmreality_scraper.py
-│       └── prodejmeto_scraper.py
+│       ├── prodejmeto_scraper.py
+│       └── znojmoreality_scraper.py
 ├── config/
 │   └── settings.yaml    # Konfigurace
 ├── requirements.txt
@@ -111,7 +112,7 @@ HttpClient POST http://localhost:8001/v1/scrape/run
   ↓
 Python FastAPI spustí background job
   ↓
-Job runner zavolá scrapers (Remax, MMR, Prodejme.to)
+Job runner zavolá scrapers (Remax, MMR, Prodejme.to, Znojmo Reality)
 ```
 
 ## 📝 Implementace scraperů
@@ -131,9 +132,7 @@ class RemaxScraper:
 
 ### TODO pro production ready scrapers:
 
-- [ ] Implementovat skutečné HTML selektory (podle aktuálního HTML struktury)
-- [ ] Přidat DB persistence (asyncpg / SQLAlchemy)
-- [ ] Stránkování (iterovat přes všechny stránky)
+- [ ] Stránkování (iterovat přes všechny stránky, kde to dává smysl)
 - [ ] Error handling a retry logika
 - [ ] Rate limiting (respektovat servery)
 - [ ] Logging do structured logs
