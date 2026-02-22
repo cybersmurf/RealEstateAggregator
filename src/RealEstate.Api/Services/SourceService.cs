@@ -43,4 +43,25 @@ public class SourceService : ISourceService
 
         return sources.AsReadOnly();
     }
-}
+
+    public async Task<SourceDto?> GetSourceByCodeAsync(
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var source = await _dbContext.Sources
+            .FirstOrDefaultAsync(s => s.Code == code, cancellationToken);
+
+        if (source == null)
+        {
+            return null;
+        }
+
+        return new SourceDto
+        {
+            Id = source.Id,
+            Code = source.Code,
+            Name = source.Name,
+            BaseUrl = source.BaseUrl,
+            IsActive = source.IsActive
+        };
+    }}

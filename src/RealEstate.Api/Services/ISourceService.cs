@@ -8,4 +8,8 @@ public interface ISourceService
     Task<IReadOnlyList<SourceDto>> GetSourcesAsync(
         SourceFilterParameters filter,
         CancellationToken cancellationToken);
+
+    Task<SourceDto?> GetSourceByCodeAsync(
+        string code,
+        CancellationToken cancellationToken);
 }

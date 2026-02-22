@@ -8,14 +8,14 @@ namespace RealEstate.Api.Services;
 /// </summary>
 public sealed class PlaywrightScrapingOrchestrator : IPlaywrightScrapingOrchestrator
 {
-    private readonly IRemaxZnojmoImportService _remaxImportService;
+    private readonly IRemaxScrapingService _remaxScrapingService;
     private readonly ILogger<PlaywrightScrapingOrchestrator> _logger;
 
     public PlaywrightScrapingOrchestrator(
-        IRemaxZnojmoImportService remaxImportService,
+        IRemaxScrapingService remaxScrapingService,
         ILogger<PlaywrightScrapingOrchestrator> logger)
     {
-        _remaxImportService = remaxImportService;
+        _remaxScrapingService = remaxScrapingService;
         _logger = logger;
     }
 
@@ -35,11 +35,12 @@ public sealed class PlaywrightScrapingOrchestrator : IPlaywrightScrapingOrchestr
             // Determine which sources to scrape
             var sourceCodes = request.SourceCodes ?? new List<string> { "REMAX", "MMR", "PRODEJMETO" };
             
-            // Pro MVP spouštíme pouze REMAX Znojmo
+            // REMAX scraping - s volitelným SearchUrl pro specifické lokality
             if (sourceCodes.Contains("REMAX"))
             {
-                _logger.LogInformation("Running REMAX Znojmo import");
-                await _remaxImportService.RunAsync(cancellationToken);
+                var searchUrl = request.SearchUrl ?? "https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/znojmo/";
+                _logger.LogInformation("Running REMAX scraping from URL: {Url}", searchUrl);
+                await _remaxScrapingService.RunAsync(searchUrl, cancellationToken);
             }
             else
             {

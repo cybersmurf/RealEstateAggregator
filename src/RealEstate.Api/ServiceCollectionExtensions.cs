@@ -17,7 +17,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAnalysisService, AnalysisService>();
         services.AddScoped<IScrapingService, ScrapingService>();
         services.AddScoped<IPlaywrightScrapingOrchestrator, PlaywrightScrapingOrchestrator>();
-        services.AddScoped<IRemaxZnojmoImportService, RemaxZnojmoImportService>();
+        services.AddScoped<IRemaxScrapingService, RemaxScrapingService>();
 
         // Repositories
         services.AddScoped<IListingRepository, ListingRepository>();
