@@ -1286,4 +1286,175 @@ Každá user story je považována za hotovou, když:
 
 ---
 
+## 🐛 Known Issues & Technical Debt
+
+### Issue-REMAX-001: REMAX CSS Selektory nefrčí
+
+**Popis**: RemaxListScraper vrací 0 inzerátů kvůli zastaralým CSS selektorům  
+**Priorita**: P1 (blokuje scraping)  
+**Reporter**: Debugging session 22.2.2026  
+**Status**: Open
+
+**Details**:
+- Playwright dosáhne správné URL
+- RemaxListScraper najde 0 prvků
+- Fallback selektory: `.remax-search-result-item`, `.property-item`, `.realty-item`, `.search-result` → všechny vrací []
+- REMAX HTML se změnil (poslední scraper commit: 6 měsíců zpět)
+
+**Akční plán**:
+1. [ ] Spustit RemaxListScraper s URL `hledani=2&regions[116][3713]=on`
+2. [ ] Otevřít DevTools v Playwrightovi → `page.Screenshot()` do logs
+3. [ ] Zjistit aktuální CSS strukturu list karet
+4. [ ] Updatovat RemaxListScraper selektory
+5. [ ] Test: Verifikovat >0 results
+6. [ ] Similarly pro RemaxDetailScraper selektory
+
+**Workaround**: Použít DirectUrl s direktním navigováním (zatím nefunguje)
+
+---
+
+### Issue-REMAX-002: Typ nemovitosti se vždy mapuje na "House"
+
+**Popis**: RemaxImporter hardcoduje `PropertyType.House` a `OfferType.Sale` pro všechny inzeráty  
+**Priorita**: P1 (datová integrita)  
+**Reporter**: Architecture analysis 22.2.2026  
+**Status**: Open
+
+**Details**:
+- RemaxDetailResult extraktor parsuje PropertyType a OfferType (jako stringy)
+- RemaxImporter.MapToListingEntity() ignoruje tyto hodnoty
+- Všechny inzeráty → House + Sale
+- Ztráta informace o bytech (Apartment), pozemcích (Land), pronájmech (Rent)
+
+**Příčina**: `MapToListingEntity()` (line ~140):
+```csharp
+var listing = new Listing
+{
+    // ... other fields ...
+    PropertyType = PropertyType.House,  // ☝️ HARDCODED
+    OfferType = OfferType.Sale          // ☝️ HARDCODED
+};
+```
+
+**Řešení**:
+1. [ ] V RemaxDetailScraper: Extrahovat PropertyType ze titulu (regex: "Dům|Byt|Pozemek")
+2. [ ] V RemaxDetailResult: Přidat `string? ExtractedPropertyType { get; set; }`
+3. [ ] V RemaxImporter: Implementovat detekci:
+```csharp
+var propertyType = ToPropertyType(detail.ExtractedPropertyType) ?? PropertyType.Other;
+```
+4. [ ] Similarly pro OfferType (parse z URL parametru nebo searchType)
+5. [ ] Test: Scrape Brno byty → verifikovat PropertyType.Apartment
+
+---
+
+### Issue-REMAX-003: Chybí error handling pro failed details
+
+**Popis**: Pokud RemaxDetailScraper selže na jednom detail, celý scrape session skončí  
+**Priorita**: P2 (robustnost)  
+**Reporter**: Code review  
+**Status**: Open
+
+**Impact**:
+- 1 timeout/parse error → 0 listings úspěšně scrapeno
+- Žádný partial success
+
+**Řešení**:
+1. [ ] Wrap `detailScraper.ScrapeDetailAsync()` v try/catch
+2. [ ] Log error, continue to next item
+3. [ ] Track failed detail URLs → retry později
+4. [ ] Aggregate stats: "Succeeded: 45, Failed: 2, Total: 47"
+
+---
+
+### Issue-REMAX-004: Maximálně 20 fotek per inzerát
+
+**Popis**: RemaxDetailScraper zvětšuje max 20 fotek  
+**Priorita**: P2 (feature limit)  
+**Reporter**: Code review  
+**Status**: Design decision
+
+**Details**:
+- Limit: `.Take(20)` v ParsePhotos()
+- Problém: Inzeráty mají často 30+ fotek
+- Ztráta informace
+
+**Řešení**:
+- [ ] Zvýšit na 50 fotek
+- [ ] Nebo: Store all URLs, display first 20, lazy-load kliknutím "Show more"
+
+---
+
+### Issue-REMAX-005: Photo URLs mohou expirovat
+
+**Popis**: REMAX foto URL adresy obsahují relativní cesty; mohou být offline po měsících  
+**Priorita**: P3 (UX issue)  
+**Reporter**: Observations  
+**Status**: Monitoring required
+
+**Current Approach**:
+- Store `original_url`: "https://mlsf.remax-czech.cz/file/123/photo.jpg"
+- Lazy-load v UI
+
+**Future Option**:
+- Download image na S3/local storage
+- Regular validation: cron job 1x měsíčně check URLs
+- Auto-remove offline photos
+
+---
+
+### Issue-REMAX-006: Chybí pagination support v UI
+
+**Popis**: RemaxScrapingProfileDto.MaxPages = 5 (default), ale API nemá endpoint pro scrape s konkrétní stránkou  
+**Priorita**: P2 (feature gap)  
+**Reporter**: Design analysis  
+**Status**: Design needed
+
+**Details**:
+- RemaxImporter supports MaxPages parameter
+- API `/api/scraping-playwright/run` vždy scrapuje default 5 stránek
+- Potřebujeme: možnost nastavit MaxPages z UI
+
+**Řešení**:
+- [ ] Add `maxPages` field do RemaxScrapingProfileDto schema
+- [ ] Update PlaywrightScrapingOrchestrator to respect maxPages
+- [ ] Add UI control: slider 1-100 stran
+
+---
+
+### Issue-REMAX-007: Nebyl test pro URL building
+
+**Popis**: RemaxScrapingService.BuildSearchUrl() logika bez unit testů  
+**Priorita**: P2 (quality)  
+**Reporter**: Code review  
+**Status**: Blocked (needs test project setup)
+
+**Test cases**:
+- DirectUrl → ignore ostatní params
+- RegionId=116 + DistrictId=3713 → region-based URL
+- CityName="Praha" → fulltext URL
+- Multiple filters combined → query string composition
+
+**Řešení**:
+- [ ] Přidat xUnit tests do RealEstate.Tests
+- [ ] Mock IListingRepository
+- [ ] Test URL generation scenarios
+
+---
+
+## 📍 Technical Debt
+
+| Kategorie | Popis | Priorita |
+|-----------|-------|----------|
+| **Selektory** | REMAX CSS se mění, fallbacks nefrčí | P1 |
+| **Type mapping** | Hardcoded House+Sale | P1 |
+| **Error handling** | Fail-fast na detail error | P2 |
+| **Photos** | Max 20 limit, expirování | P2 |
+| **Pagination** | Fixní 5 stran, bez UI control | P2 |
+| **Testing** | 0 unit tests pro scraping | P2 |
+| **Python scraper** | Deprecated, není v use | P3 |
+| **Playwright cache** | Nema disk cache pro HTML | P3 |
+
+---
+
 **Konec backlogu** • Verze 1.0 • 22. února 2026
