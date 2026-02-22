@@ -71,7 +71,11 @@ public sealed class LocalStorageService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storedUrl);
 
-        var fullPath = Path.Combine(_basePath, storedUrl.TrimStart('/'));
+        // storedUrl is relative path like "uploads/listings/id/my_photos/file.jpg"
+        // Full path should be wwwroot/uploads/listings/id/my_photos/file.jpg
+        // So we just append storedUrl to _basePath parent (remove /uploads from _basePath)
+        var basePath = Path.GetDirectoryName(_basePath) ?? throw new InvalidOperationException("Invalid base path");
+        var fullPath = Path.Combine(basePath, storedUrl.TrimStart('/'));
 
         if (File.Exists(fullPath))
         {

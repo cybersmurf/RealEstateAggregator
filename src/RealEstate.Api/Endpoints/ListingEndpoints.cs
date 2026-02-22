@@ -23,7 +23,7 @@ public static class ListingEndpoints
             .WithName("UpdateListingUserState");
 
         // User photo upload endpoints
-        group.MapUserPhotoEndpoints();
+        group = group.MapUserPhotoEndpoints();
 
         return app;
     }
