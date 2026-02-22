@@ -90,7 +90,7 @@
         {
             var request = new AnalysisJobCreateDto
             {
-                StorageProvider = "GoogleDrive"
+                StorageProvider = "Local"
             };
 
             var response = await Http.PostAsJsonAsync($"api/analysis/listing/{id}", request);
