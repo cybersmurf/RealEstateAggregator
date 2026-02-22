@@ -76,12 +76,14 @@ class SrealityScraper:
         locality_region_id: Optional[int] = None,
         per_page: int = 60,
         fetch_details: bool = True,
+        detail_fetch_concurrency: int = 5,
     ) -> None:
         self.category_main_cb = category_main_cb
         self.category_type_cb = category_type_cb
         self.locality_region_id = locality_region_id
         self.per_page = per_page
         self.fetch_details = fetch_details
+        self.detail_fetch_concurrency = detail_fetch_concurrency  # 🔥 Semaphore limit
         self.scraped_count = 0
         self._http_client: Optional[httpx.AsyncClient] = None
 
@@ -91,11 +93,12 @@ class SrealityScraper:
 
     async def scrape(self, max_pages: int = 5) -> int:
         logger.info(
-            "Starting Sreality scraper (category_main=%s, type=%s, region=%s, max_pages=%s)",
+            "Starting Sreality scraper (category_main=%s, type=%s, region=%s, max_pages=%s, detail_concurrency=%s)",
             self.category_main_cb,
             CATEGORY_TYPE_MAP.get(self.category_type_cb, self.category_type_cb),
             REGION_NAMES.get(self.locality_region_id, self.locality_region_id),
             max_pages,
+            self.detail_fetch_concurrency,
         )
 
         with scraper_metrics_context() as metrics:
@@ -106,6 +109,9 @@ class SrealityScraper:
             ) as client:
                 self._http_client = client
                 page = 1
+                
+                # 🔥 Semaphore pro batch detail fetching
+                semaphore = asyncio.Semaphore(self.detail_fetch_concurrency)
 
                 while page <= max_pages:
                     try:
@@ -131,21 +137,8 @@ class SrealityScraper:
                             result_size,
                         )
 
-                        for estate in estates:
-                            try:
-                                with timer(f"Process estate {estate.get('hash_id')}"):
-                                    normalized = await self._process_estate(estate)
-                                if normalized:
-                                    await self._save_listing(normalized)
-                                    self.scraped_count += 1
-                                    metrics.increment_scraped()
-                            except Exception as exc:
-                                logger.error(
-                                    "Error processing estate %s: %s",
-                                    estate.get("hash_id"),
-                                    exc,
-                                )
-                                metrics.increment_failed()
+                        # 🔥 Batch process estates se semaphore
+                        await self._process_estates_batch(estates, semaphore, metrics)
 
                         total_pages = (result_size + self.per_page - 1) // self.per_page
                         if page >= total_pages:
@@ -210,7 +203,81 @@ class SrealityScraper:
             logger.warning("Detail fetch failed for %s: %s", hash_id, exc)
             return None
 
-    async def _process_estate(self, estate: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def _process_estates_batch(self, estates: List[Dict[str, Any]], 
+                                     semaphore: asyncio.Semaphore, metrics) -> None:
+        """
+        Process a batch of estates with concurrent detail fetching.
+        
+        🔥 Uses asyncio.Semaphore to limit concurrent detail requests to avoid:
+        - Rate limiting (429 errors)
+        - Connection timeouts
+        - Server overload
+        
+        Args:
+            estates: List of estate dicts from API
+            semaphore: asyncio.Semaphore(max_concurrent) to limit concurrent requests
+            metrics: Metrics context for tracking
+        """
+        tasks = []
+        
+        for estate in estates:
+            task = asyncio.create_task(
+                self._process_estate_with_semaphore(estate, semaphore, metrics)
+            )
+            tasks.append(task)
+        
+        # 🔥 Wait for all tasks with semaphore-controlled concurrency
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Handle results
+        for idx, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error("Error processing estate batch item %s: %s", idx, result)
+                metrics.increment_failed()
+            elif result is not None:
+                self.scraped_count += 1
+                metrics.increment_scraped()
+    
+    async def _process_estate_with_semaphore(self, estate: Dict[str, Any],
+                                             semaphore: asyncio.Semaphore,
+                                             metrics) -> bool:
+        """
+        Process single estate with semaphore-controlled detail fetch.
+        
+        Args:
+            estate: Estate dict from list API
+            semaphore: Semaphore to limit concurrent requests
+            metrics: Metrics context
+            
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        try:
+            normalized = await self._process_estate(estate, semaphore)
+            if normalized:
+                await self._save_listing(normalized)
+                return True
+            return False
+        except Exception as exc:
+            logger.error(
+                "Error processing estate %s: %s",
+                estate.get("hash_id"),
+                exc,
+            )
+            return False
+    
+    async def _process_estate(self, estate: Dict[str, Any],
+                             semaphore: Optional[asyncio.Semaphore] = None) -> Optional[Dict[str, Any]]:
+        """
+        Process estate and fetch detailed info with optional semaphore control.
+        
+        Args:
+            estate: Estate dict from list API
+            semaphore: Optional semaphore to limit concurrent detail requests
+            
+        Returns:
+            Normalized estate dict or None
+        """
         hash_id = estate.get("hash_id")
         if not hash_id:
             return None
@@ -218,11 +285,35 @@ class SrealityScraper:
         normalized = self._normalize_list_item(estate)
 
         if self.fetch_details:
-            detail = await self._fetch_estate_detail(hash_id)
+            # 🔥 Fetch detail with optional semaphore control
+            detail = await self._fetch_estate_detail_with_semaphore(hash_id, semaphore)
             if detail:
                 normalized = self._merge_detail(normalized, detail)
 
         return normalized
+    
+    async def _fetch_estate_detail_with_semaphore(self, hash_id: int,
+                                                  semaphore: Optional[asyncio.Semaphore] = None
+                                                  ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch estate detail with optional semaphore to limit concurrency.
+        
+        🔥 If semaphore provided: acquires permit before fetch, ensuring max concurrent requests
+        
+        Args:
+            hash_id: Estate hash ID
+            semaphore: Optional asyncio.Semaphore to limit concurrent requests
+            
+        Returns:
+            Detail dict or None
+        """
+        if semaphore is None:
+            # No semaphore - unlimited concurrent (old behavior)
+            return await self._fetch_estate_detail(hash_id)
+        
+        # 🔥 Acquire semaphore permit - limits concurrent requests
+        async with semaphore:
+            return await self._fetch_estate_detail(hash_id)
 
     def _normalize_list_item(self, estate: Dict[str, Any]) -> Dict[str, Any]:
         hash_id = estate.get("hash_id")

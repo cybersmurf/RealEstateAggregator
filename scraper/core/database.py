@@ -6,7 +6,7 @@ import asyncpg
 import logging
 from typing import Optional, Dict, Any, List
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 from .filters import get_filter_manager
@@ -18,7 +18,7 @@ class DatabaseManager:
     """Manages PostgreSQL connection pool for scraper."""
     
     def __init__(self, host: str, port: int, database: str, user: str, password: str, 
-                 min_size: int = 5, max_size: int = 20):
+                 min_size: int = 5, max_size: int = 20, source_cache_ttl_seconds: int = 3600):
         self.host = host
         self.port = port
         self.database = database
@@ -27,6 +27,10 @@ class DatabaseManager:
         self.min_size = min_size
         self.max_size = max_size
         self._pool: Optional[asyncpg.Pool] = None
+        
+        # 🔥 Source code caching: {source_code: (data, timestamp)}
+        self._source_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
+        self._cache_ttl = timedelta(seconds=source_cache_ttl_seconds)
     
     async def connect(self) -> None:
         """Create connection pool."""
@@ -55,6 +59,9 @@ class DatabaseManager:
             await self._pool.close()
             self._pool = None
             logger.info("Database pool closed")
+        
+        # Vyčisti cache
+        self._source_cache.clear()
     
     @asynccontextmanager
     async def acquire(self):
@@ -67,7 +74,9 @@ class DatabaseManager:
     
     async def get_source_by_code(self, source_code: str) -> Optional[Dict[str, Any]]:
         """
-        Získá source (zdroj) podle kódu.
+        Získá source (zdroj) podle kódu s in-memory caching.
+        
+        Cachuje resultat po dobu cache_ttl (default 1 hodina).
         
         Args:
             source_code: Kód zdroje (např. "REMAX", "MMR")
@@ -75,6 +84,18 @@ class DatabaseManager:
         Returns:
             Dict se source daty nebo None
         """
+        # 🔥 Kontrola cache
+        if source_code in self._source_cache:
+            cached_data, cached_at = self._source_cache[source_code]
+            if datetime.utcnow() - cached_at < self._cache_ttl:
+                logger.debug(f"Cache HIT for source {source_code}")
+                return cached_data
+            else:
+                # Cache expired
+                del self._source_cache[source_code]
+                logger.debug(f"Cache EXPIRED for source {source_code}")
+        
+        # Načti z databáze
         async with self.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -85,7 +106,11 @@ class DatabaseManager:
                 source_code
             )
             if row:
-                return dict(row)
+                data = dict(row)
+                # 🔥 Ulož do cache
+                self._source_cache[source_code] = (data, datetime.utcnow())
+                logger.debug(f"Cache STORE for source {source_code}")
+                return data
             return None
     
     async def upsert_listing(self, listing_data: Dict[str, Any]) -> Optional[UUID]:
@@ -413,8 +438,24 @@ def get_db_manager() -> DatabaseManager:
 
 
 def init_db_manager(host: str, port: int, database: str, user: str, password: str,
-                   min_size: int = 5, max_size: int = 20) -> DatabaseManager:
-    """Inicializuje globální DatabaseManager."""
+                   min_size: int = 5, max_size: int = 20, 
+                   source_cache_ttl_seconds: int = 3600) -> DatabaseManager:
+    """
+    Inicializuje globální DatabaseManager.
+    
+    Args:
+        host: Database host
+        port: Database port
+        database: Database name
+        user: Database user
+        password: Database password
+        min_size: Min connection pool size
+        max_size: Max connection pool size
+        source_cache_ttl_seconds: Time-to-live pro in-memory source code cache (default 1 hour)
+    """
     global _db_manager
-    _db_manager = DatabaseManager(host, port, database, user, password, min_size, max_size)
+    _db_manager = DatabaseManager(
+        host, port, database, user, password, 
+        min_size, max_size, source_cache_ttl_seconds
+    )
     return _db_manager

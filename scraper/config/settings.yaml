@@ -7,6 +7,7 @@ database:
   password: ${DB_PASSWORD:-dev}
   min_connections: 5
   max_connections: 20
+  source_cache_ttl_seconds: 3600  # 🔥 In-memory source code cache (1 hour)
 
 # Scraping settings
 scraping:
@@ -120,4 +121,29 @@ quality_filters:
   
   # Vyžaduj popis
   require_description: true
+
+# ============================================================================
+# SCRAPER-SPECIFIC CONFIGURATION
+# ============================================================================
+scrapers:
+  # MM Reality scraper search configurations
+  mmreality:
+    search_configs:
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/domy/znojmo/"
+        offer_type: "Prodej"
+        property_type: "Dům"
+        
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/pozemky/znojmo/"
+        offer_type: "Prodej"
+        property_type: "Pozemek"
+        
+      # Weitere Regionen können hier hinzugefügt werden
+      # - url: "https://www.mmreality.cz/nemovitosti/prodej/domy/brno/"
+      #   offer_type: "Prodej"
+      #   property_type: "Dům"
+  
+  # SREALITY scraper configuration
+  sreality:
+    detail_fetch_concurrency: 5  # 🔥 Number of concurrent detail requests
+    fetch_details: true
   min_description_length: 20  # znaků

@@ -2,27 +2,33 @@
 FastAPI application for Real Estate Scraper.
 Provides REST endpoints to trigger and monitor scraping jobs.
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from uuid import uuid4, UUID
 from datetime import datetime
 import yaml
 from pathlib import Path
 import os
+import logging
 
 from .schemas import ScrapeTriggerRequest, ScrapeTriggerResponse, ScrapeJob
 from core.runner import run_scrape_job
 from core.database import init_db_manager, get_db_manager
 
-app = FastAPI(
-    title="RealEstate Scraper API",
-    description="API pro spouštění a monitorování scraping jobů realitních inzerátů",
-    version="1.0.0"
-)
+logger = logging.getLogger(__name__)
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Inicializace při startu aplikace."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager.
+    Handles startup and shutdown events.
+    
+    Replaces deprecated @app.on_event("startup"/"shutdown") decorators.
+    """
+    # ============================================================================
+    # STARTUP
+    # ============================================================================
     try:
         # Načti config ze settings.yaml
         config_path = Path(__file__).parent.parent / "config" / "settings.yaml"
@@ -59,26 +65,40 @@ async def startup_event():
             password=db_config.get("password"),
             min_size=db_config.get("min_connections", 5),
             max_size=db_config.get("max_connections", 20),
+            source_cache_ttl_seconds=db_config.get("source_cache_ttl_seconds", 3600),
         )
         
         # Připoj k databázi
         await db_manager.connect()
+        logger.info(f"✓ Database connected to {db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
         print(f"✓ Database connected to {db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
         
     except Exception as exc:
+        logger.error(f"❌ Startup failed: {exc}")
         print(f"❌ Startup failed: {exc}")
         raise
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup při ukončení aplikace."""
+    
+    # Yield control to FastAPI app
+    yield
+    
+    # ============================================================================
+    # SHUTDOWN
+    # ============================================================================
     try:
         db_manager = get_db_manager()
         await db_manager.disconnect()
+        logger.info("✓ Database disconnected")
         print("✓ Database disconnected")
-    except:
-        pass
+    except Exception as exc:
+        logger.error(f"Error during shutdown: {exc}")
+
+
+app = FastAPI(
+    title="RealEstate Scraper API",
+    description="API pro spouštění a monitorování scraping jobů realitních inzerátů",
+    version="1.0.0",
+    lifespan=lifespan  # 🔥 Nový přístup - lifespan context manager
+)
 
 
 @app.get("/")

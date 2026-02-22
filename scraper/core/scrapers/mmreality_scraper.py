@@ -25,8 +25,9 @@ from ..database import get_db_manager
 logger = logging.getLogger(__name__)
 
 
-# Konfigurace search URL pro ruzne lokality
-SEARCH_CONFIGS = [
+# Konfigurace search URL pro ruzne lokality (default - Znojmo)
+# 🔥 Można být přepsáno z settings.yaml v runner.py
+DEFAULT_SEARCH_CONFIGS = [
     {
         "url": "https://www.mmreality.cz/nemovitosti/prodej/domy/znojmo/",
         "offer_type": "Prodej",
@@ -52,7 +53,8 @@ class MmRealityScraper:
     SOURCE_CODE = "MMR"
 
     def __init__(self, search_configs: Optional[List[Dict[str, Any]]] = None):
-        self.search_configs = search_configs or SEARCH_CONFIGS
+        # 🔥 Use provided search_configs or fall back to defaults
+        self.search_configs = search_configs or DEFAULT_SEARCH_CONFIGS
         self.scraped_count = 0
         self._http_client: Optional[httpx.AsyncClient] = None
 

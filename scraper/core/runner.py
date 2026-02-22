@@ -4,7 +4,9 @@ Orchestrates individual scrapers and manages job lifecycle.
 """
 import asyncio
 import logging
-from typing import Optional, List
+import yaml
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
 
@@ -12,6 +14,23 @@ from api.schemas import ScrapeTriggerRequest
 from core.database import get_db_manager
 
 logger = logging.getLogger(__name__)
+
+
+def _load_scraper_config() -> Dict[str, Any]:
+    """Load scraper configuration from settings.yaml."""
+    config_path = Path(__file__).parent.parent / "config" / "settings.yaml"
+    
+    if not config_path.exists():
+        logger.warning(f"Config file not found: {config_path}, using defaults")
+        return {}
+    
+    try:
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+        return config.get("scrapers", {})
+    except Exception as exc:
+        logger.error(f"Failed to load scraper config: {exc}")
+        return {}
 
 
 async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
@@ -25,6 +44,9 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
     db_manager = get_db_manager()
     
     logger.info(f"Starting scrape job {job_id} with sources: {request.source_codes}, full_rescan: {request.full_rescan}")
+    
+    # 🔥 Load scraper configuration
+    scraper_config = _load_scraper_config()
     
     try:
         # Update status na Running
@@ -42,6 +64,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             "PRODEJMETO",
             "ZNOJMOREALITY",
             "SREALITY",
+            "IDNES",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
@@ -50,6 +73,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         from core.scrapers.prodejmeto_scraper import ProdejmeToScraper
         from core.scrapers.sreality_scraper import SrealityScraper
         from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper
+        from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
 
         # Vybuduj tasku pro paralelní scraping
         tasks = []
@@ -61,7 +85,10 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
 
         if "MMR" in source_codes:
             logger.info(f"Job {job_id}: Scheduling MM Reality scraper...")
-            scraper = MmRealityScraper()
+            # 🔥 Get MMReality config from settings.yaml
+            mmreality_config = scraper_config.get("mmreality", {})
+            search_configs = mmreality_config.get("search_configs")
+            scraper = MmRealityScraper(search_configs=search_configs)
             tasks.append(("MMR", scraper.run(full_rescan=request.full_rescan)))
 
         if "PRODEJMETO" in source_codes:
@@ -76,8 +103,20 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
 
         if "SREALITY" in source_codes:
             logger.info(f"Job {job_id}: Scheduling Sreality scraper...")
-            scraper = SrealityScraper()
+            # 🔥 Get SREALITY config from settings.yaml
+            sreality_config = scraper_config.get("sreality", {})
+            detail_fetch_concurrency = sreality_config.get("detail_fetch_concurrency", 5)
+            fetch_details = sreality_config.get("fetch_details", True)
+            scraper = SrealityScraper(
+                fetch_details=fetch_details,
+                detail_fetch_concurrency=detail_fetch_concurrency
+            )
             tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
+
+        if "IDNES" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Idnes Reality scraper...")
+            scraper = IdnesRealityScraper()
+            tasks.append(("IDNES", scraper.run(full_rescan=request.full_rescan)))
 
         # Spusť všechny scrapers paralelně
         if tasks:
