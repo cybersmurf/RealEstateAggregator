@@ -1,0 +1,369 @@
+@page "/listings/{id:guid}"
+
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    @if (_loading)
+    {
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        <MudText Typo="Typo.body1">Načítám...</MudText>
+    }
+    else if (_listing == null)
+    {
+        <MudAlert Severity="Severity.Error">Inzerát nenalezen.</MudAlert>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => Navigation.NavigateTo("/listings"))">
+            Zpět na seznam
+        </MudButton>
+    }
+    else
+    {
+        <MudStack Spacing="3">
+            <!-- Header -->
+            <MudPaper Class="pa-4">
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h4">@_listing.Title</MudText>
+                    <MudStack Row="true" Spacing="2">
+                        <MudChip Size="Size.Small" Color="Color.Primary">@_listing.SourceName</MudChip>
+                        <MudChip Size="Size.Small" Color="Color.Secondary">@_listing.PropertyType</MudChip>
+                        <MudChip Size="Size.Small" Color="Color.Info">@_listing.OfferType</MudChip>
+                    </MudStack>
+                    <MudText Typo="Typo.h5" Color="Color.Success">
+                        @(_listing.Price?.ToString("N0") ?? "Cena není uvedena") Kč
+                        @if (!string.IsNullOrWhiteSpace(_listing.PriceNote))
+                        {
+                            <MudText Typo="Typo.caption">(@_listing.PriceNote)</MudText>
+                        }
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+
+            <!-- Photo Carousel -->
+            @if (_listing.Photos.Any())
+            {
+                <MudPaper Class="pa-4">
+                    <MudCarousel Style="height:400px;" ShowArrows="true" ShowBullets="true" EnableSwipeGesture="true" AutoCycle="false">
+                        @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
+                        {
+                            <MudCarouselItem>
+                                <div class="d-flex justify-center align-center" style="height:100%">
+                                    <img src="@(photo.StoredUrl ?? photo.OriginalUrl)" alt="Foto" style="max-width:100%; max-height:100%; object-fit:contain;" />
+                                </div>
+                            </MudCarouselItem>
+                        }
+                    </MudCarousel>
+                </MudPaper>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info">Žádné fotografie nejsou k dispozici.</MudAlert>
+            }
+
+            <!-- Details -->
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-3">Detaily</MudText>
+                <MudSimpleTable Striped="true" Dense="true">
+                    <tbody>
+                        <tr>
+                            <td><strong>Lokalita</strong></td>
+                            <td>@_listing.LocationText</td>
+                        </tr>
+                        @if (!string.IsNullOrWhiteSpace(_listing.Municipality))
+                        {
+                            <tr>
+                                <td><strong>Obec</strong></td>
+                                <td>@_listing.Municipality</td>
+                            </tr>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_listing.District))
+                        {
+                            <tr>
+                                <td><strong>Okres</strong></td>
+                                <td>@_listing.District</td>
+                            </tr>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_listing.Region))
+                        {
+                            <tr>
+                                <td><strong>Kraj</strong></td>
+                                <td>@_listing.Region</td>
+                            </tr>
+                        }
+                        @if (_listing.AreaBuiltUp.HasValue)
+                        {
+                            <tr>
+                                <td><strong>Zastavěná plocha</strong></td>
+                                <td>@_listing.AreaBuiltUp.Value.ToString("N0") m²</td>
+                            </tr>
+                        }
+                        @if (_listing.AreaLand.HasValue)
+                        {
+                            <tr>
+                                <td><strong>Plocha pozemku</strong></td>
+                                <td>@_listing.AreaLand.Value.ToString("N0") m²</td>
+                            </tr>
+                        }
+                        @if (_listing.Rooms.HasValue)
+                        {
+                            <tr>
+                                <td><strong>Počet pokojů</strong></td>
+                                <td>@_listing.Rooms.Value</td>
+                            </tr>
+                        }
+                        @if (_listing.HasKitchen.HasValue)
+                        {
+                            <tr>
+                                <td><strong>Kuchyň</strong></td>
+                                <td>@(_listing.HasKitchen.Value ? "Ano" : "Ne")</td>
+                            </tr>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_listing.ConstructionType))
+                        {
+                            <tr>
+                                <td><strong>Konstrukce</strong></td>
+                                <td>@_listing.ConstructionType</td>
+                            </tr>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_listing.Condition))
+                        {
+                            <tr>
+                                <td><strong>Stav</strong></td>
+                                <td>@_listing.Condition</td>
+                            </tr>
+                        }
+                        <tr>
+                            <td><strong>Poprvé viděno</strong></td>
+                            <td>@_listing.FirstSeenAt.ToString("dd.MM.yyyy HH:mm")</td>
+                        </tr>
+                        @if (_listing.LastSeenAt.HasValue)
+                        {
+                            <tr>
+                                <td><strong>Naposledy viděno</strong></td>
+                                <td>@_listing.LastSeenAt.Value.ToString("dd.MM.yyyy HH:mm")</td>
+                            </tr>
+                        }
+                        <tr>
+                            <td><strong>URL</strong></td>
+                            <td><MudLink Href="@_listing.SourceUrl" Target="_blank">Otevřít původní inzerát</MudLink></td>
+                        </tr>
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+
+            <!-- Description -->
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-3">Popis</MudText>
+                <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">@_listing.Description</MudText>
+            </MudPaper>
+
+            <!-- User State -->
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-3">Můj stav</MudText>
+                <MudStack Spacing="2">
+                    <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary">
+                        <MudButton OnClick="@(() => UpdateUserStatus("New"))" 
+                                   Disabled="@(_userState.Status == "New")"
+                                   Color="@(_userState.Status == "New" ? Color.Primary : Color.Default)">
+                            Nové
+                        </MudButton>
+                        <MudButton OnClick="@(() => UpdateUserStatus("Liked"))" 
+                                   Disabled="@(_userState.Status == "Liked")"
+                                   Color="@(_userState.Status == "Liked" ? Color.Success : Color.Default)">
+                            Zajímavé
+                        </MudButton>
+                        <MudButton OnClick="@(() => UpdateUserStatus("Disliked"))" 
+                                   Disabled="@(_userState.Status == "Disliked")"
+                                   Color="@(_userState.Status == "Disliked" ? Color.Error : Color.Default)">
+                            Nezajímavé
+                        </MudButton>
+                        <MudButton OnClick="@(() => UpdateUserStatus("ToVisit"))" 
+                                   Disabled="@(_userState.Status == "ToVisit")"
+                                   Color="@(_userState.Status == "ToVisit" ? Color.Warning : Color.Default)">
+                            K návštěvě
+                        </MudButton>
+                        <MudButton OnClick="@(() => UpdateUserStatus("Visited"))" 
+                                   Disabled="@(_userState.Status == "Visited")"
+                                   Color="@(_userState.Status == "Visited" ? Color.Info : Color.Default)">
+                            Navštíveno
+                        </MudButton>
+                    </MudButtonGroup>
+
+                    <MudTextField @bind-Value="_userState.Notes" 
+                                  Label="Poznámky" 
+                                  Lines="3" 
+                                  Variant="Variant.Outlined"
+                                  OnBlur="SaveNotesAsync" />
+
+                    @if (_userState.LastUpdated.HasValue)
+                    {
+                        <MudText Typo="Typo.caption">
+                            Naposledy upraveno: @_userState.LastUpdated.Value.ToString("dd.MM.yyyy HH:mm")
+                        </MudText>
+                    }
+                </MudStack>
+            </MudPaper>
+
+            <!-- Actions -->
+            <MudStack Row="true" Spacing="2">
+                <MudButton Color="Color.Primary" 
+                           Variant="Variant.Filled" 
+                           OnClick="@(() => Navigation.NavigateTo("/listings"))">
+                    Zpět na seznam
+                </MudButton>
+                <MudButton Color="Color.Secondary" 
+                           Variant="Variant.Filled" 
+                           OnClick="CreateAnalysisAsync">
+                    Vytvořit analýzu
+                </MudButton>
+            </MudStack>
+        </MudStack>
+    }
+</MudContainer>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private bool _loading = true;
+    private ListingDetailDto? _listing;
+    private ListingUserStateDto _userState = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadListingAsync();
+    }
+
+    private async Task LoadListingAsync()
+    {
+        _loading = true;
+        try
+        {
+            _listing = await Http.GetFromJsonAsync<ListingDetailDto>($"api/listings/{Id}");
+            if (_listing != null)
+            {
+                _userState = _listing.UserState ?? new();
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba při načítání: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task UpdateUserStatus(string status)
+    {
+        try
+        {
+            _userState.Status = status;
+            _userState.LastUpdated = DateTime.Now;
+
+            var response = await Http.PutAsJsonAsync($"api/listings/{Id}/state", _userState);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Stav uložen", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Chyba při ukládání stavu", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SaveNotesAsync()
+    {
+        try
+        {
+            _userState.LastUpdated = DateTime.Now;
+
+            var response = await Http.PutAsJsonAsync($"api/listings/{Id}/state", _userState);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Poznámky uloženy", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Chyba při ukládání poznámek", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task CreateAnalysisAsync()
+    {
+        try
+        {
+            var response = await Http.PostAsJsonAsync("api/analysis", new { ListingId = Id });
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Analýza byla vytvořena", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Chyba při vytváření analýzy", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+    }
+
+    // DTO classes (copy from API contracts)
+    public class ListingDetailDto
+    {
+        public Guid Id { get; set; }
+        public string SourceName { get; set; } = string.Empty;
+        public string SourceCode { get; set; } = string.Empty;
+        public string SourceUrl { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string LocationText { get; set; } = string.Empty;
+        public string? Region { get; set; }
+        public string? District { get; set; }
+        public string? Municipality { get; set; }
+        public string PropertyType { get; set; } = string.Empty;
+        public string OfferType { get; set; } = string.Empty;
+        public decimal? Price { get; set; }
+        public string? PriceNote { get; set; }
+        public double? AreaBuiltUp { get; set; }
+        public double? AreaLand { get; set; }
+        public int? Rooms { get; set; }
+        public bool? HasKitchen { get; set; }
+        public string? ConstructionType { get; set; }
+        public string? Condition { get; set; }
+        public DateTime FirstSeenAt { get; set; }
+        public DateTime? LastSeenAt { get; set; }
+        public DateTime? CreatedAtSource { get; set; }
+        public DateTime? UpdatedAtSource { get; set; }
+        public bool IsActive { get; set; }
+        public IReadOnlyList<ListingPhotoDto> Photos { get; set; } = Array.Empty<ListingPhotoDto>();
+        public ListingUserStateDto? UserState { get; set; }
+    }
+
+    public class ListingPhotoDto
+    {
+        public Guid Id { get; set; }
+        public string OriginalUrl { get; set; } = string.Empty;
+        public string? StoredUrl { get; set; }
+        public int Order { get; set; }
+    }
+
+    public class ListingUserStateDto
+    {
+        public string Status { get; set; } = "New";
+        public string? Notes { get; set; }
+        public DateTime? LastUpdated { get; set; }
+    }
+}
