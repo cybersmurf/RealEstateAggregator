@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Pgvector.EntityFrameworkCore;
 using RealEstate.Api.Services;
 using RealEstate.Domain.Repositories;
@@ -45,6 +46,8 @@ public static class ServiceCollectionExtensions
             
             // 🔥 Enable snake_case naming convention for PostgreSQL
             options.UseSnakeCaseNamingConvention();
+            options.ConfigureWarnings(warnings =>
+                warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
         });
 
         return services;

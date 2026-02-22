@@ -11,6 +11,7 @@ Listing URLs:
 Detail URL pattern: /{slug}-{id}
 """
 import asyncio
+import json
 import logging
 import re
 import time
@@ -118,9 +119,62 @@ class ZnojmoRealityScraper:
         results: List[Dict[str, Any]] = []
         seen_ids: set[str] = set()
 
+        cards = soup.select(".polozka")
+        if cards:
+            for card in cards:
+                link = card.find("a", href=True)
+                if not link:
+                    continue
+
+                href = link.get("href", "").strip()
+                if not href or href.startswith("#"):
+                    continue
+
+                full_url = urljoin(BASE_URL, href)
+                parsed = urlparse(full_url)
+                if parsed.netloc and parsed.netloc != urlparse(BASE_URL).netloc:
+                    continue
+
+                path = parsed.path.rstrip("/")
+                id_match = re.search(r"-(\d+)$", path)
+                if not id_match:
+                    continue
+
+                external_id = id_match.group(1)
+                if external_id in seen_ids:
+                    continue
+                seen_ids.add(external_id)
+
+                title = ""
+                heading = card.find(["h1", "h2", "h3"])
+                if heading:
+                    title = heading.get_text(" ", strip=True)
+                if not title:
+                    title = link.get_text(" ", strip=True)
+
+                price_text = self._extract_price_from_context(card)
+
+                results.append(
+                    {
+                        "source_code": self.SOURCE_CODE,
+                        "external_id": external_id,
+                        "detail_url": full_url,
+                        "title": title[:200],
+                        "price_text": price_text,
+                        "property_type": config.get("property_type", "Ostatní"),
+                    }
+                )
+
+            logger.debug("Parsed %s unique items from card listing", len(results))
+            return results
+
         for link in soup.find_all("a", href=True):
             href = link.get("href", "").strip()
             if not href or href.startswith("#"):
+                continue
+
+            href_lower = href.lower()
+            if "prodej" not in href_lower and "pronajem" not in href_lower and "pronájem" not in href_lower:
                 continue
 
             full_url = urljoin(BASE_URL, href)
@@ -189,13 +243,24 @@ class ZnojmoRealityScraper:
         result["offer_type"] = "Pronájem" if "pronajem" in title_lower or "pronájem" in title_lower else "Prodej"
 
         params = self._parse_params_table(soup)
-        result["price"] = self._parse_price(params.get("Cena", list_item.get("price_text", "")))
+        json_ld = self._extract_json_ld(soup)
+
+        result["price"] = self._parse_price(
+            params.get("Cena", "") or list_item.get("price_text", "")
+        )
+        if result.get("price") is None:
+            result["price"] = self._parse_price(self._extract_price_from_json_ld(json_ld))
+        if result.get("price") is None:
+            result["price"] = self._parse_price(self._extract_price_from_text(soup))
+
         result["area_built_up"] = self._parse_area(params.get("Užitná plocha", ""))
         result["area_land"] = self._parse_area(params.get("Plocha pozemku", ""))
 
         locality = params.get("Lokalita", "").strip()
         district = params.get("Okres", "").strip()
-        result["location_text"] = locality or district
+        location_from_ld = self._extract_location_from_json_ld(json_ld)
+        location_from_breadcrumbs = self._extract_location_from_breadcrumbs(soup)
+        result["location_text"] = locality or location_from_ld or location_from_breadcrumbs or district
 
         result["description"] = self._extract_description(soup)
         result["photos"] = self._extract_photos(soup)
@@ -252,6 +317,72 @@ class ZnojmoRealityScraper:
             if href and href not in urls:
                 urls.append(href)
         return urls[:20]
+
+    def _extract_json_ld(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        payloads: List[Dict[str, Any]] = []
+        for script in soup.find_all("script", type="application/ld+json"):
+            raw = (script.string or "").strip()
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+            if isinstance(data, list):
+                payloads.extend(item for item in data if isinstance(item, dict))
+            elif isinstance(data, dict):
+                payloads.append(data)
+
+        return payloads
+
+    def _extract_price_from_json_ld(self, payloads: List[Dict[str, Any]]) -> str:
+        for payload in payloads:
+            offers = payload.get("offers")
+            if isinstance(offers, dict):
+                price = offers.get("price") or offers.get("priceSpecification", {}).get("price")
+                if price is not None:
+                    return str(price)
+            elif isinstance(offers, list):
+                for offer in offers:
+                    if not isinstance(offer, dict):
+                        continue
+                    price = offer.get("price") or offer.get("priceSpecification", {}).get("price")
+                    if price is not None:
+                        return str(price)
+        return ""
+
+    def _extract_location_from_json_ld(self, payloads: List[Dict[str, Any]]) -> str:
+        for payload in payloads:
+            address = payload.get("address") or payload.get("location")
+            if isinstance(address, dict):
+                parts = [
+                    address.get("streetAddress"),
+                    address.get("addressLocality"),
+                    address.get("addressRegion"),
+                ]
+                location = ", ".join(part for part in parts if part)
+                if location:
+                    return location
+        return ""
+
+    def _extract_location_from_breadcrumbs(self, soup: BeautifulSoup) -> str:
+        crumbs: List[str] = []
+        for nav in soup.select("nav, .breadcrumb, .breadcrumbs"):
+            for el in nav.find_all(["a", "span", "li"]):
+                text = el.get_text(" ", strip=True)
+                if text and text not in crumbs:
+                    crumbs.append(text)
+            if crumbs:
+                break
+        if len(crumbs) >= 2:
+            return " - ".join(crumbs[-2:])
+        return ""
+
+    def _extract_price_from_text(self, soup: BeautifulSoup) -> str:
+        text = soup.get_text(" ", strip=True)
+        match = re.search(r"([\d\s]+)\s*K[cč]", text, re.IGNORECASE)
+        return match.group(0).strip() if match else ""
 
     def _extract_gps(self, html: str) -> Tuple[Optional[float], Optional[float]]:
         match = re.search(r"(?:L\.marker|setView)\(\[([0-9.]+),\s*([0-9.]+)\]", html)

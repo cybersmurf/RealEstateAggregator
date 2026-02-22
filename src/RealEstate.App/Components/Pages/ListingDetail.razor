@@ -26,8 +26,8 @@
                     <MudText Typo="Typo.h4">@_listing.Title</MudText>
                     <MudStack Row="true" Spacing="2">
                         <MudChip T="string" Size="Size.Small" Color="Color.Primary">@_listing.SourceName</MudChip>
-                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@_listing.PropertyType</MudChip>
-                        <MudChip T="string" Size="Size.Small" Color="Color.Info">@_listing.OfferType</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@GetPropertyTypeLabel(_listing.PropertyType)</MudChip>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info">@GetOfferTypeLabel(_listing.OfferType)</MudChip>
                     </MudStack>
                     <MudText Typo="Typo.h5" Color="Color.Success">
                         @(_listing.Price?.ToString("N0") ?? "Cena není uvedena") Kč
@@ -229,6 +229,24 @@
     private ListingDetailDto? _listing;
     private ListingUserStateDto _userState = new();
 
+    private static readonly IReadOnlyDictionary<string, string> PropertyTypeLabels =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["House"] = "Dům",
+            ["Apartment"] = "Byt",
+            ["Land"] = "Pozemek",
+            ["Cottage"] = "Chata",
+            ["Commercial"] = "Komerční",
+            ["Other"] = "Ostatní"
+        };
+
+    private static readonly IReadOnlyDictionary<string, string> OfferTypeLabels =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Sale"] = "Prodej",
+            ["Rent"] = "Pronájem"
+        };
+
     protected override async Task OnInitializedAsync()
     {
         await LoadListingAsync();
@@ -345,6 +363,26 @@
         {
             Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
         }
+    }
+
+    private static string GetPropertyTypeLabel(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
+        return PropertyTypeLabels.TryGetValue(value, out var label) ? label : value;
+    }
+
+    private static string GetOfferTypeLabel(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
+        return OfferTypeLabels.TryGetValue(value, out var label) ? label : value;
     }
 
 }

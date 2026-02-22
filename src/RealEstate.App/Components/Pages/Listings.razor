@@ -12,7 +12,12 @@
             Hledat
         </MudButton>
 
-        <MudTable Items="_items" Hover="true" Dense="true">
+        <MudTable T="ListingSummaryDto"
+              ServerData="@LoadServerData"
+                  @ref="_table"
+                  Hover="true"
+                  Dense="true"
+                  Loading="_loading">
             <HeaderContent>
                 <MudTh>Zdroj</MudTh>
                 <MudTh>Titulek</MudTh>
@@ -35,19 +40,19 @@
                     <MudButton Size="Size.Small"
                                Color="Color.Primary"
                                Variant="Variant.Text"
-                               @onclick="@(async () => await NavigateToDetailAsync(context.Id))">
+                               OnClick="@(async () => await NavigateToDetailAsync(context.Id))">
                         Detail
                     </MudButton>
                     <MudButton Size="Size.Small"
                                Color="Color.Secondary"
                                Variant="Variant.Text"
-                               @onclick="@(async () => await CreateAnalysisAsync(context.Id))">
+                               OnClick="@(async () => await CreateAnalysisAsync(context.Id))">
                         Udělej analýzu
                     </MudButton>
                 </MudTd>
             </RowTemplate>
             <PagerContent>
-                <MudTablePager />
+                <MudTablePager RowsPerPage="10" RowsPerPageOptions="new int[] { 10, 20, 50 }" />
             </PagerContent>
         </MudTable>
     </MudStack>
@@ -55,27 +60,45 @@
 
 @code {
     private string? _searchText;
-    private List<ListingSummaryDto> _items = new();
+    private MudTable<ListingSummaryDto>? _table;
+    private bool _loading;
 
-    protected override async Task OnInitializedAsync()
+    private async Task<TableData<ListingSummaryDto>> LoadServerData(TableState state, CancellationToken ct)
     {
-        await SearchAsync();
+        _loading = true;
+        try
+        {
+            var filter = new ListingFilterDto
+            {
+                SearchText = _searchText,
+                Page = state.Page + 1,
+                PageSize = state.PageSize
+            };
+
+            var response = await Http.PostAsJsonAsync("api/listings/search", filter, ct);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>(ct);
+            return new TableData<ListingSummaryDto>
+            {
+                Items = result?.Items ?? Array.Empty<ListingSummaryDto>(),
+                TotalItems = result?.TotalCount ?? 0
+            };
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private async Task SearchAsync()
     {
-        var filter = new ListingFilterDto
+        if (_table is null)
         {
-            SearchText = _searchText,
-            Page = 1,
-            PageSize = 50
-        };
+            return;
+        }
 
-        var response = await Http.PostAsJsonAsync("api/listings/search", filter);
-        response.EnsureSuccessStatusCode();
-
-        var result = await response.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>();
-        _items = result?.Items.ToList() ?? new List<ListingSummaryDto>();
+        await _table.ReloadServerData();
     }
 
     private async Task NavigateToDetailAsync(Guid id)

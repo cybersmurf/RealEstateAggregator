@@ -35,6 +35,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__RealEstate=Host=postgres;Database=realestate_dev;Username=postgres;Password=dev
+      - SKIP_EF_MIGRATIONS=true
     depends_on:
       postgres:
         condition: service_healthy

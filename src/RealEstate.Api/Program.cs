@@ -22,10 +22,18 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 
-    using var scope = app.Services.CreateScope();
-    var dbContext = scope.ServiceProvider.GetRequiredService<RealEstateDbContext>();
-    await dbContext.Database.MigrateAsync();
-    await DbInitializer.SeedAsync(dbContext);
+    var skipMigrations = string.Equals(
+        Environment.GetEnvironmentVariable("SKIP_EF_MIGRATIONS"),
+        "true",
+        StringComparison.OrdinalIgnoreCase);
+
+    if (!skipMigrations)
+    {
+        using var scope = app.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<RealEstateDbContext>();
+        await dbContext.Database.MigrateAsync();
+        await DbInitializer.SeedAsync(dbContext);
+    }
 }
 else
 {
