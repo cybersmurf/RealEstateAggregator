@@ -3,9 +3,8 @@ FastAPI application for Real Estate Scraper.
 Provides REST endpoints to trigger and monitor scraping jobs.
 """
 from fastapi import FastAPI, BackgroundTasks, HTTPException
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import datetime
-from typing import Dict
 import yaml
 from pathlib import Path
 import os
@@ -19,10 +18,6 @@ app = FastAPI(
     description="API pro spouštění a monitorování scraping jobů realitních inzerátů",
     version="1.0.0"
 )
-
-# V jednoduché verzi držíme joby jen v paměti
-# V produkci bys použil Redis, PostgreSQL, nebo jiné persistent storage
-SCRAPE_JOBS: Dict[str, ScrapeJob] = {}
 
 
 @app.on_event("startup")
@@ -112,17 +107,17 @@ async def trigger_scrape(
         ScrapeTriggerResponse s job_id a statusem
     """
     job_id = uuid4()
-    job = ScrapeJob(
+    
+    # Vytvoř DB record pro job
+    db_manager = get_db_manager()
+    await db_manager.create_scrape_job(
         job_id=job_id,
-        source_codes=request.source_codes,
-        full_rescan=request.full_rescan,
-        created_at=datetime.utcnow(),
-        status="Queued",
+        source_codes=request.source_codes or [],
+        full_rescan=request.full_rescan
     )
-    SCRAPE_JOBS[str(job_id)] = job
 
     # Spustit async v backgroundu, aby API odpovědělo hned
-    background_tasks.add_task(run_scrape_job, job_id, request, SCRAPE_JOBS)
+    background_tasks.add_task(run_scrape_job, job_id, request)
 
     return ScrapeTriggerResponse(
         job_id=job_id,
@@ -145,18 +140,57 @@ async def get_scrape_job(job_id: str) -> ScrapeJob:
     Raises:
         HTTPException 404 pokud job neexistuje
     """
-    job = SCRAPE_JOBS.get(job_id)
-    if not job:
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job_id format")
+    
+    db_manager = get_db_manager()
+    job_data = await db_manager.get_scrape_job(job_uuid)
+    
+    if not job_data:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    return job
+    
+    # Překonvertuj DB data na ScrapeJob Pydantic model
+    return ScrapeJob(
+        job_id=job_data['id'],
+        source_codes=list(job_data['source_codes']),  # PostgreSQL array → Python list
+        full_rescan=job_data['full_rescan'],
+        created_at=job_data['created_at'],
+        started_at=job_data['started_at'],
+        finished_at=job_data['finished_at'],
+        status=job_data['status'],
+        progress=job_data['progress'],
+        error_message=job_data['error_message'],
+    )
 
 
 @app.get("/v1/scrape/jobs", response_model=list[ScrapeJob])
-async def list_scrape_jobs() -> list[ScrapeJob]:
+async def list_scrape_jobs(limit: int = 50, status: str = None) -> list[ScrapeJob]:
     """
-    Vrátí seznam všech scraping jobů.
+    Vrátí seznam scraping jobů seřazených chronologicky (nejnovější první).
+    
+    Args:
+        limit: Maximální počet jobů k vrácení (default 50)
+        status: Volitelný filtr podle statusu (Queued, Running, Succeeded, Failed)
     
     Returns:
-        List[ScrapeJob] - všechny joby v paměti
+        List[ScrapeJob] - joby z databáze
     """
-    return list(SCRAPE_JOBS.values())
+    db_manager = get_db_manager()
+    jobs_data = await db_manager.list_scrape_jobs(limit=limit, status=status)
+    
+    return [
+        ScrapeJob(
+            job_id=job['id'],
+            source_codes=list(job['source_codes']),
+            full_rescan=job['full_rescan'],
+            created_at=job['created_at'],
+            started_at=job['started_at'],
+            finished_at=job['finished_at'],
+            status=job['status'],
+            progress=job['progress'],
+            error_message=job['error_message'],
+        )
+        for job in jobs_data
+    ]

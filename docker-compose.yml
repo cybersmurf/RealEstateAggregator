@@ -5,22 +5,25 @@ services:
   postgres:
     image: pgvector/pgvector:pg15
     container_name: realestate-db
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: realestate_dev
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "${DB_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     networks:
       - realestate-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # .NET API (Backend + Frontend)
   api:
@@ -28,13 +31,20 @@ services:
       context: .
       dockerfile: src/RealEstate.Api/Dockerfile
     container_name: realestate-api
+    env_file:
+      - .env
     ports:
       - "5001:8080"
       - "5002:8081"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__RealEstate=Host=postgres;Database=realestate_dev;Username=postgres;Password=dev
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT}
+      - ASPNETCORE_URLS=${ASPNETCORE_URLS}
+      - DB_HOST=postgres
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - SCRAPER_API_BASE_URL=${SCRAPER_API_BASE_URL}
       - SKIP_EF_MIGRATIONS=true
     depends_on:
       postgres:
@@ -43,6 +53,7 @@ services:
       - realestate-network
     volumes:
       - ./logs/api:/app/logs
+    restart: unless-stopped
 
   # Python Scraper
   scraper:
@@ -52,10 +63,10 @@ services:
     container_name: realestate-scraper
     environment:
       - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=realestate_dev
-      - DB_USER=postgres
-      - DB_PASSWORD=dev
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
       - PYTHONUNBUFFERED=1
     ports:
       - "8001:8001"
@@ -68,14 +79,15 @@ services:
       - ./scraper:/app
       - ./logs/scraper:/app/logs
     command: python run_api.py
+    restart: unless-stopped
 
   # pgAdmin (volitelné - pro správu DB)
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: realestate-pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@realestate.local
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
       - "5050:80"
@@ -85,6 +97,7 @@ services:
       - realestate-network
     profiles:
       - tools
+    restart: unless-stopped
 
 volumes:
   postgres_data:

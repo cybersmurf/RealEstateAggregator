@@ -5,6 +5,18 @@ using RealEstate.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Override connection string and scraper API base URL from environment variables
+var dbHost = Environment.GetEnvironmentVariable("DB_HOST") ?? "localhost";
+var dbPort = Environment.GetEnvironmentVariable("DB_PORT") ?? "5432";
+var dbName = Environment.GetEnvironmentVariable("DB_NAME") ?? "realestate_dev";
+var dbUser = Environment.GetEnvironmentVariable("DB_USER") ?? "postgres";
+var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "dev";
+var scraperApiBaseUrl = Environment.GetEnvironmentVariable("SCRAPER_API_BASE_URL") ?? "http://localhost:8001";
+
+var connectionString = $"Host={dbHost};Port={dbPort};Database={dbName};Username={dbUser};Password={dbPassword}";
+builder.Configuration["ConnectionStrings:RealEstate"] = connectionString;
+builder.Configuration["ScraperApi:BaseUrl"] = scraperApiBaseUrl;
+
 builder.Services
     .AddEndpointsApiExplorer()
     .AddSwaggerGen();

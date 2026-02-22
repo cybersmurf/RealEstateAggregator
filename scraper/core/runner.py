@@ -2,42 +2,39 @@
 Job runner for scraping tasks.
 Orchestrates individual scrapers and manages job lifecycle.
 """
+import asyncio
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 
-from api.schemas import ScrapeTriggerRequest, ScrapeJob
+from api.schemas import ScrapeTriggerRequest
+from database import get_db_manager
 
 logger = logging.getLogger(__name__)
 
 
-async def run_scrape_job(
-    job_id: UUID,
-    request: ScrapeTriggerRequest,
-    jobs_store: Dict[str, ScrapeJob]
-) -> None:
+async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
     """
     Spustí scraping job pro vybrané zdroje.
     
     Args:
         job_id: UUID jobu
         request: ScrapeTriggerRequest s parametry
-        jobs_store: Reference na dictionary se všemi joby (pro update statusu)
     """
-    job_key = str(job_id)
-    job: Optional[ScrapeJob] = jobs_store.get(job_key)
-    if job is None:
-        logger.error(f"Job {job_id} not found in store")
-        return
-
-    # Update status na Started
-    job.status = "Started"
-    jobs_store[job_key] = job
+    db_manager = get_db_manager()
     
     logger.info(f"Starting scrape job {job_id} with sources: {request.source_codes}, full_rescan: {request.full_rescan}")
-
+    
     try:
+        # Update status na Running
+        await db_manager.update_scrape_job(
+            job_id=job_id,
+            status="Running",
+            started_at=datetime.utcnow(),
+            progress=0
+        )
+        
         # Určit, které zdroje scrapovat
         source_codes: List[str] = request.source_codes or [
             "REMAX",
@@ -54,51 +51,75 @@ async def run_scrape_job(
         from core.scrapers.sreality_scraper import SrealityScraper
         from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper
 
-        scraped_count = 0
-
+        # Vybuduj tasku pro paralelní scraping
+        tasks = []
+        
         if "REMAX" in source_codes:
-            logger.info(f"Job {job_id}: Scraping REMAX...")
+            logger.info(f"Job {job_id}: Scheduling REMAX scraper...")
             scraper = RemaxScraper()
-            count = await scraper.run(full_rescan=request.full_rescan)
-            scraped_count += count
-            logger.info(f"Job {job_id}: REMAX scraped {count} listings")
+            tasks.append(("REMAX", scraper.run(full_rescan=request.full_rescan)))
 
         if "MMR" in source_codes:
-            logger.info(f"Job {job_id}: Scraping MM Reality...")
+            logger.info(f"Job {job_id}: Scheduling MM Reality scraper...")
             scraper = MmRealityScraper()
-            count = await scraper.run(full_rescan=request.full_rescan)
-            scraped_count += count
-            logger.info(f"Job {job_id}: MMR scraped {count} listings")
+            tasks.append(("MMR", scraper.run(full_rescan=request.full_rescan)))
 
         if "PRODEJMETO" in source_codes:
-            logger.info(f"Job {job_id}: Scraping Prodejme.to...")
+            logger.info(f"Job {job_id}: Scheduling Prodejme.to scraper...")
             scraper = ProdejmeToScraper()
-            count = await scraper.run(full_rescan=request.full_rescan)
-            scraped_count += count
-            logger.info(f"Job {job_id}: Prodejme.to scraped {count} listings")
+            tasks.append(("PRODEJMETO", scraper.run(full_rescan=request.full_rescan)))
 
         if "ZNOJMOREALITY" in source_codes:
-            logger.info(f"Job {job_id}: Scraping Znojmo Reality...")
+            logger.info(f"Job {job_id}: Scheduling Znojmo Reality scraper...")
             scraper = ZnojmoRealityScraper()
-            count = await scraper.run(full_rescan=request.full_rescan)
-            scraped_count += count
-            logger.info(f"Job {job_id}: Znojmo Reality scraped {count} listings")
+            tasks.append(("ZNOJMOREALITY", scraper.run(full_rescan=request.full_rescan)))
 
         if "SREALITY" in source_codes:
-            logger.info(f"Job {job_id}: Scraping Sreality...")
+            logger.info(f"Job {job_id}: Scheduling Sreality scraper...")
             scraper = SrealityScraper()
-            count = await scraper.run(full_rescan=request.full_rescan)
-            scraped_count += count
-            logger.info(f"Job {job_id}: Sreality scraped {count} listings")
+            tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
 
-        # Success
-        job.status = "Succeeded"
-        logger.info(f"Job {job_id} completed successfully. Total scraped: {scraped_count}")
+        # Spusť všechny scrapers paralelně
+        if tasks:
+            source_names = [name for name, _ in tasks]
+            coroutines = [coro for _, coro in tasks]
+            
+            # asyncio.gather spistí všechny tasks paralelně
+            results = await asyncio.gather(*coroutines, return_exceptions=True)
+            
+            total_scraped = 0
+            for (source_name, _), result in zip(tasks, results):
+                if isinstance(result, Exception):
+                    logger.error(f"Job {job_id}: {source_name} scraper failed: {result}")
+                else:
+                    total_scraped += result
+                    logger.info(f"Job {job_id}: {source_name} scraped {result} listings")
+            
+            logger.info(f"Job {job_id}: All scrapers completed. Total listings: {total_scraped}")
+            
+            # Update status na Succeeded
+            await db_manager.update_scrape_job(
+                job_id=job_id,
+                status="Succeeded",
+                progress=100,
+                finished_at=datetime.utcnow(),
+                listings_found=total_scraped
+            )
+        else:
+            logger.warning(f"Job {job_id}: No scrapers scheduled")
+            await db_manager.update_scrape_job(
+                job_id=job_id,
+                status="Succeeded",
+                progress=100,
+                finished_at=datetime.utcnow(),
+                error_message="No scrapers scheduled"
+            )
         
     except Exception as exc:
         logger.exception(f"Job {job_id} failed with error: {exc}")
-        job.status = "Failed"
-        job.error_message = str(exc)
-        
-    finally:
-        jobs_store[job_key] = job
+        await db_manager.update_scrape_job(
+            job_id=job_id,
+            status="Failed",
+            error_message=str(exc),
+            finished_at=datetime.utcnow()
+        )

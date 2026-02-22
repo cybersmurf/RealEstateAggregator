@@ -1,10 +1,10 @@
 # Database configuration
 database:
-  host: localhost
-  port: 5432
-  database: realestate_dev
-  user: postgres
-  password: dev
+  host: ${DB_HOST:-localhost}
+  port: ${DB_PORT:-5432}
+  database: ${DB_NAME:-realestate_dev}
+  user: ${DB_USER:-postgres}
+  password: ${DB_PASSWORD:-dev}
   min_connections: 5
   max_connections: 20
 
@@ -61,3 +61,63 @@ logging:
 # Deactivation threshold
 # Počet běhů, po kterých se inzerát označí jako neaktivní, pokud nebyl viděn
 deactivation_threshold: 3
+# ============================================================================
+# SEARCH FILTERS - Geografické a cenové filtry
+# ============================================================================
+search_filters:
+  # Primární region interest - Znojmo okres
+  target_districts:
+    - "Znojmo"  # Okres/okres
+
+  # Filtery pro domy (Houses)
+  houses:
+    enabled: true
+    max_price: 7500000  # Kč
+    min_price: null     # null = bez minima
+    offer_types:
+      - "Sale"          # Prodej
+      - "Rent"          # Pronájem
+    
+  # Filtery pro stavební pozemky (Land)
+  land:
+    enabled: true
+    max_price: 2000000  # Kč
+    min_price: null
+    offer_types:
+      - "Sale"
+    
+  # Filtery pro byty (Apartments)
+  apartments:
+    enabled: false  # Vypnuto, pokud nechceš byty
+    max_price: null
+    min_price: null
+    offer_types:
+      - "Sale"
+      - "Rent"
+    
+  # Filtery pro komerční nemovitosti
+  commercial:
+    enabled: false
+    max_price: null
+    min_price: null
+    offer_types:
+      - "Sale"
+      - "Rent"
+
+# ============================================================================
+# QUALITY FILTERS - Kontrola kvality inzerátů
+# ============================================================================
+quality_filters:
+  # Vyžaduj fotky pro inzerát
+  require_photos: true
+  min_photos: 1
+  
+  # Vyžaduj cenu
+  require_price: true
+  
+  # Vyžaduj lokaci
+  require_location: true
+  
+  # Vyžaduj popis
+  require_description: true
+  min_description_length: 20  # znaků

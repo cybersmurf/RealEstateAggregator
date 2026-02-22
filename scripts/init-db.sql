@@ -238,6 +238,37 @@ CREATE INDEX idx_scrape_runs_status
 COMMENT ON TABLE re_realestate.scrape_runs IS 'Historie běhů scraperu pro monitoring';
 COMMENT ON COLUMN re_realestate.scrape_runs.total_inactivated IS 'Počet inzerátů označených jako neaktivní (zmizely z webu)';
 
+-- ----------------------------------------------------------------------------
+-- Scrape Jobs (Tracking jednotlivých async scrapingových jobů)
+-- ----------------------------------------------------------------------------
+CREATE TABLE re_realestate.scrape_jobs (
+    id uuid PRIMARY KEY,                    -- Job ID (UUID)
+    source_codes text[] NOT NULL,           -- Array: ["REMAX", "MMR", "SREALITY"]
+    full_rescan boolean NOT NULL DEFAULT false,
+    status text NOT NULL DEFAULT 'Queued',  -- "Queued", "Running", "Succeeded", "Failed"
+    progress integer NOT NULL DEFAULT 0,    -- Procent (0-100)
+    
+    listings_found integer NOT NULL DEFAULT 0,
+    listings_new integer NOT NULL DEFAULT 0,
+    listings_updated integer NOT NULL DEFAULT 0,
+    
+    error_message text,
+    
+    created_at timestamptz NOT NULL DEFAULT now(),
+    started_at timestamptz,
+    finished_at timestamptz
+);
+
+CREATE INDEX idx_scrape_jobs_status_created_at
+    ON re_realestate.scrape_jobs (status, created_at DESC);
+
+CREATE INDEX idx_scrape_jobs_created_at
+    ON re_realestate.scrape_jobs (created_at DESC);
+
+COMMENT ON TABLE re_realestate.scrape_jobs IS 'Async scraping joby - tracking single run iniciování desde API';
+COMMENT ON COLUMN re_realestate.scrape_jobs.source_codes IS 'Array zdrojů pour scrapeovat (REMAX, MMR, SREALITY, atd.)';
+COMMENT ON COLUMN re_realestate.scrape_jobs.full_rescan IS 'true = full rescan všeho, false = pouze oposledy změné';
+
 -- ============================================================================
 -- FUNCTIONS & TRIGGERS
 -- ============================================================================
