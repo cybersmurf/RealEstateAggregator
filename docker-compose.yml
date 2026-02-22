@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: realestate-db
+    environment:
+      POSTGRES_DB: realestate_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - realestate-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # .NET API (Backend + Frontend)
+  api:
+    build:
+      context: .
+      dockerfile: src/RealEstate.Api/Dockerfile
+    container_name: realestate-api
+    ports:
+      - "5001:8080"
+      - "5002:8081"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=realestate_dev;Username=postgres;Password=dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - realestate-network
+    volumes:
+      - ./logs/api:/app/logs
+
+  # Python Scraper
+  scraper:
+    build:
+      context: scraper
+      dockerfile: Dockerfile
+    container_name: realestate-scraper
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=realestate_dev
+      - DB_USER=postgres
+      - DB_PASSWORD=dev
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - realestate-network
+    volumes:
+      - ./scraper:/app
+      - ./logs/scraper:/app/logs
+    command: python -m core.scheduler
+
+  # pgAdmin (volitelné - pro správu DB)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: realestate-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@realestate.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - realestate-network
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  realestate-network:
+    driver: bridge

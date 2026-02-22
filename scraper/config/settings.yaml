@@ -1,0 +1,57 @@
+# Database configuration
+database:
+  host: localhost
+  port: 5432
+  database: realestate_dev
+  user: postgres
+  password: dev
+  min_connections: 5
+  max_connections: 20
+
+# Scraping settings
+scraping:
+  max_pages_per_source: 10
+  request_timeout: 30
+  delay_between_requests: 1.0  # seconds
+  max_retries: 3
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+  respect_robots_txt: true
+
+# Sources configuration
+sources:
+  - id: "00000000-0000-0000-0000-000000000001"  # Placeholder UUID
+    name: "Remax"
+    base_url: "https://www.remax-czech.cz"
+    enabled: true
+    scraper_class: "RemaxScraper"
+    
+  - id: "00000000-0000-0000-0000-000000000002"
+    name: "MM Reality"
+    base_url: "https://www.mmreality.cz"
+    enabled: true
+    scraper_class: "MmRealityScraper"
+    
+  - id: "00000000-0000-0000-0000-000000000003"
+    name: "Prodejme.to"
+    base_url: "https://www.prodejme.to"
+    enabled: false  # Může vyžadovat Playwright
+    scraper_class: "ProdejmeToScraper"
+
+# Scheduler configuration
+scheduler:
+  enabled: true
+  # Cron format: minute hour day month day_of_week
+  cron_schedule: "0 8,20 * * *"  # Každý den v 8:00 a 20:00
+  timezone: "Europe/Prague"
+
+# Logging configuration
+logging:
+  level: INFO
+  format: "json"  # json nebo text
+  file: "logs/scraper.log"
+  max_file_size_mb: 100
+  backup_count: 10
+  
+# Deactivation threshold
+# Počet běhů, po kterých se inzerát označí jako neaktivní, pokud nebyl viděn
+deactivation_threshold: 3

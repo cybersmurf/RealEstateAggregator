@@ -1,0 +1,59 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Playwright;
+using Pgvector.EntityFrameworkCore;
+using RealEstate.Api.Services;
+using RealEstate.Domain.Repositories;
+using RealEstate.Infrastructure;
+using RealEstate.Infrastructure.Repositories;
+
+namespace RealEstate.Api;
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddRealEstateServices(this IServiceCollection services)
+    {
+        services.AddScoped<IListingService, ListingService>();
+        services.AddScoped<ISourceService, SourceService>();
+        services.AddScoped<IAnalysisService, AnalysisService>();
+        services.AddScoped<IScrapingService, ScrapingService>();
+        services.AddScoped<IPlaywrightScrapingOrchestrator, PlaywrightScrapingOrchestrator>();
+        services.AddScoped<IRemaxZnojmoImportService, RemaxZnojmoImportService>();
+
+        // Repositories
+        services.AddScoped<IListingRepository, ListingRepository>();
+
+        // Playwright
+        services.AddSingleton(async sp =>
+        {
+            return await Microsoft.Playwright.Playwright.CreateAsync();
+        });
+
+        services.AddHttpClient("ScraperApi", client =>
+        {
+            client.BaseAddress = new Uri("http://localhost:8001"); // URL Python FastAPI
+            client.Timeout = TimeSpan.FromMinutes(2);
+        });
+
+        return services;
+    }
+
+    public static IServiceCollection AddRealEstateDb(this IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("RealEstate")
+            ?? throw new InvalidOperationException("Connection string 'RealEstate' not found.");
+
+        services.AddDbContext<RealEstateDbContext>(options =>
+        {
+            options.UseNpgsql(connectionString, npgsqlOptions =>
+            {
+                // 🔥 Enable pgvector support in EF Core
+                npgsqlOptions.UseVector();
+            });
+            
+            // 🔥 Enable snake_case naming convention for PostgreSQL
+            options.UseSnakeCaseNamingConvention();
+        });
+
+        return services;
+    }
+}

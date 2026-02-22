@@ -1,0 +1,97 @@
+"""
+FastAPI application for Real Estate Scraper.
+Provides REST endpoints to trigger and monitor scraping jobs.
+"""
+from fastapi import FastAPI, BackgroundTasks, HTTPException
+from uuid import uuid4
+from datetime import datetime
+from typing import Dict
+
+from .schemas import ScrapeTriggerRequest, ScrapeTriggerResponse, ScrapeJob
+from ..core.runner import run_scrape_job
+
+app = FastAPI(
+    title="RealEstate Scraper API",
+    description="API pro spouštění a monitorování scraping jobů realitních inzerátů",
+    version="1.0.0"
+)
+
+# V jednoduché verzi držíme joby jen v paměti
+# V produkci bys použil Redis, PostgreSQL, nebo jiné persistent storage
+SCRAPE_JOBS: Dict[str, ScrapeJob] = {}
+
+
+@app.get("/")
+async def root():
+    """Health check endpoint."""
+    return {
+        "service": "RealEstate Scraper API",
+        "status": "running",
+        "version": "1.0.0"
+    }
+
+
+@app.post("/v1/scrape/run", response_model=ScrapeTriggerResponse)
+async def trigger_scrape(
+    request: ScrapeTriggerRequest,
+    background_tasks: BackgroundTasks,
+) -> ScrapeTriggerResponse:
+    """
+    Spustí scraping job v pozadí.
+    
+    Args:
+        request: ScrapeTriggerRequest s optional source_codes a full_rescan flag
+        background_tasks: FastAPI BackgroundTasks pro async spuštění
+        
+    Returns:
+        ScrapeTriggerResponse s job_id a statusem
+    """
+    job_id = uuid4()
+    job = ScrapeJob(
+        job_id=job_id,
+        source_codes=request.source_codes,
+        full_rescan=request.full_rescan,
+        created_at=datetime.utcnow(),
+        status="Queued",
+    )
+    SCRAPE_JOBS[str(job_id)] = job
+
+    # Spustit async v backgroundu, aby API odpovědělo hned
+    background_tasks.add_task(run_scrape_job, job_id, request, SCRAPE_JOBS)
+
+    return ScrapeTriggerResponse(
+        job_id=job_id,
+        status="Queued",
+        message="Scraping job enqueued.",
+    )
+
+
+@app.get("/v1/scrape/jobs/{job_id}", response_model=ScrapeJob)
+async def get_scrape_job(job_id: str) -> ScrapeJob:
+    """
+    Získá status scraping jobu podle job_id.
+    
+    Args:
+        job_id: UUID jobu jako string
+        
+    Returns:
+        ScrapeJob s aktuálním stavem
+        
+    Raises:
+        HTTPException 404 pokud job neexistuje
+    """
+    job = SCRAPE_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    return job
+
+
+@app.get("/v1/scrape/jobs", response_model=list[ScrapeJob])
+async def list_scrape_jobs() -> list[ScrapeJob]:
+    """
+    Vrátí seznam všech scraping jobů.
+    
+    Returns:
+        List[ScrapeJob] - všechny joby v paměti
+    """
+    return list(SCRAPE_JOBS.values())

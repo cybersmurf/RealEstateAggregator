@@ -1,0 +1,145 @@
+@page "/listings"
+
+@inject HttpClient Http
+
+<MudPaper Class="pa-4">
+    <MudStack Spacing="2">
+        <!-- Filtry (zjednodušené) -->
+        <MudTextField @bind-Value="_searchText" Label="Hledat text" />
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SearchAsync">
+            Hledat
+        </MudButton>
+
+        <MudTable Items="_items" Hover="true" Dense="true">
+            <HeaderContent>
+                <MudTh>Zdroj</MudTh>
+                <MudTh>Titulek</MudTh>
+                <MudTh>Lokalita</MudTh>
+                <MudTh>Cena</MudTh>
+                <MudTh>Plocha</MudTh>
+                <MudTh>Pozemek</MudTh>
+                <MudTh>Stav</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.SourceName</MudTd>
+                <MudTd>@context.Title</MudTd>
+                <MudTd>@context.LocationText</MudTd>
+                <MudTd>@(context.Price?.ToString("N0") ?? "-") Kč</MudTd>
+                <MudTd>@(context.AreaBuiltUp?.ToString("N0") ?? "-") m²</MudTd>
+                <MudTd>@(context.AreaLand?.ToString("N0") ?? "-") m²</MudTd>
+                <MudTd>@context.UserStatus</MudTd>
+                <MudTd>
+                    <MudButton Size="Size.Small"
+                               Color="Color.Primary"
+                               Variant="Variant.Text"
+                               OnClick="@(() => NavigateToDetail(context.Id))">
+                        Detail
+                    </MudButton>
+                    <MudButton Size="Size.Small"
+                               Color="Color.Secondary"
+                               Variant="Variant.Text"
+                               OnClick="@(() => CreateAnalysisAsync(context.Id))">
+                        Udělej analýzu
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager />
+            </PagerContent>
+        </MudTable>
+    </MudStack>
+</MudPaper>
+
+@code {
+    private string? _searchText;
+    private List<ListingSummaryDto> _items = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        var filter = new ListingFilterDto
+        {
+            SearchText = _searchText,
+            Page = 1,
+            PageSize = 50
+        };
+
+        var response = await Http.PostAsJsonAsync("api/listings/search", filter);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>();
+        _items = result?.Items.ToList() ?? new List<ListingSummaryDto>();
+    }
+
+    private void NavigateToDetail(Guid id)
+    {
+        // NavigationManager.NavigateTo($"/listings/{id}");
+    }
+
+    private async Task CreateAnalysisAsync(Guid id)
+    {
+        var request = new AnalysisJobCreateDto
+        {
+            StorageProvider = "GoogleDrive"
+        };
+
+        var response = await Http.PostAsJsonAsync($"api/analysis/listing/{id}", request);
+        if (!response.IsSuccessStatusCode)
+        {
+            // show snackbar
+            return;
+        }
+
+        // optional: poll job / show snackbar
+    }
+
+    // Client-side DTO models (shared with API)
+    public sealed class ListingSummaryDto
+    {
+        public Guid Id { get; set; }
+        public string SourceName { get; set; } = string.Empty;
+        public string SourceCode { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string LocationText { get; set; } = string.Empty;
+        public string? Region { get; set; }
+        public string? District { get; set; }
+        public string? Municipality { get; set; }
+        public string PropertyType { get; set; } = string.Empty;
+        public string OfferType { get; set; } = string.Empty;
+        public decimal? Price { get; set; }
+        public string? PriceNote { get; set; }
+        public double? AreaBuiltUp { get; set; }
+        public double? AreaLand { get; set; }
+        public DateTime FirstSeenAt { get; set; }
+        public DateTime? UpdatedAtSource { get; set; }
+        public bool IsActive { get; set; }
+        public string UserStatus { get; set; } = "New";
+        public bool HasNotes { get; set; }
+        public DateTime? UserStatusLastUpdated { get; set; }
+    }
+
+    public sealed class ListingFilterDto
+    {
+        public string? SearchText { get; set; }
+        public int Page { get; set; } = 1;
+        public int PageSize { get; set; } = 50;
+    }
+
+    public sealed class PagedResultDto<T>
+    {
+        public IReadOnlyList<T> Items { get; set; } = Array.Empty<T>();
+        public int Page { get; set; }
+        public int PageSize { get; set; }
+        public int TotalCount { get; set; }
+    }
+
+    public sealed class AnalysisJobCreateDto
+    {
+        public string StorageProvider { get; set; } = "GoogleDrive";
+    }
+}

@@ -1,0 +1,3 @@
+"""
+FastAPI scraper API package.
+"""
