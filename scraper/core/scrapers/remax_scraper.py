@@ -7,13 +7,15 @@ Optimalizovaný scraper s hybridním přístupem:
 """
 import asyncio
 import logging
+import re
 import time
 from typing import Any, List, Dict, Optional
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
 
-from ..browser import get_browser_manager, close_browser_manager
+from ..browser import get_browser_manager
 from ..utils import timer, scraper_metrics_context
 
 logger = logging.getLogger(__name__)
@@ -26,22 +28,46 @@ class RemaxScraper:
     Strategy:
     1. List pages: httpx + BeautifulSoup (fast)
     2. Detail pages: httpx first, Playwright fallback pokud je JS required
+    
+    URL structure:
+    - List: https://www.remax-czech.cz/reality/vyhledavani/?stranka=1
+    - Detail: https://www.remax-czech.cz/reality/detail/{id}/{slug}
     """
     
-    BASE_URL = "https://www.remax-czech.cz/reality/vyhledavani/"
+    BASE_URL = "https://www.remax-czech.cz"
+    SEARCH_URL = "https://www.remax-czech.cz/reality/vyhledavani/"
     SOURCE_CODE = "REMAX"
-    , use_playwright={self.use_playwright_for_details})")
+    
+    def __init__(self, use_playwright_for_details: bool = False):
+        """
+        Args:
+            use_playwright_for_details: Pokud True, použije Playwright i na detail pages
+        """
+        self.use_playwright_for_details = use_playwright_for_details
+        self.scraped_count = 0
+        self._http_client: Optional[httpx.AsyncClient] = None
+    
+    async def scrape(self, max_pages: int = 5) -> int:
+        """
+        Hlavní entry point pro scraping.
+        
+        Args:
+            max_pages: Maximální počet list pages k procházení (default 5 pro testing)
+            
+        Returns:
+            Počet úspěšně scrapnutých inzerátů
+        """
+        logger.info(f"Starting REMAX scraper (max_pages={max_pages}, use_playwright={self.use_playwright_for_details})")
         
         with scraper_metrics_context() as metrics:
             # Reuse HTTP client pro všechny requesty
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
                 self._http_client = client
                 
                 page = 1
-                max_pages = 5  # Pro testování omezíme na 5 stránek
                 
                 while page <= max_pages:
-                    url = f"{self.BASE_URL}?page={page}"
+                    url = f"{self.SEARCH_URL}?stranka={page}"
                     
                     try:
                         with timer(f"Fetch list page {page}"):
@@ -58,23 +84,20 @@ class RemaxScraper:
                             logger.info(f"No more items on page {page}, stopping")
                             break
 
-                        # Zpracuj items - pro testování jen uložíme list data
+                        # Zpracuj items
                         for item in items:
                             try:
-                                # Optional: fetch detail page
-                                # if self.use_playwright_for_details:
-                                #     detail_html = await self._fetch_detail_playwright(item["detail_url"])
-                                # else:
-                                #     detail_html = await self._fetch_page_http(item["detail_url"])
-                                # normalized = self._parse_detail_page(detail_html, item)
-                                # await self._save_listing(normalized)
+                                # Fetch detail page pro kompletní data
+                                detail_url = item["detail_url"]
+                                detail_html = await self._fetch_page_http(detail_url)
+                                normalized = self._parse_detail_page(detail_html, item)
                                 
-                                await self._save_listing(item)
+                                await self._save_listing(normalized)
                                 self.scraped_count += 1
                                 metrics.increment_scraped()
                                 
                             except Exception as exc:
-                                logger.error(f"Error processing item: {exc}")
+                                logger.error(f"Error processing item {item.get('title', 'N/A')}: {exc}")
                                 metrics.increment_failed()
 
                         page += 1
@@ -86,7 +109,11 @@ class RemaxScraper:
                         break
                         
                 self._http_client = None
-                    for i_http(self, url: str) -> str:
+        
+        logger.info(f"REMAX scraper finished. Scraped {self.scraped_count} listings")
+        return self.scraped_count
+
+    async def _fetch_page_http(self, url: str) -> str:
         """
         Stáhne HTML stránky pomocí httpx (fast).
         Používej pro non-JS stránky.
@@ -99,97 +126,157 @@ class RemaxScraper:
         response = await self._http_client.get(url)
         response.raise_for_status()
         return response.text
-        
-    async def _fetch_detail_playwright(self, url: str) -> str:
-        """
-        Stáhne detail stránku pomocí Playwright (slower, pro JS required pages).
-        """
-        logger.debug(f"Fetching via Playwright: {url}")
-        
-        browser_manager = await get_browser_manager(
-            headless=True,
-            max_concurrent=8,
-            block_resources=True,
-        )
-        
-        html = await browser_manager.fetch_page(
-            url,
-            wait_for_selector=".remax-property-detail",  # Přizpůsob podle skutečného HTML
-            wait_for_state="domcontentloaded",
-        )
-        
-        return html
-                        # Pro zjednodušení uložíme jen list data
-                        await self._save_listing(item)
-                        self.scraped_count += 1
-
-                    page += 1
-                    await asyncio.sleep(1)  # Throttling - respektuj servery
-                    
-                except Exception as exc:
-                    logger.error(f"Error scraping page {page}: {exc}")
-                    break
-        
-        logger.info(f"REMAX scraper finished. Scraped {self.scraped_count} listings")
-        return self.scraped_count
-
-    async def _fetch_page(self, client: httpx.AsyncClient, url: str) -> str:
-        """Stáhne HTML stránky."""
-        logger.debug(f"Fetching {url}")
-        response = await client.get(url)
-        response.raise_for_status()
-        return response.text
 
     def _parse_list_page(self, html: str) -> List[Dict[str, Any]]:
         """
         Parsuje list stránku s inzeráty.
         
-        NOTE: Toto je MOCK implementace - skutečné HTML selektory se liší!
-        Musíš si prohlédnout HTML strukturu REMAX webu a upravit selektory.
+        Selektory jsou založené na skutečné struktuře REMAX webu (leden 2026).
         """
         soup = BeautifulSoup(html, "html.parser")
         results: List[Dict[str, Any]] = []
 
-        # MOCK - tady si přizpůsobíš selektory podle skutečného HTML Remaxu
-        # Pro testování vracíme prázdný list (protože nemáme skutečné HTML)
-        # for card in soup.select(".remax-search-result-item"):
-        #     title_el = card.select_one(".remax-search-result-title")
-        #     url_el = card.select_one("a")
-        #     location_el = card.select_one(".remax-search-result-location")
-        #
-        #     if not title_el or not url_el:
-        #         continue
-        #
-        #     results.append({
-        #         "source_code": self.SOURCE_CODE,
-        #         "title": title_el.get_text(strip=True),
-        #         "detail_url": url_el["href"],
-        #         "location_text": location_el.get_text(strip=True) if location_el else "",
-        #     })
+        # Najdi všechny inzeráty (odkazy na detail)
+        # REMAX používá <a href="/reality/detail/..."> strukturu
+        for link in soup.select('a[href*="/reality/detail/"]'):
+            href = link.get('href', '')
+            if not href or '/reality/detail/' not in href:
+                continue
+                
+            # Získej absolutní URL
+            detail_url = urljoin(self.BASE_URL, href)
+            
+            # Extrahuj ID z URL (např. /reality/detail/423340/prodej-domu-123-m2-rakovnik)
+            match = re.search(r'/reality/detail/(\d+)/', href)
+            if not match:
+                continue
+            external_id = match.group(1)
+            
+            # Zkus najít title z textu odkazu nebo parent elementu
+            title = link.get_text(strip=True)
+            if not title:
+                # Zkus parent element
+                parent = link.find_parent()
+                if parent:
+                    title = parent.get_text(' ', strip=True)
+            
+            if not title or len(title) < 5:
+                continue
+            
+            results.append({
+                "source_code": self.SOURCE_CODE,
+                "external_id": external_id,
+                "detail_url": detail_url,
+                "title": title[:200],  # Limit title length
+            })
 
-        logger.debug(f"Parsed {len(results)} items from list page")
-        return results
+        # Deduplikace podle external_id (u REMAX se často opakují odkazy)
+        seen = set()
+        unique_results = []
+        for item in results:
+            ext_id = item["external_id"]
+            if ext_id not in seen:
+                seen.add(ext_id)
+                unique_results.append(item)
+
+        logger.debug(f"Parsed {len(unique_results)} unique items from list page")
+        return unique_results
 
     def _parse_detail_page(self, html: str, list_item: Dict[str, Any]) -> Dict[str, Any]:
         """
         Parsuje detail stránku inzerátu.
         
-        NOTE: MOCK implementace - upravit podle skutečného HTML!
+        Selektory jsou založené na skutečné struktuře REMAX detailu (leden 2026).
         """
         soup = BeautifulSoup(html, "html.parser")
 
-        # MOCK - přizpůsob selektory podle konkrétní struktury detailu
-        # description_el = soup.select_one(".remax-property-description")
-        # description = description_el.get_text("\n", strip=True) if description_el else ""
-
-        return {
+        # Extrahuj hlavní data
+        result = {
             "source_code": self.SOURCE_CODE,
-            "title": list_item["title"],
+            "external_id": list_item["external_id"],
             "url": list_item["detail_url"],
-            "location_text": list_item["location_text"],
-            "description": "",  # description
-            # další pole: cena, plocha, typ, fotky...
         }
+        
+        # Title (z H1 nebo page title)
+        h1 = soup.find('h1')
+        if h1:
+            result["title"] = h1.get_text(' ', strip=True)[:200]
+        else:
+            result["title"] = list_item.get("title", "")
+        
+        # Location (hledej text s "ulice" nebo "část obce")
+        location_candidates = soup.find_all(string=re.compile(r'ulice|část obce|okres', re.I))
+        if location_candidates:
+            result["location_text"] = location_candidates[0].strip()[:200]
+        else:
+            result["location_text"] = ""
+        
+        # Price (hledej čísla s "Kč")
+        price_text = soup.find(string=re.compile(r'(\d[\d\s]+)\s*Kč'))
+        if price_text:
+            price_match = re.search(r'(\d[\d\s]+)\s*Kč', price_text)
+            if price_match:
+                price_str = price_match.group(1).replace(' ', '').replace('\xa0', '')
+                try:
+                    result["price"] = float(price_str)
+                except ValueError:
+                    result["price"] = None
+        
+        # Description (dlouhý text odstavce)
+        description_parts = []
+        for p in soup.find_all(['p', 'div'], limit=20):
+            text = p.get_text(' ', strip=True)
+            if len(text) > 100:  # Delší odstavce jsou pravděpodobně popis
+                description_parts.append(text)
+            if len(description_parts) >= 3:  # Max 3 odstavce
+                break
+        result["description"] = '\n\n'.join(description_parts)[:2000]
+        
+        # Area (hledej "m²" nebo "m2")
+        area_texts = soup.find_all(string=re.compile(r'(\d+)\s*m[²2]'))
+        if area_texts:
+            for area_text in area_texts[:2]:  # Max 2 first matches
+                match = re.search(r'(\d+)\s*m[²2]', area_text)
+                if match:
+                    area_value = float(match.group(1))
+                    # Rozlišíme zastavěnou plochu vs pozemek podle kontextu
+                    if 'pozemek' in area_text.lower() or 'parcela' in area_text.lower():
+                        result["area_land"] = area_value
+                    else:
+                        if "area_built_up" not in result:
+                            result["area_built_up"] = area_value
+        
+        # Photos (hledej <img> s URL obsahujícími "remax")
+        photo_urls = []
+        for img in soup.find_all('img'):
+            src = img.get('src', '')
+            if 'mlsf.remax-czech.cz' in src or '/data/' in src:
+                # Absolutní URL
+                photo_url = urljoin(self.BASE_URL, src)
+                if photo_url not in photo_urls:
+                    photo_urls.append(photo_url)
+        result["photos"] = photo_urls[:20]  # Max 20 photos
+        
+        # Property type (dedukuj z titulu)
+        title_lower = result.get("title", "").lower()
+        if "dům" in title_lower or "domu" in title_lower or "vila" in title_lower or "vilay" in title_lower:
+            result["property_type"] = "Dům"
+        elif "byt" in title_lower or "bytu" in title_lower:
+            result["property_type"] = "Byt"
+        elif "pozemek" in title_lower:
+            result["property_type"] = "Pozemek"
+        elif "komerč" in title_lower or "sklado" in title_lower or "kancelář" in title_lower:
+            result["property_type"] = "Komerční"
+        else:
+            result["property_type"] = "Ostatní"
+        
+        # Offer type (prodej vs pronájem)
+        if "pronájem" in title_lower or "pronajem" in title_lower:
+            result["offer_type"] = "Pronájem"
+        else:
+            result["offer_type"] = "Prodej"
+        
+        return result
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         """
@@ -201,6 +288,6 @@ class RemaxScraper:
         - Normalizace dat podle DB schema
         """
         # Pro testování jen logujeme
-        logger.debug(f"Saving listing: {listing.get('title', 'N/A')}")
+        logger.info(f"Would save listing: {listing.get('title', 'N/A')[:50]} | {listing.get('price', 'N/A')} Kč | {listing.get('location_text', 'N/A')[:40]}")
         # await db.save_listing(listing)
         pass
