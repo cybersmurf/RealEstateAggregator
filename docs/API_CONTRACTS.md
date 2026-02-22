@@ -262,6 +262,68 @@ Získá seznam všech zdrojů (realitních kanceláří).
 
 ---
 
+## 🕷️ Scraping (Playwright) API
+
+### POST /api/scraping-playwright/run
+
+Spustí scraping job v .NET (Playwright). Primárně pro REMAX. Endpoint je zatím neversionovaný.
+
+#### Request Body
+
+```json
+{
+  "sourceCodes": ["REMAX"],
+  "fullRescan": false,
+  "remaxProfile": {
+    "name": "Znojmo district",
+    "regionId": 116,
+    "districtId": 3713,
+    "propertyTypeMask": 6,
+    "priceMax": 7500000,
+    "searchType": 2,
+    "offerType": "Sale",
+    "maxPages": 5
+  }
+}
+```
+
+**ScrapeTriggerDto:**
+
+| Pole | Typ | Povinný | Popis |
+|------|-----|---------|-------|
+| `sourceCodes` | `string[]` | Ne | Pokud je prázdné, scrapuje všechny aktivní zdroje |
+| `fullRescan` | `bool` | Ne | Ignoruje cache, scrapuje vše |
+| `remaxProfile` | `object` | Ne | Profil pro REMAX (volitelný, má default) |
+
+**RemaxScrapingProfileDto:**
+
+| Pole | Typ | Povinný | Popis |
+|------|-----|---------|-------|
+| `name` | `string` | Ne | Jméno profilu |
+| `directUrl` | `string` | Ne | Přímá URL (má prioritu nad ostatními poli) |
+| `regionId` | `int` | Ne | Region ID (např. 116 = Jihomoravský kraj) |
+| `districtId` | `int` | Ne | Okres ID (např. 3713 = Znojmo) |
+| `cityName` | `string` | Ne | Město (text) |
+| `propertyTypeMask` | `int` | Ne | Typ nemovitosti (bitmask) |
+| `priceMax` | `long` | Ne | Maximální cena |
+| `priceMin` | `long` | Ne | Minimální cena |
+| `searchText` | `string` | Ne | Fulltext |
+| `searchType` | `int` | Ne | 1=fulltext, 2=region-based |
+| `offerType` | `string` | Ne | `Sale` nebo `Rent` |
+| `maxPages` | `int` | Ne | Maximální počet stran |
+
+#### Response 200 OK
+
+```json
+{
+  "jobId": "c62493ab-e619-46ca-952d-c25db6043f4c",
+  "status": "Succeeded",
+  "message": "Playwright scraping job completed for sources: REMAX"
+}
+```
+
+---
+
 ## 🧠 Analysis API
 
 ### POST /api/v1/listings/{id}/analysis

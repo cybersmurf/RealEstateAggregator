@@ -10,11 +10,17 @@
 
 Real Estate Aggregator scrapes Czech real estate websites (REMAX, M&M Reality, Prodejme.to), stores listings in PostgreSQL with pgvector for semantic search, and provides a Blazor UI for browsing and AI analysis.
 
+## Persistent Rules (Always Apply)
+
+- MudBlazor 9 je primarni UI stack. Nezminuj MudBlazor 7, pokud nejde o historickou poznamku.
+- Udrzuj verze stacku konzistentni napric README, QUICK_START, TECHNICAL_DESIGN, API_CONTRACTS, AI_SESSION_SUMMARY.
+- Pri zmenach scrapingu aktualizuj souvisejici dokumentaci a instrukce, aby odpovidaly realnemu chovani.
+
 ### Technology Stack
 
 | Layer | Technologies |
 |-------|-------------|
-| **Frontend** | Blazor Server + MudBlazor 7.x |
+| **Frontend** | Blazor Server + MudBlazor 9.x |
 | **Backend** | .NET 10 + ASP.NET Core Minimal APIs |
 | **Database** | PostgreSQL 15 + pgvector extension |
 | **ORM** | EF Core 10 + EFCore.NamingConventions |
@@ -466,7 +472,7 @@ modelBuilder.Entity<Listing>()
 
 ### Issue: MudBlazor compile error "Cannot infer type"
 **Symptom:** `CS0411: The type arguments for method cannot be inferred`  
-**Cause:** MudBlazor 7.x requires explicit type parameters  
+**Cause:** MudBlazor 9.x requires explicit type parameters  
 **Solution:** Add `T` or `TData`:
 ```razor
 <MudChip T="string">Source</MudChip>

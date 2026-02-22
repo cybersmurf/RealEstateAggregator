@@ -6,6 +6,15 @@
 
 ---
 
+## ✅ Latest Updates (22. února 2026)
+
+- REMAX Playwright scraping: aktualizovány CSS selektory dle aktualniho HTML (`.pl-items__item`, `data-title`, `data-price`).
+- Pridana detekce `PropertyType` a `OfferType` z textu (Byt, Dum, Pozemek, Pronajem).
+- Dokumentace srovnana na .NET 10 + MudBlazor 9 jako primarni stack.
+- Pridan samostatny REMAX scraping guide a known issues v backlogu.
+
+---
+
 ## 🎯 Cíle session
 
 **Původní zadání:** "Celkově analyzuj a udělej plán co ještě chybí a autonomně to dokonči"
@@ -168,7 +177,7 @@ try {
 │  - Home.razor (Dashboard s kartami)                          │
 │  - Listings.razor (Tabulka + pagination + search)            │
 │  - ListingDetail.razor (Detail + carousel + user state)      │
-│  - MudBlazor 7.x components                                  │
+│  - MudBlazor 9.x components                                  │
 └───────────────────────┬─────────────────────────────────────┘
                         │
                         │ HTTP :5001
@@ -232,7 +241,7 @@ try {
 
 | Vrstva | Stack |
 |--------|-------|
-| **Frontend** | Blazor Server + MudBlazor 7.x |
+| **Frontend** | Blazor Server + MudBlazor 9.x |
 | **Backend** | .NET 10 + ASP.NET Core Minimal APIs |
 | **Database** | PostgreSQL 15 + pgvector extension |
 | **ORM** | EF Core 10 + EFCore.NamingConventions |
@@ -505,7 +514,7 @@ dc3170b - SourceService + enum converters + MudBlazor fix
 - .NET 10.0
 - PostgreSQL 15
 - Python 3.12
-- MudBlazor 7.x
+- MudBlazor 9.x
 - FastAPI 0.115+
 - asyncpg 0.29+
 

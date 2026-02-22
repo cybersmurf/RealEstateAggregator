@@ -10,6 +10,12 @@
 
 Full-stack aplikace pro agregaci realitních inzerátů z českých webů (REMAX, M&M Reality, Prodejme.to). Podporuje sémantické vyhledávání pomocí pgvector embeddings a AI analýzu inzerátů.
 
+## Persistent Rules (Always Apply)
+
+- MudBlazor 9 je primarni UI stack. Nezminuj MudBlazor 7, pokud nejde o historickou poznamku.
+- Udrzuj verze stacku konzistentni napric README, QUICK_START, TECHNICAL_DESIGN, API_CONTRACTS, AI_SESSION_SUMMARY.
+- Pri zmenach scrapingu aktualizuj souvisejici dokumentaci a instrukce, aby odpovidaly realnemu chovani.
+
 ### Architecture
 
 ```

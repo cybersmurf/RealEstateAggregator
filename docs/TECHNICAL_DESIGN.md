@@ -68,11 +68,12 @@
             │ Write
             │
 ┌───────────┴─────────────────────────────────────────────────────┐
-│                  SCRAPING LAYER (Python)                         │
+│          SCRAPING LAYER (Playwright .NET + Python)                │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Scraper Runner (Orchestrator)                           │  │
-│  │  • RemaxScraper  • MmRealityScraper  • ProdejmeToScraper │  │
+│  │  Scraping Orchestrators                                  │  │
+│  │  • Playwright (.NET) – REMAX                             │  │
+│  │  • Python Scraper API – MMR, Prodejme.to, další         │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │

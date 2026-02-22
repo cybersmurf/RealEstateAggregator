@@ -132,7 +132,7 @@ gh copilot suggest "add blazor page for user favorites"
 
 ## MudBlazor Type Parameters (Critical!)
 
-MudBlazor 7.x requires explicit type parameters:
+MudBlazor 9.x requires explicit type parameters:
 
 ```razor
 @* ✅ Correct *@

@@ -8,9 +8,15 @@
 
 ## Quick Reference
 
+### Persistent Rules (Always Apply)
+
+- MudBlazor 9 je primarni UI stack. Nezminuj MudBlazor 7, pokud nejde o historickou poznamku.
+- Udrzuj verze stacku konzistentni napric README, QUICK_START, TECHNICAL_DESIGN, API_CONTRACTS, AI_SESSION_SUMMARY.
+- Pri zmenach scrapingu aktualizuj souvisejici dokumentaci a instrukce, aby odpovidaly realnemu chovani.
+
 ```yaml
 Architecture:
-  Frontend: Blazor Server (:5002) + MudBlazor 7.x
+    Frontend: Blazor Server (:5002) + MudBlazor 9.x
   Backend: .NET 10 Minimal APIs (:5001)
   Database: PostgreSQL 15 + pgvector (:5432)
   Scraper: Python FastAPI (:8001) + asyncpg
@@ -169,7 +175,7 @@ property_type_db = property_type_map.get(listing_data["property_type"], "Other")
 
 ### 3. MudBlazor Type Parameters
 ```razor
-@* MudBlazor 7.x requires explicit types *@
+@* MudBlazor 9.x requires explicit types *@
 <MudChip T="string">@source.Name</MudChip>
 <MudCarousel TData="object">
     @foreach (var photo in photos) {

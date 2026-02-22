@@ -1,7 +1,7 @@
 # Real Estate Aggregator
 
 > **Komplexní agregátor realitních inzerátů s pokročilým filtrováním a AI analýzou**  
-> *.NET 9 • MudBlazor 9 • Python Scraping • PostgreSQL*
+> *.NET 10 • MudBlazor 9 • Playwright .NET + Python Scraping • PostgreSQL*
 
 ---
 
@@ -29,7 +29,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 └──────────────────────┬──────────────────────────────────────┘
                        │ REST API
 ┌──────────────────────▼──────────────────────────────────────┐
-│              Backend (.NET 9 - ASP.NET Core)                 │
+│              Backend (.NET 10 - ASP.NET Core)                │
 │  • Business logika  • EF Core  • Background služby          │
 └──────────────────────┬──────────────────────────────────────┘
                        │
@@ -44,8 +44,8 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
           ▲
           │ DB write
 ┌─────────┴──────────────────────────────────────────────────┐
-│              Scraping služba (Python)                       │
-│  • Remax  • MM Reality  • Prodejme.to  • další zdroje      │
+│        Scraping služby (Playwright .NET + Python)           │
+│  • REMAX (Playwright) • MMR • Prodejme.to • další zdroje   │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -53,16 +53,17 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 
 ## 🛠️ Technologický stack
 
-### Backend (.NET 9)
-- **Framework**: ASP.NET Core 9.0
+### Backend (.NET 10)
+- **Framework**: ASP.NET Core 10.0
 - **UI**: Blazor Web App + MudBlazor 9.x
-- **ORM**: Entity Framework Core 9
+- **ORM**: Entity Framework Core 10
 - **Databáze**: PostgreSQL (primární) / MSSQL
 - **API integrace**: 
   - Google Drive API (.NET Client)
   - Microsoft Graph API (OneDrive)
 
-### Scraping (Python)
+### Scraping (.NET + Python)
+- **Primary**: Playwright .NET (REMAX list/detail scraping)
 - **Jazyk**: Python 3.12+
 - **HTTP**: `httpx` / `requests`
 - **Parsing**: `BeautifulSoup4` / `parsel`
@@ -118,7 +119,7 @@ RealEstateAggregator/
 ## 🚀 Rychlý start
 
 ### Požadavky
-- .NET 9 SDK
+- .NET 10 SDK
 - Python 3.12+
 - PostgreSQL 15+
 - Node.js 20+ (pro Blazor dev tools)
@@ -139,7 +140,7 @@ dotnet restore
 dotnet ef database update
 dotnet run
 ```
-Backend běží na `https://localhost:5001`
+Backend běží na `http://localhost:5001`
 
 ### 3. Scraper (Python)
 ```bash
@@ -151,7 +152,14 @@ python -m core.runner
 ```
 
 ### 4. Frontend
-Frontend je součástí Blazor Web App, dostupný na `https://localhost:5001`
+Frontend běží jako samostatná Blazor App na `http://localhost:5002`
+
+### 5. Playwright scraping (REMAX)
+```bash
+curl -X POST http://localhost:5001/api/scraping-playwright/run \
+   -H "Content-Type: application/json" \
+   -d '{"sourceCodes":["REMAX"],"remaxProfile":{"regionId":116,"districtId":3713}}'
+```
 
 ---
 
@@ -198,7 +206,14 @@ AI analýza inzerátu
 
 ### Analysis
 - `POST /api/listings/{id}/analysis` – spustit AI analýzu
-- `GET /api/analysis/{jobId}` – stav analýzy
+
+---
+
+## 📚 Dokumentace
+- [docs/REMAX_SCRAPING_GUIDE.md](docs/REMAX_SCRAPING_GUIDE.md) – REMAX scraping architektura a profily
+- [docs/TECHNICAL_DESIGN.md](docs/TECHNICAL_DESIGN.md) – technický návrh
+- [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) – API dokumentace
+- [docs/BACKLOG.md](docs/BACKLOG.md) – backlog a known issues
 
 ---
 

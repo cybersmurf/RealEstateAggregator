@@ -43,7 +43,7 @@ RealEstateAggregator/
 ### 🎯 Hotovo
 
 ✅ **Kompletní projektová struktura**
-- .NET 9 solution s 6 projekty
+- .NET 10 solution s 6 projekty
 - Python scraper struktura
 - Všechny adresáře a šablony
 
@@ -52,7 +52,7 @@ RealEstateAggregator/
 - pgvector support pro semantic search (1536-dim embeddings)
 - Všechny typy synchronizované (double Pro plochy, decimal pro ceny, string pro enums)
 
-✅ **Entity Framework Core 9 s pgvector**
+✅ **Entity Framework Core 10 s pgvector**
 - Kompletní DbContext s re_realestate schema namespacing
 - Tabulky mapované na PostgreSQL s pgvector support
 - HNSW index na description_embedding (L2 distance)
@@ -128,9 +128,8 @@ cd src/RealEstate.Api
 dotnet run
 
 # API bude dostupná na:
-# http://localhost:5000 (HTTP)
-# https://localhost:5001 (HTTPS)
-# Swagger: http://localhost:5000/swagger
+# http://localhost:5001 (HTTP)
+# Swagger: http://localhost:5001/swagger
 ```
 
 ### Krok 4: Spuštění Blazor aplikace
@@ -144,7 +143,15 @@ dotnet run
 # Aplikace bude na http://localhost:5002
 ```
 
-### Krok 5: Python scraper (volitelné)
+### Krok 5: Playwright scraping (REMAX)
+
+```bash
+curl -X POST http://localhost:5001/api/scraping-playwright/run \
+   -H "Content-Type: application/json" \
+   -d '{"sourceCodes":["REMAX"],"remaxProfile":{"regionId":116,"districtId":3713}}'
+```
+
+### Krok 6: Python scraper (volitelné)
 
 ```bash
 cd scraper
