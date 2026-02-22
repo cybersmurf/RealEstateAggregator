@@ -84,8 +84,8 @@ public sealed class RemaxImporter
             PriceNote = detail.PriceNote,
             AreaBuiltUp = (double?)detail.AreaBuiltUp,
             AreaLand = (double?)detail.AreaLand,
-            PropertyType = PropertyType.House,
-            OfferType = OfferType.Sale,
+            PropertyType = ToPropertyType(detail.PropertyType),
+            OfferType = ToOfferType(detail.OfferType),
             FirstSeenAt = DateTime.UtcNow,
             LastSeenAt = DateTime.UtcNow,
             IsActive = true,
@@ -120,5 +120,42 @@ public sealed class RemaxImporter
 
         // Fallback: použij celou URL jako ID
         return url;
+    }
+
+    /// <summary>
+    /// Mapuje string PropertyType (z RemaxDetailScraper) na enum PropertyType.
+    /// </summary>
+    private static Domain.Enums.PropertyType ToPropertyType(string? scrapedType)
+    {
+        if (string.IsNullOrWhiteSpace(scrapedType))
+            return Domain.Enums.PropertyType.Other;
+
+        return scrapedType.ToLowerInvariant() switch
+        {
+            "house" => Domain.Enums.PropertyType.House,
+            "apartment" => Domain.Enums.PropertyType.Apartment,
+            "land" => Domain.Enums.PropertyType.Land,
+            "cottage" => Domain.Enums.PropertyType.Cottage,
+            "commercial" => Domain.Enums.PropertyType.Commercial,
+            "industrial" => Domain.Enums.PropertyType.Industrial,
+            "garage" => Domain.Enums.PropertyType.Garage,
+            _ => Domain.Enums.PropertyType.Other
+        };
+    }
+
+    /// <summary>
+    /// Mapuje string OfferType (z RemaxDetailScraper) na enum OfferType.
+    /// </summary>
+    private static Domain.Enums.OfferType ToOfferType(string? scrapedType)
+    {
+        if (string.IsNullOrWhiteSpace(scrapedType))
+            return Domain.Enums.OfferType.Sale;
+
+        return scrapedType.ToLowerInvariant() switch
+        {
+            "rent" => Domain.Enums.OfferType.Rent,
+            "sale" => Domain.Enums.OfferType.Sale,
+            _ => Domain.Enums.OfferType.Sale
+        };
     }
 }

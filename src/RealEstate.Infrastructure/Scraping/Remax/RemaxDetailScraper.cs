@@ -149,7 +149,8 @@ public sealed class RemaxDetailScraper
             PriceNote = priceNote,
             AreaBuiltUp = areaBuiltUp,
             AreaLand = areaLand,
-            PropertyType = "House",
+            PropertyType = DetectPropertyType(title, description),
+            OfferType = DetectOfferType(title, description),
             PhotoUrls = photos.Distinct().ToList()
         };
     }
@@ -177,6 +178,60 @@ public sealed class RemaxDetailScraper
             return value;
         
         return null;
+    }
+
+    /// <summary>
+    /// Detekuje typ nemovitosti na základě textu titulu a popisu.
+    /// Mapuje české pojmenování na anglické enumy: House, Apartment, Land, Cottage, Commercial, Industrial, Garage, Other
+    /// </summary>
+    private static string DetectPropertyType(string title, string description)
+    {
+        var searchText = (title + " " + description).ToLowerInvariant();
+
+        // Apartmán, Byt
+        if (searchText.Contains("byt") || searchText.Contains("apartmán") || searchText.Contains("1+1") || searchText.Contains("2+1") || searchText.Contains("3+1") || searchText.Contains("4+1"))
+            return "Apartment";
+
+        // Pozemek
+        if (searchText.Contains("pozemek") || searchText.Contains("stavební parcela"))
+            return "Land";
+
+        // Chata, Chalupa
+        if (searchText.Contains("chata") || searchText.Contains("chalupa"))
+            return "Cottage";
+
+        // Komerční, Obchodní
+        if (searchText.Contains("komerč") || searchText.Contains("obchodní") || searchText.Contains("prodejnu") || searchText.Contains("pokoj"))
+            return "Commercial";
+
+        // Garáž, Parkovací
+        if (searchText.Contains("garáž") || searchText.Contains("parkovací stání"))
+            return "Garage";
+
+        // Průmyslová hala, Skladová
+        if (searchText.Contains("hala") || searchText.Contains("skladov") || searchText.Contains("průmyslov"))
+            return "Industrial";
+
+        // Default: Dům, Vila, či nic konkrétního
+        if (searchText.Contains("dům") || searchText.Contains("vila") || searchText.Contains("rodinný dům"))
+            return "House";
+
+        // Fallback
+        return "Other";
+    }
+
+    /// <summary>
+    /// Detekuje typ nabídky (Prodej/Pronájem) na základě textu.
+    /// </summary>
+    private static string DetectOfferType(string title, string description)
+    {
+        var searchText = (title + " " + description).ToLowerInvariant();
+
+        if (searchText.Contains("pronájem") || searchText.Contains("pronajímá") || searchText.Contains("k pronájmu"))
+            return "Rent";
+
+        // Default: Prodej
+        return "Sale";
     }
 
     private static async Task OptimizeContextAsync(IBrowserContext context)

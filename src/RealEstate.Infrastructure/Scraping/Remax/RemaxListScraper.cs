@@ -1,4 +1,5 @@
 using Microsoft.Playwright;
+using Microsoft.Extensions.Logging;
 
 namespace RealEstate.Infrastructure.Scraping.Remax;
 
@@ -9,10 +10,12 @@ namespace RealEstate.Infrastructure.Scraping.Remax;
 public sealed class RemaxListScraper
 {
     private readonly IBrowser _browser;
+    private readonly ILogger<RemaxListScraper>? _logger;
 
-    public RemaxListScraper(IBrowser browser)
+    public RemaxListScraper(IBrowser browser, ILogger<RemaxListScraper>? logger = null)
     {
         _browser = browser;
+        _logger = logger;
     }
 
     public async Task<IReadOnlyList<RemaxListItem>> ScrapeListAsync(
@@ -45,10 +48,50 @@ public sealed class RemaxListScraper
 
         var items = new List<RemaxListItem>();
 
-        // Přizpůsob podle skutečných tříd Remaxu
-        // Možné selektory: .remax-search-result-item, .property-item, .realty-item
-        var cards = await page.QuerySelectorAllAsync(
-            ".remax-search-result-item, .property-item, .realty-item, .search-result");
+        // Extended selector fallback chain - pokus se najít liste element s různými CSS třídami
+        // Nejdřív zkusí REMAX-specificke selektory, pak generičtější selektory
+        var selectors = new[]
+        {
+            // REMAX-specificke
+            ".remax-search-result-item",
+            ".remax-item",
+            "div[class*='remax'][class*='item']",
+            "div[class*='property'][class*='item']",
+            "div[class*='realty'][class*='item']",
+            
+            // Generické
+            ".property-item",
+            ".property-card",
+            ".listing-item",
+            ".realty-item",
+            ".search-result",
+            ".product-item",
+            ".real-estate-item",
+            "article[class*='property']",
+            "article[class*='item']",
+            "div[data-property-id]",
+            "div[data-listing-id]",
+            
+            // Poslední pokus - všechny divy v .search-results
+            ".search-results > div"
+        };
+
+        var cards = new List<IElementHandle>();
+        foreach (var selector in selectors)
+        {
+            var found = await page.QuerySelectorAllAsync(selector);
+            if (found.Count > 0)
+            {
+                _logger?.LogInformation($"RemaxListScraper: Found {found.Count} items with selector '{selector}'");
+                cards = found.ToList();
+                break;
+            }
+        }
+
+        if (cards.Count == 0)
+        {
+            _logger?.LogWarning("RemaxListScraper: No property cards found with any selector. Page HTML might have changed.");
+        }
 
         foreach (var card in cards)
         {
