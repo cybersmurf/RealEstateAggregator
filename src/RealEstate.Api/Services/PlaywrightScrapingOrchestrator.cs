@@ -35,13 +35,22 @@ public sealed class PlaywrightScrapingOrchestrator : IPlaywrightScrapingOrchestr
             // Determine which sources to scrape
             var sourceCodes = request.SourceCodes ?? new List<string> { "REMAX", "MMR", "PRODEJMETO" };
             
-            // REMAX scraping - s volitelným SearchUrl pro specifické lokality
+            // REMAX scraping - s volitelným profilem pro specifické regiony/okresy
             if (sourceCodes.Contains("REMAX"))
             {
-                // Default: okres Znojmo (Jihomoravský kraj, okrení ID 3713)
-                var searchUrl = request.SearchUrl ?? "https://www.remax-czech.cz/reality/vyhledavani/?hledani=2&price_to=7500000&regions%5B116%5D%5B3713%5D=on&types%5B6%5D=on";
-                _logger.LogInformation("Running REMAX scraping from URL: {Url}", searchUrl);
-                await _remaxScrapingService.RunAsync(searchUrl, cancellationToken);
+                // Default: okres Znojmo (Jihomoravský kraj 116, Znojmo 3713)
+                var profile = request.RemaxProfile ?? new RemaxScrapingProfileDto
+                {
+                    Name = "Default: Okres Znojmo",
+                    RegionId = 116,
+                    DistrictId = 3713,
+                    PropertyTypeMask = 6,
+                    PriceMax = 7_500_000,
+                    SearchType = 2
+                };
+                
+                _logger.LogInformation("Running REMAX scraping with profile: {ProfileName}", profile.Name);
+                await _remaxScrapingService.RunAsync(profile, cancellationToken);
             }
             else
             {

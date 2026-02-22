@@ -7,19 +7,20 @@ using RealEstate.Domain.Repositories;
 namespace RealEstate.Infrastructure.Scraping.Remax;
 
 /// <summary>
-/// Orchestrátor pro import REMAX Znojmo listingů.
+/// Orchestrátor pro generický REMAX import listingů.
 /// Kombinuje list scraper, detail scraper a uložení do databáze.
+/// Pracuje s libovolnými REMAX search URL (libovolný region, okres, město).
 /// </summary>
-public sealed class RemaxZnojmoImporter
+public sealed class RemaxImporter
 {
     private readonly IBrowser _browser;
     private readonly IListingRepository _listingRepository;
-    private readonly ILogger<RemaxZnojmoImporter> _logger;
+    private readonly ILogger<RemaxImporter> _logger;
 
-    public RemaxZnojmoImporter(
+    public RemaxImporter(
         IBrowser browser,
         IListingRepository listingRepository,
-        ILogger<RemaxZnojmoImporter> logger)
+        ILogger<RemaxImporter> logger)
     {
         _browser = browser;
         _listingRepository = listingRepository;

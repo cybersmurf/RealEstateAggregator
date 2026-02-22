@@ -7,11 +7,9 @@ public sealed class ScrapeTriggerDto
     public bool FullRescan { get; set; } = false; // true = ignoruj cache, jinak jen nové/změněné
     
     /// <summary>
-    /// Volitelná URL pro REMAX scraping.
-    /// Příklady:
-    /// - https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/znojmo/
-    /// - https://www.remax-czech.cz/reality/byty/prodej/hlavni-mesto-praha/
-    /// Pokud není specifikován, použije se default URL.
+    /// Profil pro REMAX scraping (volitelný).
+    /// Pokud není specifikován, použije se default (okres Znojmo).
+    /// Umožňuje configurovat region, okres, město, filtry.
     /// </summary>
-    public string? SearchUrl { get; set; }
+    public RemaxScrapingProfileDto? RemaxProfile { get; set; }
 }
