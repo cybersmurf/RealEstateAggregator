@@ -68,7 +68,7 @@ public sealed class RemaxScrapingService : IRemaxScrapingService
 
         var importerLogger = _loggerFactory.CreateLogger<RemaxZnojmoImporter>();
         var importer = new RemaxZnojmoImporter(browser, _listingRepository, importerLogger);
-        await importer.ImportAsync(source.Id, ct);
+        await importer.ImportAsync(source.Id, listUrl, ct);
 
         playwright.Dispose();
         _logger.LogInformation("REMAX scraping completion for URL: {Url}", listUrl);

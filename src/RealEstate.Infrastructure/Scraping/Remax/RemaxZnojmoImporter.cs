@@ -26,17 +26,14 @@ public sealed class RemaxZnojmoImporter
         _logger = logger;
     }
 
-    public async Task ImportAsync(Guid sourceId, CancellationToken ct = default)
+    public async Task ImportAsync(Guid sourceId, string searchUrl, CancellationToken ct = default)
     {
-        var listUrl =
-            "https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/znojmo/";
-
-        _logger.LogInformation("Spouštím REMAX Znojmo import z URL: {Url}", listUrl);
+        _logger.LogInformation("Spouštím REMAX import z URL: {Url}", searchUrl);
 
         var listScraper = new RemaxListScraper(_browser);
         var detailScraper = new RemaxDetailScraper(_browser);
 
-        var listItems = await listScraper.ScrapeListAsync(listUrl, ct);
+        var listItems = await listScraper.ScrapeListAsync(searchUrl, ct);
         _logger.LogInformation("Načteno {Count} inzerátů ze seznamu", listItems.Count);
 
         var imported = 0;
@@ -66,7 +63,7 @@ public sealed class RemaxZnojmoImporter
         }
 
         _logger.LogInformation(
-            "REMAX Znojmo import dokončen. Úspěšně: {Imported}, Chyby: {Failed}",
+            "REMAX import dokončen. Úspěšně: {Imported}, Chyby: {Failed}",
             imported, failed);
     }
 
