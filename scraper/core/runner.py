@@ -9,7 +9,7 @@ from uuid import UUID
 from datetime import datetime
 
 from api.schemas import ScrapeTriggerRequest
-from database import get_db_manager
+from core.database import get_db_manager
 
 logger = logging.getLogger(__name__)
 
