@@ -2,7 +2,7 @@
 
 **Project:** Real Estate Aggregator with Semantic Search & AI Analysis  
 **Stack:** .NET 10, Blazor Server, PostgreSQL 15 + pgvector, Python FastAPI scrapers  
-**Last Updated:** 23. února 2026
+**Last Updated:** 23. února 2026 (Session 4)
 
 ---
 
@@ -371,8 +371,10 @@ curl -X POST http://localhost:5001/api/listings/search \
   -d '{"page":1,"pageSize":10}'
 
 # Trigger scraping (přes .NET API → Python Scraper API)
+# ⚠️ Scraping endpointy jsou chráněny API klíčem (X-Api-Key header)
 curl -X POST http://localhost:5001/api/scraping/trigger \
   -H "Content-Type: application/json" \
+  -H "X-Api-Key: dev-key-change-me" \
   -d '{"sourceCodes":["REMAX"],"fullRescan":false}'
 
 # Nebo přímo na Python Scraper API:
@@ -397,15 +399,26 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 
 ## Known Limitations & TODOs
 
-### High Priority
+### ✅ Dokončeno v Session 4 (2026-02-23)
+- [x] **Security** – API key middleware na scraping endpointech (`X-Api-Key`)
+- [x] **CORS** – `AddCors()` + `UseCors()` v Program.cs
+- [x] **Health endpoint** – `/health` + Docker healthcheck
+- [x] **Filtered Include** – UserStates N+1 odstraněno
+- [x] **tsvector fulltext** – GIN index namísto ILIKE
+- [x] **Retry logic** – tenacity `@http_retry` na 11 scraperech
+- [x] **CancellationToken** – HTTP volání v Listings.razor s CT
+- [x] **SourceDto** – extrahováno do `Models/SourceDto.cs`
+- [x] **39 unit testů** – enum, NormalizeStatus, DTOs
+- [x] **Tiebreaker** – `.ThenBy(x => x.Id)` pro deterministické stránkování
+- [x] **user_listing_photos** tabulka v init-db.sql
+
+### High Priority (zbývá)
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
-- [ ] Centralize DTOs – move from Listings.razor to shared project
 - [ ] CENTURY21 logo – placeholder SVG (274B), reálné logo za WP loginem
 - [ ] Kontejnerizace Blazor App – přidat do docker-compose nebo přejít na .NET Aspire
 
-### Scraper kvalita (některé zdroje mají málo výsledků)
+### Scraper kvalita (zdroje s málo výsledky)
 - [ ] ZNOJMOREALITY (5 inz.), DELUXREALITY (5), PRODEJMETO (4), LEXAMO (4) – ověřit selektory
-- [ ] Retry logic – exponential backoff pro HTTP 429/503
 - [ ] Playwright fallback – pro JS-heavy weby
 
 ### Medium Priority
@@ -415,8 +428,8 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [ ] Background scheduled scraping – pravidelný re-run (APScheduler/Hangfire)
 
 ### Low Priority
-- [ ] Unit tests – scraper parsing s mock HTML
-- [ ] Monitoring – Prometheus metrics
+- [ ] Unit testy – scraper parsing s mock HTML
+- [ ] Monitoring – Prometheus/Serilog metrics
 - [ ] Export funkce (CSV/Excel) – projekt RealEstate.Export existuje
 
 ---
@@ -433,6 +446,9 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 
 **Problem:** Sources filter (chipy) – NullReferenceException při odznačení  
 **Solution:** `_selectedSourceCodes` musí být `IReadOnlyCollection<string>?` (nullable). MudBlazor 9 `MudChipSet @bind-SelectedValues` může nastavit `null`. Použij `_selectedSourceCodes?.Count ?? 0`.
+
+**Problem:** API returns 401 when calling `/api/scraping/trigger`  
+**Solution:** Scraping endpointy jsou chráněny API klíčem. Přidej header `X-Api-Key: dev-key-change-me` (nebo nastav env `API_KEY`).
 
 **Problem:** API returns 500 when calling `/api/scraping/trigger`  
 **Solution:** Python scraper neběží. Spusť: `cd scraper && .venv/bin/python run_api.py`  
@@ -455,6 +471,12 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 
 **Problem:** Navigation doesn't work in Blazor  
 **Solution:** Ensure `@inject NavigationManager Navigation` is present
+
+**Problem:** HTTP volání v Blazor pokračují i po opuštění stránky  
+**Solution:** `Listings.razor` implementuje `IDisposable` + `CancellationTokenSource _cts`. Každé HTTP volání dostane `_cts.Token`, `Dispose()` volá `_cts.Cancel()`. Nové stránky musí tento pattern kopírovat.
+
+**Problem:** Fulltext hledání je pomalé (ILIKE full scan)  
+**Solution:** Využíváme `search_tsv` GIN index přes `EF.Functions.PlainToTsQuery`. Shadow property `SearchTsv` (NpgsqlTsVector) musí být nakonfigurována v `RealEstateDbContext.OnModelCreating`. Nutný `Npgsql.EntityFrameworkCore.PostgreSQL` v Api.csproj.
 
 ---
 
@@ -492,7 +514,8 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 23. února 2026  
-**Current Commit:** photo-fix + docker-connection-fix  
-**DB stav:** 1 236 aktivníc h inzerátů, 6 919 fotek, 12 zdrojů (SREALITY=851, IDNES=168, …)
-**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432
+**Last Updated:** 23. února 2026 (Session 4)  
+**Current Commit:** `32077e3` – analysis improvements
+**DB stav:** 1 236 aktivních inzerátů, 6 919 fotek, 12 zdrojů (SREALITY=851, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
+**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432  
+**Unit testy:** 39 testů zelených (`dotnet test tests/RealEstate.Tests`)

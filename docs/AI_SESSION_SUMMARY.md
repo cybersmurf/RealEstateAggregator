@@ -1,8 +1,56 @@
 # AI Session Summary – RealEstateAggregator
 **Datum:** 23. února 2026  
-**Celková doba:** ~8 hodin (3 sessions)  
-**Celkové commity:** 25+  
-**Status:** ✅ Production-ready full-stack aplikace, 12 scraperů, 1 236 aktivních inzerátů, Docker stack plně funkční
+**Celková doba:** ~12 hodin (4 sessions)  
+**Celkové commity:** 30+  
+**Status:** ✅ Production-ready full-stack aplikace, 12 scraperů, 1 236 aktivních inzerátů, Docker stack + health/CORS/retry/tsvector, 39 unit testů
+
+---
+
+## ✅ Latest Updates (Session 4 – 23. února 2026, odpoledne)
+
+### Fáze 22–23: Hloubková analýza + implementace všech nálezů
+
+**Zdroj:** Autonomní implementace všech položek z `PROJECT_ANALYSIS_2026-02-23.md` (2 CRITICAL, 8 HIGH, 9 MEDIUM, 6 LOW).
+
+#### Bezpečnost & Spolehlivost
+- **API key middleware** na `/api/scraping` skupině: `X-Api-Key` header, konfigurovatelné přes env `API_KEY`
+- **CORS** policy: `AddCors()` + `UseCors()` s whitelistem `localhost:5002`, `realestate-app:8080`
+- **`/health` endpoint**: vrací `{ status, timestamp }`, použitý v Docker healthchecku
+- **Docker healthcheck**: `curl -sf http://localhost:8080/health` + `service_healthy` chain (app čeká na api)
+
+#### Výkon (EF Core)
+- **Filtered Include** pro UserStates: `.Include(l => l.UserStates.Where(s => s.UserId == DefaultUserId))` – eliminuje N+1 pro nepotřebné řádky
+- **tsvector fulltext search**: shadow property `SearchTsv` (NpgsqlTsVector) + `EF.Functions.PlainToTsQuery("simple", ...)` → využívá GIN index místo ILIKE full scan
+- **Tiebreaker** v řazení: `.ThenBy(x => x.Id)` pro deterministické stránkování
+- Přidán `Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0` do Api.csproj
+
+#### UX & Stabilita Blazor
+- `IDisposable` + `CancellationTokenSource` v `Listings.razor` – HTTP volání se přerušují při navigaci pryč
+- IDNES logo přidáno do `_sourceLogoMap`
+- `NavigateToDetailAsync` → sync `void` (nebylo třeba async)
+- Odstraněn redundantní `StateHasChanged()` před nastavením `_loading = true`
+
+#### Python scrapery
+- `tenacity>=8.2.0` přidán do `requirements.txt`
+- `scraper/core/http_utils.py`: sdílený `@http_retry` decorator (3× exponential backoff 2–10 s, HTTP 429/503/ConnectError)
+- Decorator aplikován na 11 scraperů (vše kromě century21 se vlastním error handlingem)
+
+#### Architektura & Refaktoring
+- `SourceDto` extrahován z inline záznamu v Listings.razor → `src/RealEstate.App/Models/SourceDto.cs`
+- `_Imports.razor`: přidán `@using RealEstate.App.Models`
+- `appsettings.json`: `DefaultConnection` → `RealEstate` (soulad se `ServiceCollectionExtensions.cs`)
+- `user_listing_photos` tabulka přidána do `scripts/init-db.sql` (dříve existovala jen přes EnsureCreated)
+- `ScrapingEndpoints.cs`: `MapScrapingEndpoints()` nyní vrací `RouteGroupBuilder` (podporuje `AddEndpointFilter`)
+
+#### Unit testy (C2)
+- `tests/RealEstate.Tests/UnitTest1.cs`: **39 testů** pokrývající:
+  - Enum string konverze (PropertyType 8×, OfferType 2× roundtrip)
+  - `NormalizeStatus()` – null/prázdný/neznámý vstup → "New", case-insensitive matching
+  - `SourceDto` record – rovnost, `with` expression
+  - `ListingFilterDto` – výchozí hodnoty, nastavení vlastností
+
+**Commit:** `32077e3` – fix: analysis improvements - health/CORS/API-key, tsvector search, HTTP retry, CT, 39 unit tests, SourceDto refactor  
+**Soubory:** 26 souborů změněno, 2 nové (http_utils.py, Models/SourceDto.cs)
 
 ---
 

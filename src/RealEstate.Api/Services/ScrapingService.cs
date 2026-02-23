@@ -22,11 +22,8 @@ public sealed class ScrapingService : IScrapingService
     {
         try
         {
-            // Ensure we use the correct scraper API URL from environment (Docker networking)
-            var scraperApiUrl = Environment.GetEnvironmentVariable("SCRAPER_API_BASE_URL") ?? _httpClient.BaseAddress?.ToString() ?? "http://localhost:8001";
-            _httpClient.BaseAddress = new Uri(scraperApiUrl);
-            _logger.LogInformation($"Scraper API URL: {scraperApiUrl}");
-            
+            _logger.LogInformation("Triggering scraper API at {BaseAddress}", _httpClient.BaseAddress);
+
             var response = await _httpClient.PostAsJsonAsync(
                 "/v1/scrape/run",
                 request,

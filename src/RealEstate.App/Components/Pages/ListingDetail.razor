@@ -1,4 +1,5 @@
 @page "/listings/{id:guid}"
+@implements IDisposable
 
 @inject HttpClient Http
 @inject NavigationManager Navigation
@@ -234,6 +235,7 @@
     private bool _loading = true;
     private ListingDetailDto? _listing;
     private ListingUserStateDto _userState = new();
+    private CancellationTokenSource _cts = new();
 
     private static readonly IReadOnlyDictionary<string, string> PropertyTypeLabels =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -389,6 +391,12 @@
         }
 
         return OfferTypeLabels.TryGetValue(value, out var label) ? label : value;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
     }
 
 }

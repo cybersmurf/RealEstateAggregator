@@ -142,5 +142,21 @@ public static class DbInitializer
             dbContext.Sources.AddRange(newSources);
             await dbContext.SaveChangesAsync(cancellationToken);
         }
+
+        // ── Schema migrations (idempotentní SQL patche) ──────────────────────────
+        // Přidáme search_tsv GENERATED sloupec + GIN index, pokud ještě neexistují.
+        // EnsureCreatedAsync nevytváří sloupce přidané po iniciálním vytvoření.
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE re_realestate.listings
+                ADD COLUMN IF NOT EXISTS search_tsv tsvector GENERATED ALWAYS AS (
+                    setweight(to_tsvector('simple', coalesce(title, '')), 'A') ||
+                    setweight(to_tsvector('simple', coalesce(location_text, '')), 'B') ||
+                    setweight(to_tsvector('simple', coalesce(description, '')), 'C')
+                ) STORED;
+
+            CREATE INDEX IF NOT EXISTS idx_listings_search_tsv
+                ON re_realestate.listings
+                USING gin (search_tsv);
+            """, cancellationToken);
     }
 }

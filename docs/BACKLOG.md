@@ -1,12 +1,15 @@
 # Product Backlog - Real Estate Aggregator
 
 **Projekt**: Real Estate Aggregator  
-**Verze**: 1.2.0  
+**Verze**: 1.3.0  
 **Datum**: 23. února 2026  
-**Stav:** 12 scraperů, 1 236 inzerátů, "Warm Property" UI design, loga integrována
+**Stav:** 12 scraperů, 1 236 inzerátů, "Warm Property" UI design, security/performance/stability fixes, 39 unit testů
 
-> **Aktualizace 23. 02.:** Opraveny PropertyType/OfferType filtry (EF Core HasConversion bug).
-> 5 nových scraperů přidáno. Loga všech 12 zdrojů integrována do UI.
+> **Aktualizace Session 4 (23. 02.):** Implementovány všechny položky z hloubkové analýzy:  
+> health endpoint + CORS + API key, tsvector fulltext, Filtered Include, HTTP retry (tenacity), CancellationToken, SourceDto refactor, 39 unit testů.
+>
+> **Aktualizace Session 3 (23. 02.):** Opraveny PropertyType/OfferType filtry (EF Core HasConversion bug).  
+> 5 nových scraperů přidáno. Loga všech 12 zdrojů integrována do UI. Docker plně funkční.
 
 ---
 

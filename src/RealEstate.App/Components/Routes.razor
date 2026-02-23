@@ -1,6 +1,16 @@
 ﻿<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        <ErrorBoundary>
+            <ChildContent>
+                <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+                <FocusOnNavigate RouteData="routeData" Selector="h1" />
+            </ChildContent>
+            <ErrorContent Context="ex">
+                <MudAlert Severity="Severity.Error" Class="ma-4">
+                    <MudText Typo="Typo.h6">Nastala neočekávaná chyba</MudText>
+                    <MudText Typo="Typo.body2">@ex.Message</MudText>
+                </MudAlert>
+            </ErrorContent>
+        </ErrorBoundary>
     </Found>
 </Router>
