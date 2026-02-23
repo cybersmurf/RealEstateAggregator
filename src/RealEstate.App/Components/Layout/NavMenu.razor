@@ -1,4 +1,6 @@
-﻿<MudNavMenu>
+﻿@inject HttpClient Http
+
+<MudNavMenu>
     <MudNavLink Href="" Match="NavLinkMatch.All"
                 Icon="@Icons.Material.Filled.Dashboard">
         Přehled
@@ -13,12 +15,41 @@
     </MudNavLink>
     <MudDivider Class="my-2" />
     <MudNavGroup Title="Zdroje dat" Icon="@Icons.Material.Filled.Source" Expanded="false">
-        <MudNavLink Href="https://www.remax-czech.cz" Target="_blank"
-                    Icon="@Icons.Material.Outlined.OpenInNew">REMAX</MudNavLink>
-        <MudNavLink Href="https://www.mmreality.cz" Target="_blank"
-                    Icon="@Icons.Material.Outlined.OpenInNew">M&M Reality</MudNavLink>
-        <MudNavLink Href="https://www.sreality.cz" Target="_blank"
-                    Icon="@Icons.Material.Outlined.OpenInNew">Sreality</MudNavLink>
+        @if (_sources.Count == 0)
+        {
+            <MudNavLink Disabled="true" Icon="@Icons.Material.Outlined.HourglassEmpty">
+                Načítám...
+            </MudNavLink>
+        }
+        else
+        {
+            @foreach (var src in _sources)
+            {
+                <MudNavLink Href="@src.BaseUrl" Target="_blank"
+                            Icon="@Icons.Material.Outlined.OpenInNew">
+                    @src.Name
+                </MudNavLink>
+            }
+        }
     </MudNavGroup>
 </MudNavMenu>
+
+@code {
+    private List<SourceNavDto> _sources = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var sources = await Http.GetFromJsonAsync<List<SourceNavDto>>("api/sources?onlyActive=true");
+            _sources = sources ?? new();
+        }
+        catch
+        {
+            // Tiše selže – menu se zobrazí bez zdrojů
+        }
+    }
+
+    private sealed record SourceNavDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
+}
 
