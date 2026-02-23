@@ -261,13 +261,18 @@ class IdnesRealityScraper:
             # Offer type from URL
             offer_type = "Rent" if "/pronajem/" in url_lower else "Sale"
 
-            # Extract photos - IDNES uses .photoSlider or .b-slider images
+            # Extract photos - IDNES: plain <img> without class, src from sta-reality2.1gr.cz
             photos = []
-            for img in soup.select(".b-slider__item img, .photoSlider img, .gallery img"):
-                src = img.get("src") or img.get("data-src") or img.get("data-lazy")
-                if src and src.startswith("http"):
-                    photos.append(src)
-            # Also check og:image tags
+            for img in soup.find_all("img"):
+                src = img.get("src") or img.get("data-src") or img.get("data-lazy") or ""
+                # Photos are served from sta-reality2.1gr.cz or iDnes CDN
+                if ("1gr.cz/sta/compile" in src or "gallery" in src.lower() or "photo" in src.lower()
+                        or ("idnes" in src.lower() and "/sta/" in src)):
+                    if src.startswith("//"):
+                        src = "https:" + src
+                    if src.startswith("http") and src not in photos:
+                        photos.append(src)
+            # Fallback: og:image
             if not photos:
                 for og in soup.find_all("meta", property="og:image"):
                     content = og.get("content")

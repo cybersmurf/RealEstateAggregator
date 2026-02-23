@@ -3,6 +3,7 @@
 
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @inject ISnackbar Snackbar
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
@@ -212,17 +213,64 @@
             </MudPaper>
 
             <!-- Actions -->
-            <MudStack Row="true" Spacing="2">
-                <MudButton Color="Color.Primary" 
-                           Variant="Variant.Filled" 
-                           OnClick="@(() => Navigation.NavigateTo("/listings"))">
-                    Zpět na seznam
-                </MudButton>
-                <MudButton Color="Color.Secondary" 
-                           Variant="Variant.Filled" 
-                           OnClick="CreateAnalysisAsync">
-                    Vytvořit analýzu
-                </MudButton>
+            <MudStack Spacing="2">
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudButton Color="Color.Primary" 
+                               Variant="Variant.Filled" 
+                               OnClick="@(() => Navigation.NavigateTo("/listings"))">
+                        Zpět na seznam
+                    </MudButton>
+                    <MudButton Color="Color.Secondary" 
+                               Variant="Variant.Filled" 
+                               OnClick="CreateAnalysisAsync">
+                        Vytvořit analýzu
+                    </MudButton>
+                    <MudButton Color="Color.Success"
+                               Variant="Variant.Filled"
+                               OnClick="ExportToDriveAsync"
+                               Disabled="_driveExporting"
+                               StartIcon="@Icons.Material.Filled.CloudUpload">
+                        @if (_driveExporting)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <span>Nahrávám na Drive…</span>
+                        }
+                        else
+                        {
+                            <span>Export na Google Drive</span>
+                        }
+                    </MudButton>
+                </MudStack>
+
+                @if (_driveResult is not null)
+                {
+                    <MudAlert Severity="Severity.Success" Dense="false">
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.body1">
+                                <strong>Složka připravená:</strong> @_driveResult.FolderName
+                            </MudText>
+                            <MudText Typo="Typo.caption" Style="word-break:break-all">
+                                @_driveResult.FolderUrl
+                            </MudText>
+                            <MudStack Row="true" Spacing="2">
+                                <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Success"
+                                           StartIcon="@Icons.Material.Filled.OpenInNew"
+                                           Href="@_driveResult.FolderUrl" Target="_blank">
+                                    Otevřít v Google Drive
+                                </MudButton>
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Default"
+                                           StartIcon="@Icons.Material.Filled.ContentCopy"
+                                           OnClick="CopyDriveUrlAsync">
+                                    Kopírovat URL
+                                </MudButton>
+                            </MudStack>
+                            <MudText Typo="Typo.caption" Color="Color.Success">
+                                Složka obsahuje INFO.md, DATA.json, AI_INSTRUKCE.md a fotky ze scrapu.
+                                Nahraj vlastní fotky z prohlídky do podsložky <strong>Moje_fotky_z_prohlidky</strong>.
+                            </MudText>
+                        </MudStack>
+                    </MudAlert>
+                }
             </MudStack>
         </MudStack>
     }
@@ -236,6 +284,12 @@
     private ListingDetailDto? _listing;
     private ListingUserStateDto _userState = new();
     private CancellationTokenSource _cts = new();
+
+    // Google Drive export
+    private bool _driveExporting = false;
+    private DriveExportResult? _driveResult;
+    private record DriveExportResult(string FolderUrl, string FolderName, string FolderId);
+
 
     private static readonly IReadOnlyDictionary<string, string> PropertyTypeLabels =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -372,6 +426,50 @@
             Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
         }
     }
+
+    private async Task ExportToDriveAsync()
+    {
+        _driveExporting = true;
+        _driveResult = null;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync($"api/listings/{Id}/export-drive", null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _driveResult = await response.Content.ReadFromJsonAsync<DriveExportResult>(_cts.Token);
+                Snackbar.Add("Export na Google Drive byl úspěšný!", Severity.Success);
+            }
+            else
+            {
+                var err = await response.Content.ReadAsStringAsync(_cts.Token);
+                Snackbar.Add($"Chyba při exportu: {response.StatusCode}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _driveExporting = false;
+        }
+    }
+
+    private async Task CopyDriveUrlAsync()
+    {
+        if (_driveResult is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _driveResult.FolderUrl);
+            Snackbar.Add("URL zkopírováno do schránky", Severity.Info);
+        }
+        catch
+        {
+            Snackbar.Add(_driveResult.FolderUrl, Severity.Normal);
+        }
+    }
+
 
     private static string GetPropertyTypeLabel(string? value)
     {

@@ -257,23 +257,25 @@ class NemovitostiZnojmoScraper:
             else:
                 result["location_text"] = "Znojmo a okolí"
 
-        # Fotky
+        # Fotky - eurobydleni platforma: class="detail-slider--img" a "gallery--img"
         photo_urls = []
-        for img in soup.select(".gallery img, .fotorama img, a[data-fancybox] img, img.photo"):
-            src = img.get("src") or img.get("data-src")
-            if src:
-                full_url = urljoin(BASE_URL, src)
-                if full_url not in photo_urls:
-                    photo_urls.append(full_url)
-        
+        for img in soup.select("img.detail-slider--img, img.gallery--img, .gallery img, .fotorama img"):
+            src = img.get("src") or img.get("data-src") or ""
+            if src.startswith("//"):
+                src = "https:" + src
+            if src.startswith("http") and src not in photo_urls and "logo" not in src.lower():
+                photo_urls.append(src)
+
         # Fallback pro fotky, pokud selektory selžou
         if not photo_urls:
             for img in soup.find_all("img"):
                 src = img.get("src", "")
-                if "foto" in src.lower() or "gallery" in src.lower() or "image" in src.lower():
-                    full_url = urljoin(BASE_URL, src)
-                    if full_url not in photo_urls:
-                        photo_urls.append(full_url)
+                if src.startswith("//"):
+                    src = "https:" + src
+                if ("eurobydleni.cz/rozhrani/uploads" in src
+                        or "foto" in src.lower() or "gallery" in src.lower()):
+                    if src not in photo_urls:
+                        photo_urls.append(src)
 
         result["photos"] = photo_urls[:20]
 

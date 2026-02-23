@@ -96,6 +96,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = Dat
 app.MapListingEndpoints();
 app.MapSourceEndpoints();
 app.MapAnalysisEndpoints();
+app.MapExportEndpoints();
 
 // ─── Scraping endpoints – chráněno API klíčem ─────────────────────────────────
 app.MapScrapingEndpoints()

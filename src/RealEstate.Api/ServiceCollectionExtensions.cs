@@ -27,6 +27,15 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromMinutes(2);
         });
 
+        // Google Drive export
+        services.AddScoped<IGoogleDriveExportService, GoogleDriveExportService>();
+        services.AddHttpClient("DrivePhotoDownload", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "Mozilla/5.0 (compatible; RealEstateAggregator/1.0)");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
         return services;
     }
 
