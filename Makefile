@@ -1,131 +1,132 @@
 # ============================================================
-# RealEstateAggregator – Dev Makefile
-# Hybridní dev mod: Postgres + Scraper v Dockeru, .NET lokálně
+# RealEstateAggregator – Makefile
+# Vše běží v Dockeru – make up je jediný příkaz potřebný
 # ============================================================
 
-.PHONY: help up down rebuild scraper api app all logs status test-scrape seed
-
-VENV = scraper/.venv/bin/python
-SCRAPER_DIR = scraper
+.PHONY: help up down clean restart rebuild rebuild-api rebuild-app rebuild-scraper \
+        logs logs-api logs-app logs-scraper logs-db \
+        status ps db db-stats test scrape scrape-full
 
 help:
 	@echo "================================================="
-	@echo "  RealEstateAggregator – Dev Commands"
+	@echo "  RealEstateAggregator – příkazy"
 	@echo "================================================="
-	@echo "  make up           – Spustí postgres + scraper v Dockeru"
-	@echo "  make rebuild      – Přebuildi scraper image a restartuj"
-	@echo "  make down         – Zastaví všechny Docker kontejnery"
-	@echo "  make api          – Spustí .NET API lokálně (port 5001)"
-	@echo "  make app          – Spustí Blazor App lokálně (port 5002)"
-	@echo "  make all          – up + api + app (vše)"
-	@echo "  make logs         – Logy scraper kontejneru"
-	@echo "  make status       – Stav všech služeb"
-	@echo "  make test-scrape  – Spustí testovací scrape (REMAX, CENTURY21)"
-	@echo "  make seed         – Seed sources přes DB SQL"
+	@echo "  make up              – Start celého stacku v Dockeru"
+	@echo "  make down            – Stop kontejnerů (data zachována)"
+	@echo "  make clean           – Stop + smazání volumes (reset DB!)"
+	@echo "  make restart         – Restart bez rebuild"
+	@echo "  make rebuild         – Build + restart api, app, scraper"
+	@echo "  make rebuild-api     – Build + restart jen API"
+	@echo "  make rebuild-app     – Build + restart jen Blazor App"
+	@echo "  make rebuild-scraper – Build + restart jen Python scraper"
+	@echo "  make status          – Health check všech služeb"
+	@echo "  make ps              – Stav Docker kontejnerů"
+	@echo "  make logs            – Živé logy všech služeb"
+	@echo "  make db              – psql konzole"
+	@echo "  make db-stats        – Počty inzerátů dle zdroje"
+	@echo "  make test            – Spustí unit testy"
+	@echo "  make scrape          – Inkrementální scrape všech zdrojů"
+	@echo "  make scrape-full     – Plný rescan všech zdrojů"
 	@echo "================================================="
 
-# ---- Docker (postgres + scraper) ----
+# ---- Start / Stop --------------------------------------------------------------
 
 up:
-	@echo ">>> Spouštím Postgres + Scraper v Dockeru..."
-	docker-compose up -d postgres scraper
-	@echo ">>> Čekám na healthcheck Postgresu..."
-	@until docker exec realestate-db pg_isready -U postgres -d realestate_dev -q 2>/dev/null; do \
-		printf '.'; sleep 2; \
-	done
+	@echo ">>> Spouštím celý stack v Dockeru..."
+	docker-compose up -d
 	@echo ""
-	@echo ">>> Postgres je zdravý!"
-	@echo ">>> Scraper API dostupné na: http://localhost:8001"
-
-rebuild:
-	@echo ">>> Přebuilduji scraper image (nové scrapery)..."
-	docker-compose build --no-cache scraper
-	docker-compose up -d --force-recreate scraper
-	@echo ">>> Scraper restartován s novým image."
+	@echo "  App:     http://localhost:5002"
+	@echo "  API:     http://localhost:5001"
+	@echo "  Scraper: http://localhost:8001"
+	@echo "  DB:      localhost:5432"
 
 down:
-	@echo ">>> Zastavuji všechny Docker kontejnery..."
-	docker-compose down
-	@echo ">>> Killuju lokální .NET procesy..."
-	pkill -f "dotnet run.*RealEstate" 2>/dev/null || true
-	@echo ">>> Hotovo."
+	docker-compose stop
 
-# ---- .NET lokálně ----
+clean:
+	@echo ">>> POZOR: maže data databáze!"
+	docker-compose down -v
 
-api:
-	@echo ">>> Spouštím .NET API na http://localhost:5001..."
-	dotnet run --project src/RealEstate.Api --urls "http://localhost:5001" &
-	@echo ">>> API spuštěno (background). PID: $$!"
+restart:
+	docker-compose restart
 
-app:
-	@echo ">>> Spouštím Blazor App na http://localhost:5002..."
-	dotnet run --project src/RealEstate.App --urls "http://localhost:5002" &
-	@echo ">>> App spuštěna (background). PID: $$!"
+# ---- Rebuild -------------------------------------------------------------------
 
-# ---- Vše najednou ----
+rebuild:
+	docker-compose build api app scraper
+	docker-compose up -d --force-recreate api app scraper
 
-all: up
-	@sleep 5
-	@$(MAKE) api
-	@sleep 3
-	@$(MAKE) app
-	@echo ""
-	@echo "====================================="
-	@echo "  Stack je nahoru!"
-	@echo "  API:     http://localhost:5001"
-	@echo "  App:     http://localhost:5002"
-	@echo "  Scraper: http://localhost:8001"
-	@echo "  PgAdmin: docker-compose up pgadmin"
-	@echo "====================================="
+rebuild-api:
+	docker-compose build api
+	docker-compose up -d --force-recreate api
 
-# ---- Monitoring ----
+rebuild-app:
+	docker-compose build app
+	docker-compose up -d --force-recreate app
+
+rebuild-scraper:
+	docker-compose build scraper
+	docker-compose up -d --force-recreate scraper
+
+# ---- Logy ----------------------------------------------------------------------
 
 logs:
-	docker-compose logs -f scraper
+	docker-compose logs -f --tail=50
+
+logs-api:
+	docker-compose logs -f --tail=100 api
+
+logs-app:
+	docker-compose logs -f --tail=100 app
+
+logs-scraper:
+	docker-compose logs -f --tail=100 scraper
+
+logs-db:
+	docker-compose logs -f --tail=50 postgres
+
+# ---- Status --------------------------------------------------------------------
+
+ps:
+	@docker-compose ps
 
 status:
 	@echo "=== Docker kontejnery ==="
-	@docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "realestate|NAME" || echo "(žádné)"
+	@docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep realestate || echo "(zadne)"
 	@echo ""
-	@echo "=== Lokální porty ==="
-	@lsof -iTCP -sTCP:LISTEN -P 2>/dev/null | awk '$$9 ~ /:5001|:5002|:8001|:5432/ {print $$1, $$2, $$9}' | sort -u || echo "(žádné)"
+	@echo "=== API health ==="
+	@curl -s http://localhost:5001/health 2>/dev/null | python3 -m json.tool || echo "  nereaguje"
+	@echo ""
+	@echo "=== App ==="
+	@curl -s -o /dev/null -w "  HTTP %{http_code}\n" http://localhost:5002/ 2>/dev/null || echo "  nereaguje"
+	@echo ""
+	@echo "=== Scraper ==="
+	@curl -s http://localhost:8001/health 2>/dev/null | python3 -m json.tool || echo "  nereaguje"
 
-# ---- Testování ----
+# ---- DB ------------------------------------------------------------------------
 
-test-scrape:
-	@echo ">>> Triggeruji testovací scrape (REMAX + CENTURY21)..."
-	curl -s -X POST http://localhost:8001/scrape/trigger \
-		-H "Content-Type: application/json" \
-		-d '{"source_codes": ["REMAX", "CENTURY21", "DELUXREALITY", "LEXAMO"], "full_rescan": false}' \
-		| python3 -m json.tool || echo "Scraper API nedostupný (zkus: make up)"
-
-test-all-scrapers:
-	@echo ">>> Triggeruji full scrape všech zdrojů..."
-	curl -s -X POST http://localhost:8001/scrape/trigger \
-		-H "Content-Type: application/json" \
-		-d '{"source_codes": null, "full_rescan": false}' \
-		| python3 -m json.tool || echo "Scraper API nedostupný (zkus: make up)"
-
-# ---- DB utils ----
-
-seed:
-	@echo ">>> Seeduji sources přímo do DB..."
-	docker exec realestate-db psql -U postgres -d realestate_dev -c "\
-		INSERT INTO re_realestate.sources (code, name, base_url, is_active, supports_url_scrape, supports_list_scrape, scraper_type) VALUES \
-		('DELUXREALITY', 'DeluXreality Znojmo',       'https://deluxreality.cz',       true, true, true, 'Python'), \
-		('LEXAMO',       'Lexamo Reality',             'https://www.lexamo.cz',         true, true, true, 'Python'), \
-		('CENTURY21',    'CENTURY 21 Czech Republic',  'https://www.century21.cz',      true, true, true, 'Python'), \
-		('PREMIAREALITY','PREMIA Reality s.r.o.',      'https://www.premiareality.cz',  true, true, true, 'Python'), \
-		('HVREALITY',    'Horak & Vetchy reality',     'https://hvreality.cz',          true, true, true, 'Python'), \
-		('NEMZNOJMO',    'Nemovitosti Znojmo',         'https://www.nemovitostiznojmo.cz', true, true, true, 'Python') \
-		ON CONFLICT (code) DO NOTHING;" \
-	&& echo ">>> Sources seeded."
-
-db-connect:
+db:
 	docker exec -it realestate-db psql -U postgres -d realestate_dev
 
 db-stats:
 	@docker exec realestate-db psql -U postgres -d realestate_dev -c \
-		"SELECT s.code, s.name, COUNT(l.id) as listings FROM re_realestate.sources s \
-		LEFT JOIN re_realestate.listings l ON l.source_id = s.id \
-		GROUP BY s.code, s.name ORDER BY listings DESC;" 2>&1 | head -30
+	  "SELECT source_code, COUNT(*) AS pocet FROM re_realestate.listings WHERE is_active=true GROUP BY source_code ORDER BY pocet DESC;"
+
+# ---- Testy ---------------------------------------------------------------------
+
+test:
+	dotnet test tests/RealEstate.Tests --no-build -v quiet
+
+# ---- Scraping ------------------------------------------------------------------
+
+scrape:
+	curl -s -X POST http://localhost:8001/v1/scrape/run \
+	  -H "Content-Type: application/json" \
+	  -d '{"source_codes":["REMAX","MMR","PRODEJMETO","ZNOJMOREALITY","SREALITY","IDNES","NEMZNOJMO","HVREALITY","PREMIAREALITY","DELUXREALITY","LEXAMO","CENTURY21"],"full_rescan":false}' \
+	  | python3 -m json.tool
+
+scrape-full:
+	curl -s -X POST http://localhost:8001/v1/scrape/run \
+	  -H "Content-Type: application/json" \
+	  -d '{"source_codes":["REMAX","MMR","PRODEJMETO","ZNOJMOREALITY","SREALITY","IDNES","NEMZNOJMO","HVREALITY","PREMIAREALITY","DELUXREALITY","LEXAMO","CENTURY21"],"full_rescan":true}' \
+	  | python3 -m json.tool
