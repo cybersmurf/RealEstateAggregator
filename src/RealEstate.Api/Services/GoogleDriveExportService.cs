@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Flows;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Drive.v3;
 using Google.Apis.Drive.v3.Data;
 using Google.Apis.Services;
@@ -70,6 +72,18 @@ public sealed class GoogleDriveExportService(
 
     private async Task<DriveService> CreateDriveServiceAsync()
     {
+        // Preferujeme OAuth UserToken (soubory vlastní uživatel, má storage quota)
+        var tokenPath = configuration["GoogleDriveExport:UserTokenPath"]
+            ?? Path.Combine(AppContext.BaseDirectory, "secrets", "google-drive-token.json");
+
+        if (System.IO.File.Exists(tokenPath))
+        {
+            logger.LogInformation("Drive auth: OAuth UserCredential z {Path}", tokenPath);
+            return await CreateDriveServiceFromTokenAsync(tokenPath);
+        }
+
+        // Fallback: Service Account
+        logger.LogWarning("Drive auth: OAuth token nenalezen ({Path}), používám Service Account – upload souborů může selhat kvůli kvótě", tokenPath);
         var credPath = configuration["GoogleDriveExport:ServiceAccountCredentialsPath"]
             ?? throw new InvalidOperationException("GoogleDriveExport:ServiceAccountCredentialsPath není nakonfigurováno");
 
@@ -81,6 +95,40 @@ public sealed class GoogleDriveExportService(
         return new DriveService(new BaseClientService.Initializer
         {
             HttpClientInitializer = credential,
+            ApplicationName = "RealEstateAggregator"
+        });
+    }
+
+    /// <summary>
+    /// Vytvoří DriveService z uloženého OAuth tokenu.
+    /// Soubor musí mít formát: { "client_id": "...", "client_secret": "...", "refresh_token": "..." }
+    /// Získáš ho přes Google OAuth Playground: https://developers.google.com/oauthplayground/
+    /// </summary>
+    private static async Task<DriveService> CreateDriveServiceFromTokenAsync(string tokenPath)
+    {
+        var raw = await System.IO.File.ReadAllTextAsync(tokenPath);
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+
+        var clientId = root.GetProperty("client_id").GetString()
+            ?? throw new InvalidOperationException($"'{tokenPath}' neobsahuje client_id");
+        var clientSecret = root.GetProperty("client_secret").GetString()
+            ?? throw new InvalidOperationException($"'{tokenPath}' neobsahuje client_secret");
+        var refreshToken = root.GetProperty("refresh_token").GetString()
+            ?? throw new InvalidOperationException($"'{tokenPath}' neobsahuje refresh_token");
+
+        var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
+        {
+            ClientSecrets = new ClientSecrets { ClientId = clientId, ClientSecret = clientSecret },
+            Scopes = [DriveService.Scope.Drive]
+        });
+
+        var tokenResponse = new TokenResponse { RefreshToken = refreshToken };
+        var userCredential = new UserCredential(flow, "user", tokenResponse);
+
+        return new DriveService(new BaseClientService.Initializer
+        {
+            HttpClientInitializer = userCredential,
             ApplicationName = "RealEstateAggregator"
         });
     }

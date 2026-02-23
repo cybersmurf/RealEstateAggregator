@@ -97,6 +97,7 @@ app.MapListingEndpoints();
 app.MapSourceEndpoints();
 app.MapAnalysisEndpoints();
 app.MapExportEndpoints();
+app.MapDriveAuthEndpoints();
 
 // ─── Scraping endpoints – chráněno API klíčem ─────────────────────────────────
 app.MapScrapingEndpoints()
