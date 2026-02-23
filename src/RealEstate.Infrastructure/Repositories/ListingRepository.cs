@@ -21,6 +21,7 @@ public sealed class ListingRepository : IListingRepository
             .Include(l => l.Source)
             .Include(l => l.Photos)
             .Include(l => l.UserStates)
+            .AsSplitQuery()  // Prevents cartesian explosion when paging with multiple Includes
             .AsQueryable();
     }
 

@@ -112,7 +112,7 @@ public class ListingService : IListingService
                 {
                     Id = p.Id,
                     OriginalUrl = p.OriginalUrl,
-                    StoredUrl = p.StoredUrl ?? string.Empty,
+                    StoredUrl = p.StoredUrl,   // null when not yet stored locally
                     Order = p.Order
                 })
                 .ToList(),
