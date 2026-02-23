@@ -4,86 +4,265 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 
-<MudPaper Class="pa-4">
-    <MudStack Spacing="2">
-        <!-- Filtry (zjednodušené) -->
-        <MudTextField @bind-Value="_searchText" Label="Hledat text" />
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SearchAsync">
-            Hledat
-        </MudButton>
+<MudStack Spacing="3" Class="pa-4">
 
-        <MudTable T="ListingSummaryDto"
+    <!-- Filtrovací panel -->
+    <MudExpansionPanels MultiExpansion="false">
+        <MudExpansionPanel Text="Filtry" Expanded="true" Icon="@Icons.Material.Filled.FilterList">
+            <MudGrid Spacing="2">
+
+                <!-- Fulltext -->
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_filter.SearchText"
+                                  Label="Hledat text"
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Clearable="true"
+                                  OnClearButtonClick="@(() => { _filter.SearchText = null; })" />
+                </MudItem>
+
+                <!-- Typ nemovitosti -->
+                <MudItem xs="6" md="3">
+                    <MudSelect T="string?" @bind-Value="_filter.PropertyType"
+                               Label="Typ nemovitosti"
+                               Variant="Variant.Outlined"
+                               Clearable="true">
+                        <MudSelectItem T="string?" Value="@("House")">Dům</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@("Apartment")">Byt</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@("Land")">Pozemek</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@("Cottage")">Chata / chalupa</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@("Commercial")">Komerční</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@("Industrial")">Průmyslový</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@("Garage")">Garáž</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@("Other")">Ostatní</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
+                <!-- Typ nabídky -->
+                <MudItem xs="6" md="3">
+                    <MudSelect T="string?" @bind-Value="_filter.OfferType"
+                               Label="Nabídka"
+                               Variant="Variant.Outlined"
+                               Clearable="true">
+                        <MudSelectItem T="string?" Value="@("Sale")">Prodej</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@("Rent")">Pronájem</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
+                <!-- Cena od/do -->
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="decimal?" @bind-Value="_filter.PriceMin"
+                                     Label="Cena od (Kč)"
+                                     Variant="Variant.Outlined"
+                                     Format="N0"
+                                     Clearable="true" />
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="decimal?" @bind-Value="_filter.PriceMax"
+                                     Label="Cena do (Kč)"
+                                     Variant="Variant.Outlined"
+                                     Format="N0"
+                                     Clearable="true" />
+                </MudItem>
+
+                <!-- Plocha užitková -->
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="double?" @bind-Value="_filter.AreaBuiltUpMin"
+                                     Label="Užitná plocha od (m²)"
+                                     Variant="Variant.Outlined"
+                                     Format="N0"
+                                     Clearable="true" />
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="double?" @bind-Value="_filter.AreaBuiltUpMax"
+                                     Label="Užitná plocha do (m²)"
+                                     Variant="Variant.Outlined"
+                                     Format="N0"
+                                     Clearable="true" />
+                </MudItem>
+
+                <!-- Plocha pozemku -->
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="double?" @bind-Value="_filter.AreaLandMin"
+                                     Label="Pozemek od (m²)"
+                                     Variant="Variant.Outlined"
+                                     Format="N0"
+                                     Clearable="true" />
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="double?" @bind-Value="_filter.AreaLandMax"
+                                     Label="Pozemek do (m²)"
+                                     Variant="Variant.Outlined"
+                                     Format="N0"
+                                     Clearable="true" />
+                </MudItem>
+
+                <!-- Zdroje -->
+                <MudItem xs="12">
+                    <MudText Typo="Typo.caption" Class="mb-1">Zdroje</MudText>
+                    <MudChipSet T="string" @bind-SelectedValues="_selectedSourceCodes"
+                                SelectionMode="SelectionMode.MultiSelection"
+                                CheckMark="true">
+                        @foreach (var src in _availableSources)
+                        {
+                            <MudChip T="string" Value="@src.Code" Size="Size.Small" Variant="Variant.Outlined">
+                                @src.Code
+                            </MudChip>
+                        }
+                    </MudChipSet>
+                </MudItem>
+
+                <!-- Akce -->
+                <MudItem xs="12">
+                    <MudStack Row="true" Spacing="2">
+                        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                                   StartIcon="@Icons.Material.Filled.Search"
+                                   OnClick="SearchAsync">
+                            Hledat
+                        </MudButton>
+                        <MudButton Color="Color.Default" Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.Clear"
+                                   OnClick="ResetFilterAsync">
+                            Resetovat
+                        </MudButton>
+                    </MudStack>
+                </MudItem>
+
+            </MudGrid>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+
+    <!-- Tabulka výsledků -->
+    <MudTable T="ListingSummaryDto"
               ServerData="@LoadServerData"
-                  @ref="_table"
-                  Hover="true"
-                  Dense="true"
-                  Loading="_loading">
-            <HeaderContent>
-                <MudTh>Zdroj</MudTh>
-                <MudTh>Titulek</MudTh>
-                <MudTh>Lokalita</MudTh>
-                <MudTh>Cena</MudTh>
-                <MudTh>Plocha</MudTh>
-                <MudTh>Pozemek</MudTh>
-                <MudTh>Stav</MudTh>
-                <MudTh></MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd>@context.SourceName</MudTd>
-                <MudTd>@context.Title</MudTd>
-                <MudTd>@context.LocationText</MudTd>
-                <MudTd>@(context.Price?.ToString("N0") ?? "-") Kč</MudTd>
-                <MudTd>@(context.AreaBuiltUp?.ToString("N0") ?? "-") m²</MudTd>
-                <MudTd>@(context.AreaLand?.ToString("N0") ?? "-") m²</MudTd>
-                <MudTd>@context.UserStatus</MudTd>
-                <MudTd>
-                    <MudButton Size="Size.Small"
-                               Color="Color.Primary"
-                               Variant="Variant.Text"
-                               OnClick="@(async () => await NavigateToDetailAsync(context.Id))">
-                        Detail
-                    </MudButton>
-                    <MudButton Size="Size.Small"
-                               Color="Color.Secondary"
-                               Variant="Variant.Text"
-                               OnClick="@(async () => await CreateAnalysisAsync(context.Id))">
-                        Udělej analýzu
-                    </MudButton>
-                </MudTd>
-            </RowTemplate>
-            <PagerContent>
-                <MudTablePager RowsPerPage="10" RowsPerPageOptions="new int[] { 10, 20, 50 }" />
-            </PagerContent>
-        </MudTable>
-    </MudStack>
-</MudPaper>
+              @ref="_table"
+              Hover="true"
+              Dense="true"
+              Loading="_loading"
+              RowsPerPage="20"
+              Elevation="1">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Inzeráty</MudText>
+            <MudSpacer />
+            @if (_totalCount > 0)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary">@_totalCount celkem</MudChip>
+            }
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh>Zdroj</MudTh>
+            <MudTh>Titulek</MudTh>
+            <MudTh>Lokalita</MudTh>
+            <MudTh>Typ</MudTh>
+            <MudTh>Nabídka</MudTh>
+            <MudTh Style="text-align:right">Cena</MudTh>
+            <MudTh Style="text-align:right">Plocha</MudTh>
+            <MudTh Style="text-align:right">Pozemek</MudTh>
+            <MudTh>Stav</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                    @context.SourceName
+                </MudChip>
+            </MudTd>
+            <MudTd Style="max-width:280px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">
+                @context.Title
+            </MudTd>
+            <MudTd>@context.LocationText</MudTd>
+            <MudTd>@TranslatePropertyType(context.PropertyType)</MudTd>
+            <MudTd>@TranslateOfferType(context.OfferType)</MudTd>
+            <MudTd Style="text-align:right">
+                @if (context.Price.HasValue)
+                {
+                    <MudText Color="Color.Success" Class="fw-bold">@context.Price.Value.ToString("N0") Kč</MudText>
+                }
+                else
+                {
+                    <MudText Color="Color.Default">-</MudText>
+                }
+            </MudTd>
+            <MudTd Style="text-align:right">@(context.AreaBuiltUp?.ToString("N0") ?? "-") m²</MudTd>
+            <MudTd Style="text-align:right">@(context.AreaLand?.ToString("N0") ?? "-") m²</MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.UserStatus)" Variant="Variant.Filled">
+                    @TranslateStatus(context.UserStatus)
+                </MudChip>
+            </MudTd>
+            <MudTd>
+                <MudStack Row="true" Spacing="0">
+                    <MudTooltip Text="Detail">
+                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                       Size="Size.Small"
+                                       Color="Color.Primary"
+                                       OnClick="@(async () => await NavigateToDetailAsync(context.Id))" />
+                    </MudTooltip>
+                    <MudTooltip Text="AI Analýza">
+                        <MudIconButton Icon="@Icons.Material.Filled.AutoAwesome"
+                                       Size="Size.Small"
+                                       Color="Color.Secondary"
+                                       OnClick="@(async () => await CreateAnalysisAsync(context.Id))" />
+                    </MudTooltip>
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="new int[] { 10, 20, 50, 100 }" />
+        </PagerContent>
+    </MudTable>
+
+</MudStack>
 
 @code {
-    private string? _searchText;
     private MudTable<ListingSummaryDto>? _table;
     private bool _loading;
+    private int _totalCount;
+
+    private ListingFilterDto _filter = new() { Page = 1, PageSize = 20 };
+    private IReadOnlyCollection<string> _selectedSourceCodes = new List<string>();
+    private List<SourceDto> _availableSources = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
+            _availableSources = sources ?? new List<SourceDto>();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Nepodařilo se načíst zdroje: {ex.Message}", Severity.Warning);
+        }
+    }
 
     private async Task<TableData<ListingSummaryDto>> LoadServerData(TableState state, CancellationToken ct)
     {
         _loading = true;
         try
         {
-            var filter = new ListingFilterDto
-            {
-                SearchText = _searchText,
-                Page = state.Page + 1,
-                PageSize = state.PageSize
-            };
+            _filter.Page = state.Page + 1;
+            _filter.PageSize = state.PageSize;
+            _filter.SourceCodes = _selectedSourceCodes.Count > 0
+                ? _selectedSourceCodes.ToList()
+                : null;
 
-            var response = await Http.PostAsJsonAsync("api/listings/search", filter, ct);
+            var response = await Http.PostAsJsonAsync("api/listings/search", _filter, ct);
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>(ct);
+            _totalCount = result?.TotalCount ?? 0;
             return new TableData<ListingSummaryDto>
             {
                 Items = result?.Items ?? Array.Empty<ListingSummaryDto>(),
-                TotalItems = result?.TotalCount ?? 0
+                TotalItems = _totalCount
             };
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba načítání: {ex.Message}", Severity.Error);
+            return new TableData<ListingSummaryDto> { Items = Array.Empty<ListingSummaryDto>(), TotalItems = 0 };
         }
         finally
         {
@@ -93,12 +272,16 @@
 
     private async Task SearchAsync()
     {
-        if (_table is null)
-        {
-            return;
-        }
-
+        if (_table is null) return;
         await _table.ReloadServerData();
+    }
+
+    private async Task ResetFilterAsync()
+    {
+        _filter = new ListingFilterDto { Page = 1, PageSize = 20 };
+        _selectedSourceCodes = new List<string>();
+        if (_table is not null)
+            await _table.ReloadServerData();
     }
 
     private async Task NavigateToDetailAsync(Guid id)
@@ -111,18 +294,13 @@
     {
         try
         {
-            var request = new AnalysisJobCreateDto
-            {
-                StorageProvider = "Local"
-            };
-
+            var request = new AnalysisJobCreateDto { StorageProvider = "Local" };
             var response = await Http.PostAsJsonAsync($"api/analysis/listing/{id}", request);
             if (!response.IsSuccessStatusCode)
             {
                 Snackbar.Add("Chyba při vytváření analýzy", Severity.Error);
                 return;
             }
-
             Snackbar.Add("Analýza byla úspěšně vytvořena", Severity.Success);
         }
         catch (Exception ex)
@@ -131,4 +309,44 @@
         }
     }
 
+    private static string TranslatePropertyType(string? t) => t switch
+    {
+        "House" => "Dům",
+        "Apartment" => "Byt",
+        "Land" => "Pozemek",
+        "Cottage" => "Chata",
+        "Commercial" => "Komerční",
+        "Industrial" => "Průmyslový",
+        "Garage" => "Garáž",
+        _ => t ?? "-"
+    };
+
+    private static string TranslateOfferType(string? t) => t switch
+    {
+        "Sale" => "Prodej",
+        "Rent" => "Pronájem",
+        _ => t ?? "-"
+    };
+
+    private static string TranslateStatus(string? s) => s switch
+    {
+        "New" => "Nový",
+        "Liked" => "Líbí se",
+        "Disliked" => "Nelíbí",
+        "ToVisit" => "Ke shlédnutí",
+        "Visited" => "Shlédnuto",
+        "Ignored" => "Ignorováno",
+        _ => s ?? "Nový"
+    };
+
+    private static Color StatusColor(string? s) => s switch
+    {
+        "Liked" or "ToVisit" => Color.Success,
+        "Disliked" or "Ignored" => Color.Error,
+        "Visited" => Color.Info,
+        _ => Color.Default
+    };
+
+    private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
 }
+

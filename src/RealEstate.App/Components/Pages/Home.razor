@@ -82,10 +82,13 @@
                                     <MudIcon Icon="@Icons.Material.Filled.Language" Color="@(src.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
                                     <MudText Typo="Typo.caption" Class="fw-bold">@src.Code</MudText>
                                     <MudText Typo="Typo.caption" Style="font-size:0.7rem; opacity:0.8">@src.Name</MudText>
-                                    @if (_countsBySource.TryGetValue(src.Code, out var cnt))
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@cnt inz.</MudChip>
+                                    @{
+                                        var cnt = _countsBySource.GetValueOrDefault(src.Code, 0);
+                                        var chipColor = cnt > 0 ? Color.Primary : Color.Default;
                                     }
+                                    <MudChip T="string" Size="Size.Small" Color="@chipColor" Variant="Variant.Outlined">
+                                        @cnt inz.
+                                    </MudChip>
                                 </MudStack>
                             </MudPaper>
                         </MudItem>
@@ -144,8 +147,7 @@
                     if (r.IsSuccessStatusCode)
                     {
                         var d = await r.Content.ReadFromJsonAsync<SearchResultDto>();
-                        if (d != null && d.TotalCount > 0)
-                            _countsBySource[src.Code] = d.TotalCount;
+                        _countsBySource[src.Code] = d?.TotalCount ?? 0;
                     }
                 }
                 catch { /* skip – zobrazí se bez počtu */ }
