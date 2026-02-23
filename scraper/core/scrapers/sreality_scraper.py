@@ -365,9 +365,17 @@ class SrealityScraper:
         }
 
     def _merge_detail(self, normalized: Dict[str, Any], detail: Dict[str, Any]) -> Dict[str, Any]:
-        description = detail.get("text") or detail.get("description")
-        if description:
-            normalized["description"] = description[:5000]
+        # 🔥 SReality API vrací 'text' jako dict {'name': 'Popis', 'value': '...'} nebo string
+        description_raw = detail.get("text") or detail.get("description")
+        if description_raw:
+            if isinstance(description_raw, dict):
+                description = description_raw.get("value", "")
+            elif isinstance(description_raw, str):
+                description = description_raw
+            else:
+                description = ""
+            if description:
+                normalized["description"] = description[:5000]
 
         detail_photos = self._extract_photos(detail)
         if detail_photos:
@@ -423,7 +431,9 @@ class SrealityScraper:
     def _parse_area(value: Optional[str]) -> Optional[int]:
         if not value:
             return None
-        digits = "".join(c for c in value if c.isdigit())
+        # 🔥 re.sub místo isdigit() – isdigit() vrací True pro Unicode ² (²)
+        import re
+        digits = re.sub(r"[^0-9]", "", str(value))
         return int(digits) if digits else None
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
