@@ -130,24 +130,26 @@ Vytvořit agregátor realitních inzerátů, který automaticky scrapuje vybran�
 
 ---
 
-#### US-005: Vytvořit Docker setup
+#### US-005: Vytvořit Docker setup ✅ DONE (eb61e2d)
 **Jako** developer  
 **Chci** mít aplikaci v Dockeru  
 **Abych** mohl snadno deployovat a spouštět celý stack
 
 **Acceptance Criteria**:
-- [ ] Dockerfile pro .NET aplikaci
-- [ ] Dockerfile pro Python scraper
-- [ ] docker-compose.yml pro celý stack
-- [ ] Aplikace běží v kontejnerech
-- [ ] Dokumentace Docker commandů
+- [x] Dockerfile pro .NET aplikaci
+- [x] Dockerfile pro Python scraper
+- [x] docker-compose.yml pro celý stack
+- [x] Aplikace běží v kontejnerech
+- [x] Dokumentace Docker commandů
 
 **Tasks**:
-- [ ] Vytvořit src/RealEstate.Api/Dockerfile
-- [ ] Vytvořit scraper/Dockerfile
-- [ ] Vytvořit docker-compose.yml (app + scraper + db)
-- [ ] .dockerignore soubory
-- [ ] Dokumentovat spuštění
+- [x] Vytvořit src/RealEstate.Api/Dockerfile
+- [x] Vytvořit scraper/Dockerfile
+- [x] Vytvořit docker-compose.yml (app + scraper + db)
+- [x] .dockerignore soubory
+- [x] Dokumentovat spuštění
+
+> **2026-02-23**: Kompletně dokončeno. Program.cs čte `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` z env; docker-compose je nastavuje na `postgres`.
 
 **Estimate**: 3 SP
 

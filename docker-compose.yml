@@ -30,7 +30,11 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__RealEstate=Host=postgres;Port=5432;Database=realestate_dev;Username=postgres;Password=${POSTGRES_PASSWORD:-dev}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=realestate_dev
+      - DB_USER=postgres
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-dev}
       - SCRAPER_API_BASE_URL=http://realestate-scraper:8001
     depends_on:
       postgres:

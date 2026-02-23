@@ -425,6 +425,15 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 
 ### Common Issues
 
+**Problem:** API container crashes with `Failed to connect to 127.0.0.1:5432`  
+**Solution:** `Program.cs` sestavuje connection string z `DB_HOST` (default `localhost`). Docker-compose MUSÍ nastavovat `DB_HOST=postgres` (ne `ConnectionStrings__RealEstate`). Zkontroluj sekci `environment:` v `docker-compose.yml`.
+
+**Problem:** Fotky se nezobrazují v Blazor App  
+**Solution:** Zkontroluj `ListingService.cs` – `StoredUrl = p.StoredUrl` (nikoliv `?? string.Empty`). Prázdný string `""` se v Blazor `photo.StoredUrl ?? photo.OriginalUrl` nezobrazí jako fallback.
+
+**Problem:** Sources filter (chipy) – NullReferenceException při odznačení  
+**Solution:** `_selectedSourceCodes` musí být `IReadOnlyCollection<string>?` (nullable). MudBlazor 9 `MudChipSet @bind-SelectedValues` může nastavit `null`. Použij `_selectedSourceCodes?.Count ?? 0`.
+
 **Problem:** API returns 500 when calling `/api/scraping/trigger`  
 **Solution:** Python scraper neběží. Spusť: `cd scraper && .venv/bin/python run_api.py`  
 (Pokud `python` není v PATH, musíš použít virtualenv venv)
@@ -484,5 +493,6 @@ Include upsert to database via get_db_manager().
 ---
 
 **Last Updated:** 23. února 2026  
-**Current Commit:** b94343e (Fix PropertyType/OfferType converter + integrate logos into UI)
-**DB stav:** 1 236 aktivních inzerátů, 12 zdrojů (SREALITY=851, IDNES=168, …)
+**Current Commit:** photo-fix + docker-connection-fix  
+**DB stav:** 1 236 aktivníc h inzerátů, 6 919 fotek, 12 zdrojů (SREALITY=851, IDNES=168, …)
+**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432

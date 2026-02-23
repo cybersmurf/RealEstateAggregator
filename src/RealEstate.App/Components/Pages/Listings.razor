@@ -361,7 +361,7 @@
     private int _cardTotalPages;
 
     private ListingFilterDto _filter = new() { Page = 1, PageSize = 20 };
-    private IReadOnlyCollection<string> _selectedSourceCodes = new List<string>();
+    private IReadOnlyCollection<string>? _selectedSourceCodes = new List<string>();
     private List<SourceDto> _availableSources = new();
 
     // Quick filtry
@@ -395,8 +395,8 @@
         {
             _filter.Page = state.Page + 1;
             _filter.PageSize = state.PageSize;
-            _filter.SourceCodes = _selectedSourceCodes.Count > 0
-                ? _selectedSourceCodes.ToList()
+            _filter.SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0
+                ? _selectedSourceCodes!.ToList()
                 : null;
 
             var response = await Http.PostAsJsonAsync("api/listings/search", _filter, ct);
@@ -440,7 +440,7 @@
                 AreaBuiltUpMax = _filter.AreaBuiltUpMax,
                 AreaLandMin = _filter.AreaLandMin,
                 AreaLandMax = _filter.AreaLandMax,
-                SourceCodes = _selectedSourceCodes.Count > 0 ? _selectedSourceCodes.ToList() : null,
+                SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0 ? _selectedSourceCodes!.ToList() : null,
             };
             var response = await Http.PostAsJsonAsync("api/listings/search", cardFilter);
             response.EnsureSuccessStatusCode();
@@ -511,7 +511,7 @@
     private async Task ResetFilterAsync()
     {
         _filter = new ListingFilterDto { Page = 1, PageSize = 20 };
-        _selectedSourceCodes = new List<string>();
+        _selectedSourceCodes = new List<string>(); // reset na prázdnou kolekci (ne null)
         _activeQuickFilter = null;
 
         if (_cardView)

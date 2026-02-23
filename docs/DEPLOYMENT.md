@@ -51,9 +51,14 @@ docker-compose down -v
 ```
 
 **Přístup k aplikaci**:
+- Blazor App: http://localhost:5002
 - API: http://localhost:5001
 - Swagger UI: http://localhost:5001/swagger
-- pgAdmin: http://localhost:5050 (profil `tools`)
+- Scraper API: http://localhost:8001
+
+> **⚠️ Důležité**: `Program.cs` v API čte connection string z env vars `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`. Docker-compose tyto vars nastavuje automaticky. Pro lokální vývoj bez Dockeru je nutné je nastavit ručně (viz sekce níže).
+
+> **⚠️ Colima (macOS)**: Po startu Colima mohou být potřeba `unset DOCKER_HOST` před používáním `docker` / `docker-compose`.
 
 ### 3. Lokální spuštění bez Dockeru
 

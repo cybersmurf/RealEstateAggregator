@@ -1,8 +1,37 @@
 # AI Session Summary – RealEstateAggregator
 **Datum:** 23. února 2026  
-**Celková doba:** ~6 hodin (2 sessions)  
-**Celkové commity:** 20+  
-**Status:** ✅ Production-ready full-stack aplikace, 12 scraperů, 1 236 aktivních inzerátů
+**Celková doba:** ~8 hodin (3 sessions)  
+**Celkové commity:** 25+  
+**Status:** ✅ Production-ready full-stack aplikace, 12 scraperů, 1 236 aktivních inzerátů, Docker stack plně funkční
+
+---
+
+## ✅ Latest Updates (Session 3 – 23. února 2026)
+
+### Fáze 20–21: Docker fixes + photo fix + sources filter null safety
+
+**Fáze 20: Docker connection string fix**
+- Root cause: `Program.cs` sestavuje connection string z `DB_HOST` env var (default `localhost`), ale `docker-compose.yml` nastavoval pouze `ConnectionStrings__RealEstate` → API se připojovalo na `127.0.0.1:5432` místo `postgres:5432`
+- Fix: Přidány `DB_HOST=postgres`, `DB_PORT=5432`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` do `docker-compose.yml`
+- Projev: API container crashoval ihned po startu s `Failed to connect to 127.0.0.1:5432`
+
+**Fáze 21: Photo storedUrl fix (deployment)**
+- Bug: `StoredUrl = p.StoredUrl ?? string.Empty` v `ListingService.cs` → `storedUrl: ""`  v JSON místo `null`
+- Blazor: `photo.StoredUrl ?? photo.OriginalUrl` s prázdným `""` nikdy nespadne na OriginalUrl → `<img src="">`
+- Fix (commit `d691301`): `StoredUrl = p.StoredUrl` (zachovat null) + `!string.IsNullOrEmpty()` check v `ListingDetail.razor`
+- Ověřeno: API vrací `storedUrl: null`, Blazor používá `originalUrl`
+
+**Fáze 21b: Sources filter null safety**
+- Bug: `MudChipSet @bind-SelectedValues` v MudBlazor 9 může nastavit `_selectedSourceCodes = null` při odznačení všech chipů → `_selectedSourceCodes.Count` hází `NullReferenceException`
+- Fix: `private IReadOnlyCollection<string>? _selectedSourceCodes` + `_selectedSourceCodes?.Count ?? 0` pattern ve všech 3 výskytech v `Listings.razor`
+
+**Fáze 18: Docker containerization** (commit `eb61e2d`)
+- Dockerfiles pro API (`src/RealEstate.Api/Dockerfile`) a App (`src/RealEstate.App/Dockerfile`)
+- `docker-compose.yml` se 4 službami: postgres, api, app, scraper
+- Tag `v1.2.0-stable` vytvořen a pushnut
+
+**Aktuální stav DB:** 1 236 inzerátů, 6 919 fotek, 12 zdrojů
+**Commity:** `d691301` (photo fix), `eb61e2d` (Docker)
 
 ---
 
