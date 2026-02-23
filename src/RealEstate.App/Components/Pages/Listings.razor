@@ -192,8 +192,8 @@
                         }
                         else
                         {
-                            <div style="height:120px; background:#f0f0f0; display:flex; align-items:center; justify-content:center;">
-                                <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Large" Color="Color.Default" />
+                            <div style="height:120px; background:linear-gradient(135deg,#C17F3E18 0%,#4A6FA518 100%); display:flex; align-items:center; justify-content:center; border-radius:8px 8px 0 0;">
+                                <MudIcon Icon="@Icons.Material.Filled.House" Size="Size.Large" Color="Color.Primary" Style="opacity:0.4" />
                             </div>
                         }
                         <MudCardContent Class="pa-2">
@@ -203,7 +203,7 @@
                             </MudText>
                             @if (item.Price.HasValue)
                             {
-                                <MudText Typo="Typo.h6" Color="Color.Success" Class="fw-bold mt-1">
+                                <MudText Typo="Typo.h6" Color="@PriceColor(item.Price)" Class="fw-bold mt-1">
                                     @item.Price.Value.ToString("N0") Kč
                                 </MudText>
                             }
@@ -220,11 +220,10 @@
                             }
                         </MudCardContent>
                         <MudCardActions Class="pa-2 pt-0">
-                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@item.SourceName</MudChip>
+                            <MudChip T="string" Size="Size.Small" Color="@SourceColor(item.SourceCode)" Variant="Variant.Outlined">@item.SourceName</MudChip>
                             <MudSpacer />
-                            <MudText Typo="Typo.caption" Color="Color.Tertiary">
-                                @TranslatePropertyType(item.PropertyType) · @TranslateOfferType(item.OfferType)
-                            </MudText>
+                            @{ var pti = PropertyTypeInfo(item.PropertyType); }
+                            <MudChip T="string" Size="Size.Small" Color="@pti.Color" Variant="Variant.Text" Icon="@pti.Icon">@TranslatePropertyType(item.PropertyType)</MudChip>
                         </MudCardActions>
                     </MudCard>
                 </MudItem>
@@ -267,7 +266,7 @@
             </HeaderContent>
             <RowTemplate>
                 <MudTd>
-                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                    <MudChip T="string" Size="Size.Small" Color="@SourceColor(context.SourceCode)" Variant="Variant.Outlined">
                         @context.SourceName
                     </MudChip>
                 </MudTd>
@@ -275,12 +274,15 @@
                     @context.Title
                 </MudTd>
                 <MudTd>@context.LocationText</MudTd>
-                <MudTd>@TranslatePropertyType(context.PropertyType)</MudTd>
+                <MudTd>
+                    @{ var ptiRow = PropertyTypeInfo(context.PropertyType); }
+                    <MudChip T="string" Size="Size.Small" Color="@ptiRow.Color" Variant="Variant.Text" Icon="@ptiRow.Icon">@TranslatePropertyType(context.PropertyType)</MudChip>
+                </MudTd>
                 <MudTd>@TranslateOfferType(context.OfferType)</MudTd>
                 <MudTd Style="text-align:right">
                     @if (context.Price.HasValue)
                     {
-                        <MudText Color="Color.Success" Class="fw-bold">@context.Price.Value.ToString("N0") Kč</MudText>
+                        <MudText Color="@PriceColor(context.Price)" Class="fw-bold">@context.Price.Value.ToString("N0") Kč</MudText>
                     }
                     else
                     {
@@ -290,9 +292,8 @@
                 <MudTd Style="text-align:right">@(context.AreaBuiltUp?.ToString("N0") ?? "-") m²</MudTd>
                 <MudTd Style="text-align:right">@(context.AreaLand?.ToString("N0") ?? "-") m²</MudTd>
                 <MudTd>
-                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.UserStatus)" Variant="Variant.Filled">
-                        @TranslateStatus(context.UserStatus)
-                    </MudChip>
+                    @{ var si = StatusInfo(context.UserStatus); }
+                    <MudChip T="string" Size="Size.Small" Color="@si.Color" Variant="Variant.Filled" Icon="@si.Icon">@si.Label</MudChip>
                 </MudTd>
                 <MudTd>
                     <MudStack Row="true" Spacing="0">
@@ -527,40 +528,63 @@
 
     private static string TranslatePropertyType(string? t) => t switch
     {
-        "House" => "Dům",
-        "Apartment" => "Byt",
-        "Land" => "Pozemek",
-        "Cottage" => "Chata",
+        "House"      => "Dům",
+        "Apartment"  => "Byt",
+        "Land"       => "Pozemek",
+        "Cottage"    => "Chata",
         "Commercial" => "Komerční",
         "Industrial" => "Průmyslový",
-        "Garage" => "Garáž",
-        _ => t ?? "-"
+        "Garage"     => "Garáž",
+        _            => t ?? "-"
     };
 
     private static string TranslateOfferType(string? t) => t switch
     {
         "Sale" => "Prodej",
         "Rent" => "Pronájem",
-        _ => t ?? "-"
+        _      => t ?? "-"
     };
 
-    private static string TranslateStatus(string? s) => s switch
+    private static (Color Color, string Icon, string Label) StatusInfo(string? s) => s switch
     {
-        "New" => "Nový",
-        "Liked" => "Líbí se",
-        "Disliked" => "Nelíbí",
-        "ToVisit" => "Ke shlédnutí",
-        "Visited" => "Shlédnuto",
-        "Ignored" => "Ignorováno",
-        _ => s ?? "Nový"
+        "New"      => (Color.Default,  Icons.Material.Filled.FiberNew,      "Nový"),
+        "Liked"    => (Color.Success,  Icons.Material.Filled.Favorite,      "Líbí se"),
+        "Disliked" => (Color.Error,    Icons.Material.Filled.HeartBroken,   "Nelíbí"),
+        "ToVisit"  => (Color.Warning,  Icons.Material.Filled.CalendarMonth, "Ke shlédnutí"),
+        "Visited"  => (Color.Info,     Icons.Material.Filled.DoneAll,       "Shlédnuto"),
+        "Ignored"  => (Color.Default,  Icons.Material.Filled.VisibilityOff, "Ignorováno"),
+        _          => (Color.Default,  Icons.Material.Filled.Circle,        s ?? "Nový")
     };
 
-    private static Color StatusColor(string? s) => s switch
+    private static Color SourceColor(string? code) => code?.ToUpper() switch
     {
-        "Liked" or "ToVisit" => Color.Success,
-        "Disliked" or "Ignored" => Color.Error,
-        "Visited" => Color.Info,
+        var s when s?.Contains("SREALITY")  == true => Color.Primary,
+        var s when s?.Contains("REMAX")     == true => Color.Error,
+        var s when s?.Contains("CENTURY")   == true => Color.Warning,
+        var s when s?.Contains("IDNES")     == true => Color.Info,
+        var s when s?.Contains("HVREALITY") == true => Color.Secondary,
+        var s when s?.Contains("PREMIAREAL")== true => Color.Tertiary,
         _ => Color.Default
+    };
+
+    private static Color PriceColor(decimal? price) => price switch
+    {
+        null        => Color.Default,
+        < 1_000_000 => Color.Success,
+        < 5_000_000 => Color.Warning,
+        _           => Color.Error
+    };
+
+    private static (Color Color, string Icon) PropertyTypeInfo(string? t) => t switch
+    {
+        "House"      => (Color.Warning,   Icons.Material.Filled.House),
+        "Apartment"  => (Color.Primary,   Icons.Material.Filled.Apartment),
+        "Land"       => (Color.Success,   Icons.Material.Filled.Landscape),
+        "Cottage"    => (Color.Tertiary,  Icons.Material.Filled.Cabin),
+        "Commercial" => (Color.Secondary, Icons.Material.Filled.Store),
+        "Industrial" => (Color.Error,     Icons.Material.Filled.Factory),
+        "Garage"     => (Color.Dark,      Icons.Material.Filled.Garage),
+        _            => (Color.Default,   Icons.Material.Filled.Home)
     };
 
     private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
