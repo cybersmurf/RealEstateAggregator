@@ -100,7 +100,7 @@ search_filters:
     
   # Filtery pro komerční nemovitosti
   commercial:
-    enabled: false
+    enabled: true
     max_price: null
     min_price: null
     offer_types:
