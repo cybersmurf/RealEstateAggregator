@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:pg15
@@ -29,7 +27,6 @@ services:
     container_name: realestate-api
     ports:
       - "5001:8080"
-      - "5002:8081"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
@@ -42,6 +39,23 @@ services:
       - realestate-network
     volumes:
       - ./logs/api:/app/logs
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: src/RealEstate.App/Dockerfile
+    container_name: realestate-app
+    ports:
+      - "5002:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ApiBaseUrl=http://realestate-api:8080
+    depends_on:
+      - api
+    networks:
+      - realestate-network
     restart: unless-stopped
 
   scraper:

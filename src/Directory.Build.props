@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <!--
+      Disable automatic **/*.resx EmbeddedResource glob.
+      .NET SDK 10.0.103 fails with MSB3552 in Docker when no .resx files exist
+      and the glob is passed literally to ResGen. None of our projects use .resx.
+    -->
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+  </PropertyGroup>
+</Project>
