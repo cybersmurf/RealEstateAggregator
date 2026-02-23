@@ -46,11 +46,31 @@ public class ListingService : IListingService
         // 3) Counting před stránkováním
         var totalCount = await query.CountAsync(cancellationToken);
 
-        // 4) Sorting – .ThenBy(Id) zajišťuje deterministické pořadí při shodě
-        query = query
-            .OrderByDescending(x => x.FirstSeenAt)
-            .ThenBy(x => x.Price)
-            .ThenBy(x => x.Id);
+        // 4) Sorting – řazení dle filtru, .ThenBy(Id) zajišťuje deterministické pořadí
+        query = filter.SortBy switch
+        {
+            "price"    => filter.SortDescending
+                            ? query.OrderByDescending(x => x.Price).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.Price).ThenBy(x => x.Id),
+            "area"     => filter.SortDescending
+                            ? query.OrderByDescending(x => x.AreaBuiltUp).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.AreaBuiltUp).ThenBy(x => x.Id),
+            "land"     => filter.SortDescending
+                            ? query.OrderByDescending(x => x.AreaLand).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.AreaLand).ThenBy(x => x.Id),
+            "date"     => filter.SortDescending
+                            ? query.OrderByDescending(x => x.FirstSeenAt).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.FirstSeenAt).ThenBy(x => x.Id),
+            "title"    => filter.SortDescending
+                            ? query.OrderByDescending(x => x.Title).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.Title).ThenBy(x => x.Id),
+            "location" => filter.SortDescending
+                            ? query.OrderByDescending(x => x.LocationText).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.LocationText).ThenBy(x => x.Id),
+            _          => query.OrderByDescending(x => x.FirstSeenAt)
+                               .ThenBy(x => x.Price)
+                               .ThenBy(x => x.Id),
+        };
 
         // 5) Paging
         var skip = (filter.Page - 1) * filter.PageSize;

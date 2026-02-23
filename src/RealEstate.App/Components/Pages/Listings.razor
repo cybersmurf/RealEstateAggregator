@@ -273,13 +273,14 @@
             </ToolBarContent>
             <HeaderContent>
                 <MudTh>Zdroj</MudTh>
-                <MudTh>Titulek</MudTh>
-                <MudTh>Lokalita</MudTh>
+                <MudTh><MudTableSortLabel SortLabel="title" T="ListingSummaryDto">Titulek</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortLabel="location" T="ListingSummaryDto">Lokalita</MudTableSortLabel></MudTh>
                 <MudTh>Typ</MudTh>
                 <MudTh>Nabídka</MudTh>
-                <MudTh Style="text-align:right">Cena</MudTh>
-                <MudTh Style="text-align:right">Plocha</MudTh>
-                <MudTh Style="text-align:right">Pozemek</MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel SortLabel="price" T="ListingSummaryDto">Cena</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel SortLabel="area" T="ListingSummaryDto">Plocha</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel SortLabel="land" T="ListingSummaryDto">Pozemek</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel SortLabel="date" T="ListingSummaryDto">Přidáno</MudTableSortLabel></MudTh>
                 <MudTh>Stav</MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
@@ -400,6 +401,8 @@
             _filter.SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0
                 ? _selectedSourceCodes!.ToList()
                 : null;
+            _filter.SortBy = string.IsNullOrEmpty(state.SortLabel) ? null : state.SortLabel;
+            _filter.SortDescending = state.SortDirection == MudBlazor.SortDirection.Descending;
 
             var response = await Http.PostAsJsonAsync("api/listings/search", _filter, ct);
             response.EnsureSuccessStatusCode();

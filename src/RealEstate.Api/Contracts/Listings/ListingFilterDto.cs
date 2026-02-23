@@ -24,6 +24,11 @@ public sealed class ListingFilterDto
 
     public string? SearchText { get; set; }
 
+    /// <summary>Sloupec řazení: "price", "area", "land", "date", "title", "location"</summary>
+    public string? SortBy { get; set; }
+    /// <summary>Sestupně = true, vzestupně = false (výchozí)</summary>
+    public bool SortDescending { get; set; } = false;
+
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 50;
 }

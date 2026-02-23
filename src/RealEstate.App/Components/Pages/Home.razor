@@ -79,7 +79,18 @@
                         <MudItem xs="6" sm="4" md="3" lg="2">
                             <MudPaper Class="pa-3 text-center" Elevation="2">
                                 <MudStack Spacing="1" AlignItems="AlignItems.Center">
-                                    <MudIcon Icon="@Icons.Material.Filled.Language" Color="@(src.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                                    @{ var homeLogo = GetLogoUrl(src.Code); }
+                                    @if (homeLogo != null)
+                                    {
+                                        <img src="@homeLogo" alt="@src.Name"
+                                             style="height:36px;max-width:90px;object-fit:contain;" />
+                                    }
+                                    else
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.Language"
+                                                 Color="@(src.IsActive ? Color.Success : Color.Default)"
+                                                 Size="Size.Medium" />
+                                    }
                                     <MudText Typo="Typo.caption" Class="fw-bold">@src.Code</MudText>
                                     <MudText Typo="Typo.caption" Style="font-size:0.7rem; opacity:0.8">@src.Name</MudText>
                                     @{
@@ -151,4 +162,23 @@
     private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
     private record ListingStatsDto(int TotalCount, int ActiveSourceCount, List<SourceCountDto> CountsBySource);
     private record SourceCountDto(string SourceCode, string SourceName, int Count);
+
+    private static readonly Dictionary<string, string> _logoMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        { "REMAX",         "/images/logos/REMAX.svg" },
+        { "MMR",           "/images/logos/MMR.svg" },
+        { "PRODEJMETO",    "/images/logos/PRODEJMETO.svg" },
+        { "LEXAMO",        "/images/logos/LEXAMO.svg" },
+        { "PREMIAREALITY", "/images/logos/PREMIAREALITY.svg" },
+        { "CENTURY21",     "/images/logos/CENTURY21.svg" },
+        { "SREALITY",      "/images/logos/SREALITY.png" },
+        { "IDNES",         "/images/logos/IDNES.svg" },
+        { "DELUXREALITY",  "/images/logos/DELUXREALITY.png" },
+        { "HVREALITY",     "/images/logos/HVREALITY.png" },
+        { "ZNOJMOREALITY", "/images/logos/ZNOJMOREALITY.png" },
+        { "NEMZNOJMO",     "/images/logos/NEMZNOJMO.png" },
+    };
+
+    private static string? GetLogoUrl(string? code)
+        => code != null && _logoMap.TryGetValue(code, out var url) ? url : null;
 }
