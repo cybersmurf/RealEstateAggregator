@@ -238,7 +238,7 @@ public sealed class GoogleDriveExportService(
         if (!string.IsNullOrWhiteSpace(l.ConstructionType)) sb.AppendLine($"| **Typ konstrukce** | {l.ConstructionType} |");
         if (!string.IsNullOrWhiteSpace(l.Condition)) sb.AppendLine($"| **Stav** | {l.Condition} |");
         sb.AppendLine($"| **Zdroj** | {l.SourceName} ({l.SourceCode}) |");
-        sb.AppendLine($"| **URL inzerátu** | {l.Url} |");
+        sb.AppendLine($"| **URL inzerátu** | [{l.Url}]({l.Url}) |");
         sb.AppendLine($"| **Poprvé viděno** | {l.FirstSeenAt:dd.MM.yyyy} |");
         sb.AppendLine();
         sb.AppendLine("## Popis");
@@ -280,10 +280,27 @@ public sealed class GoogleDriveExportService(
             description = l.Description,
             first_seen_at = l.FirstSeenAt,
             photos_count = l.Photos.Count,
-            photo_urls = l.Photos.OrderBy(p => p.Order).Select(p => p.OriginalUrl).ToList()
+            photo_urls = l.Photos.OrderBy(p => p.Order).Select(p => p.OriginalUrl).ToList(),
+            age_category = IsNewBuild(l.Condition, l.Description) ? "new_build" : "existing"
         };
 
         return JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static bool IsNewBuild(string? condition, string? description)
+    {
+        var haystack = $"{condition} {description}".ToLowerInvariant();
+        return haystack.Contains("novostavb") ||
+               haystack.Contains("ve výstavb") ||
+               haystack.Contains("ve vystavb") ||
+               haystack.Contains("pod klíč") ||
+               haystack.Contains("pod klic") ||
+               haystack.Contains("developerský projekt") ||
+               haystack.Contains("developersky projekt") ||
+               haystack.Contains("dokončení 202") ||
+               haystack.Contains("dokonceni 202") ||
+               condition?.ToLowerInvariant().Contains("nový") == true ||
+               condition?.ToLowerInvariant().Contains("nová") == true;
     }
 
     private static string BuildAiInstructions(Listing l)
@@ -292,6 +309,7 @@ public sealed class GoogleDriveExportService(
         var area = l.AreaBuiltUp.HasValue
             ? $"{l.AreaBuiltUp} m² užitná" + (l.AreaLand.HasValue ? $" / {l.AreaLand} m² pozemek" : "")
             : (l.AreaLand.HasValue ? $"{l.AreaLand} m² pozemek" : "neuvedena");
+        var isNewBuild = IsNewBuild(l.Condition, l.Description);
 
         var sb = new StringBuilder();
         sb.AppendLine("# Instrukce pro AI analýzu nemovitosti");
@@ -308,8 +326,11 @@ public sealed class GoogleDriveExportService(
         if (l.Rooms.HasValue) sb.AppendLine($"**Počet pokojů:** {l.Rooms}");
         if (!string.IsNullOrWhiteSpace(l.ConstructionType)) sb.AppendLine($"**Typ konstrukce:** {l.ConstructionType}");
         if (!string.IsNullOrWhiteSpace(l.Condition)) sb.AppendLine($"**Stav dle inzerátu:** {l.Condition}");
+        sb.AppendLine(isNewBuild
+            ? "**Kategorie stáří:** 🆕 NOVOSTAVBA / VE VÝSTAVBĚ"
+            : "**Kategorie stáří:** existující nemovitost");
         sb.AppendLine($"**Zdroj inzerátu:** {l.SourceName} ({l.SourceCode})");
-        sb.AppendLine($"**URL:** {l.Url}");
+        sb.AppendLine($"**URL:** [{l.Url}]({l.Url})");
         sb.AppendLine($"**Datum scrapu:** {l.FirstSeenAt:dd.MM.yyyy}");
         sb.AppendLine($"**Datum prohlídky:** _(doplň)_");
         sb.AppendLine();
@@ -328,21 +349,53 @@ public sealed class GoogleDriveExportService(
         sb.AppendLine("## ÚKOL PRO AI");
         sb.AppendLine();
         sb.AppendLine("Prohlédni si fotky ve složkách `Fotky_z_inzeratu/` a `Moje_fotky_z_prohlidky/`,");
-        sb.AppendLine("přečti `INFO.md` a proveď **komplexní analýzu této nemovitosti** z pohledu potenciálního kupce/investora.");
+        sb.AppendLine("přečti `INFO.md` a `DATA.json` a proveď **komplexní analýzu této nemovitosti** z pohledu potenciálního kupce/investora.");
+        sb.AppendLine();
+        if (isNewBuild)
+        {
+            sb.AppendLine("> ⚠️ **DŮLEŽITÉ:** Tato nemovitost je **NOVOSTAVBA nebo stavba ve výstavbě**.");
+            sb.AppendLine("> - **NEPIŠ nic o rekonstrukci, opotřebení, zastaralých instalacích ani nutnosti oprav.**");
+            sb.AppendLine("> - Počítej s tím, že stavba má životnost 80–100 let a v prvních 10–15 letech se řeší pouze běžná údržba (fasáda, těsnění oken, apod.).");
+            sb.AppendLine("> - Místo hodnocení stavu hodnoť **kvalitu projektu, developera, termín dokončení a smluvní záruky.**");
+            sb.AppendLine();
+        }
         sb.AppendLine("Zaměř se na:");
         sb.AppendLine();
-        sb.AppendLine("### 1. ANALÝZA STAVU A KVALITY");
-        sb.AppendLine("- Posouzení stavu nemovitosti podle fotografií");
-        sb.AppendLine("- Identifikace viditelných problémů (vlhkost, praskliny, špatné opravy, zastaralé instalace)");
-        sb.AppendLine("- Odhad nutnosti rekonstrukce a rozsahu prací");
-        sb.AppendLine("- Porovnání stavu uvedeného v inzerátu vs. realita na fotkách");
+
+        if (isNewBuild)
+        {
+            sb.AppendLine("### 1. KVALITA PROJEKTU A DEVELOPERA");
+            sb.AppendLine("- Hodnocení developera: zkušenosti, reference, dokončené projekty, insolvence");
+            sb.AppendLine("- Termín dokončení – je realistický? Existují sankce za prodlení?");
+            sb.AppendLine("- Záruční doba a záruky za vady (zákonem min. 3 roky, ideálně více)");
+            sb.AppendLine("- Kvalita použitých materiálů a standardu vybavení (dle inzerátu/vizualizací)");
+            sb.AppendLine("- Jsou k dispozici půdorysy, technická dokumentace, energetický průkaz?");
+        }
+        else
+        {
+            sb.AppendLine("### 1. ANALÝZA STAVU A KVALITY");
+            sb.AppendLine("- Posouzení stavu nemovitosti podle fotografií");
+            sb.AppendLine("- Identifikace viditelných problémů (vlhkost, praskliny, špatné opravy, zastaralé instalace)");
+            sb.AppendLine("- Odhadovaný rozsah nutných oprav a rekonstrukce – rozlišuj: **nutné ihned / do 5 let / dlouhodobé**");
+            sb.AppendLine("- Porovnání stavu uvedeného v inzerátu vs. realita na fotkách");
+        }
         sb.AppendLine();
         sb.AppendLine("### 2. HODNOCENÍ CENY");
         sb.AppendLine($"- Je nabídková cena **{price}** adekvátní vzhledem ke stavu a lokalitě?");
         sb.AppendLine("- Odhad reálné tržní hodnoty");
         sb.AppendLine("- Potenciál pro vyjednávání (doporučená nabídková cena)");
-        sb.AppendLine("- Výpočet nákladů na nutné úpravy/rekonstrukci");
-        sb.AppendLine("- **ROI analýza** pokud investor (pronájem vs. prodej po renovaci)");
+        if (isNewBuild)
+        {
+            sb.AppendLine("- Porovnání ceny za m² s podobnými novostavbami v regionu");
+            sb.AppendLine("- Výhody/nevýhody koupě před dokončením (cena vs. riziko)");
+            sb.AppendLine("- **Investiční výnos:** odhad nájmu po dokončení, hrubý yield, cashflow");
+        }
+        else
+        {
+            sb.AppendLine("- Výpočet nákladů na nutné opravy (ihned + do 5 let)");
+            sb.AppendLine("- **Všechna čísla uváděj jako: cena pořízení + náklady na opravy = celková investice**");
+            sb.AppendLine("- **ROI analýza** pokud investor (pronájem vs. prodej po renovaci)");
+        }
         sb.AppendLine();
         sb.AppendLine("### 3. LOKACE A OKOLÍ");
         sb.AppendLine("- Kvalita lokality (dostupnost služeb, doprava, infrastruktura)");
@@ -350,38 +403,80 @@ public sealed class GoogleDriveExportService(
         sb.AppendLine("- Rizika lokality (průmyslová zóna, hluk, povodně)");
         sb.AppendLine("- Parkování, přístup, orientace ke světovým stranám");
         sb.AppendLine();
-        sb.AppendLine("### 4. TECHNICKÝ STAV (podle fotek)");
-        sb.AppendLine("- **Střecha** – typ, stav, stáří (odhadované)");
-        sb.AppendLine("- **Fasáda** – typ, povrch, nutnost zateplení");
-        sb.AppendLine("- **Okna** – materiál, těsnost, tepelné ztráty");
-        sb.AppendLine("- **Instalace** – elektřina (viditelné rozvody, pojistky), plyn, voda, kanalizace");
-        sb.AppendLine("- **Topení** – typ systému, stáří, účinnost");
-        sb.AppendLine("- **Podlahy** – materiál, stav");
-        sb.AppendLine("- **Vlhkost** – známky zatékání, plísně, špatné odvětrání");
+        if (isNewBuild)
+        {
+            sb.AppendLine("### 4. TECHNICKÁ SPECIFIKACE (dle dokumentace)");
+            sb.AppendLine("- **Konstrukční systém** – zděný / dřevostavba / panel / jiný");
+            sb.AppendLine("- **Zateplení a energetická třída** – A/B/C, tepelná čerpadla, solární panely");
+            sb.AppendLine("- **Topení** – typ systému, zdroj energie (plyn / TČ / elektřina)");
+            sb.AppendLine("- **Podlahy a okna** – materiály a standard dle inzerátu");
+            sb.AppendLine("- **Parkování / garáž** – zahrnuty v ceně nebo příplatek?");
+            sb.AppendLine("- **Sklep / předzahrádka / terasa** – co je v ceně?");
+            sb.AppendLine("- ⚠️ Neposuzuj degradaci ani opotřebení – nemovitost je nová.");
+        }
+        else
+        {
+            sb.AppendLine("### 4. TECHNICKÝ STAV (podle fotek)");
+            sb.AppendLine("- **Střecha** – typ, stav, odhadované stáří, nutnost výměny");
+            sb.AppendLine("- **Fasáda** – stav, nutnost zateplení (odhadované náklady)");
+            sb.AppendLine("- **Okna** – materiál, těsnost, tepelné ztráty");
+            sb.AppendLine("- **Instalace** – elektřina (rozvody, pojistky), plyn, voda, kanalizace");
+            sb.AppendLine("- **Topení** – typ systému, stáří, účinnost");
+            sb.AppendLine("- **Podlahy** – materiál, stav");
+            sb.AppendLine("- **Vlhkost** – známky zatékání, plísně, špatné odvětrání");
+        }
         sb.AppendLine();
         sb.AppendLine("### 5. DISPOZICE A VYUŽITELNOST");
         sb.AppendLine("- Funkčnost půdorysu");
         sb.AppendLine("- Potenciál pro úpravy (bourání/přidání příček)");
         sb.AppendLine("- Světlost místností");
         sb.AppendLine("- Skladovací prostory");
-        sb.AppendLine("- Potenciál podkroví/půdy/sklepa");
+        sb.AppendLine(isNewBuild
+            ? "- Možnost úprav standardu v rámci developer. procesu (kuchyňská linka, obklady, apod.)"
+            : "- Potenciál podkroví/půdy/sklepa");
         sb.AppendLine();
         sb.AppendLine("### 6. RIZIKA A RED FLAGS");
         sb.AppendLine("- Seznam všech identifikovaných rizik");
-        sb.AppendLine("- Kritické body vyžadující prohlídku specialistou (statik, elektrikář)");
-        sb.AppendLine("- Možné skryté náklady");
-        sb.AppendLine("- Právní rizika (částečná rekonstrukce bez povolení apod.)");
+        if (isNewBuild)
+        {
+            sb.AppendLine("- Riziko nedokončení / insolvence developera – jak je ošetřeno?");
+            sb.AppendLine("- Vinkulace kupní ceny (notářská úschova / bankovní akreditiv)");
+            sb.AppendLine("- Smlouva o smlouvě budoucí – jaké jsou sankce a exit klauzule?");
+            sb.AppendLine("- Změny projektu bez souhlasu kupujícího");
+            sb.AppendLine("- Problémy s územním povolením nebo stavebním řízením");
+        }
+        else
+        {
+            sb.AppendLine("- Kritické body vyžadující prohlídku specialistou (statik, elektrikář)");
+            sb.AppendLine("- Možné skryté náklady");
+            sb.AppendLine("- Právní rizika (rekonstrukce bez povolení, věcná břemena)");
+        }
         sb.AppendLine();
-        sb.AppendLine("### 7. INVESTIČNÍ ANALÝZA (pokud relevantní)");
-        sb.AppendLine("- Náklady na koupi + renovaci (celková investice)");
-        sb.AppendLine("- Odhad tržní hodnoty po renovaci");
-        sb.AppendLine("- Potenciální výnos z pronájmu (Kč/měsíc)");
-        sb.AppendLine("- **Yield** (hrubý výnos z pronájmu)");
-        sb.AppendLine("- Break-even a návratnost");
+        sb.AppendLine("### 7. INVESTIČNÍ ANALÝZA");
+        if (isNewBuild)
+        {
+            sb.AppendLine("- **Vstupní investice:** kupní cena + notář + daně + vybavení");
+            sb.AppendLine("- **Odhad nájmu po dokončení** (Kč/měsíc) – long-term / Airbnb");
+            sb.AppendLine("- **Hrubý yield** = roční nájem / kupní cena × 100");
+            sb.AppendLine("- **Čistý cashflow:** nájem – hypotéka – správa – fond oprav – pojištění");
+            sb.AppendLine("- **Citlivostní analýza:** co když obsazenost klesne na 80 %? Co když naroste sazba?");
+            sb.AppendLine("- Očekávaný růst hodnoty nemovitosti (lokalita, developmentový trend)");
+        }
+        else
+        {
+            sb.AppendLine("- **Celková investice:** kupní cena + nutné opravy ihned + opravy do 5 let");
+            sb.AppendLine("- Odhad tržní hodnoty po opravách");
+            sb.AppendLine("- Potenciální výnos z pronájmu (Kč/měsíc)");
+            sb.AppendLine("- **Hrubý yield** = roční nájem / celková investice × 100");
+            sb.AppendLine("- Break-even a návratnost investice");
+        }
+        sb.AppendLine();
         sb.AppendLine();
         sb.AppendLine("### 8. POROVNÁNÍ S TRHEM");
         sb.AppendLine("- Jak si stojí cena vůči podobným nemovitostem v oblasti");
-        sb.AppendLine("- Benchmark s inzeráty stejného typu/lokality");
+        sb.AppendLine(isNewBuild
+            ? "- Benchmark s jinými novostavbami v regionu (cena/m², standard, termín)"
+            : "- Benchmark s inzeráty stejného typu/lokality");
         sb.AppendLine();
         sb.AppendLine("### 9. DOPORUČENÍ");
         sb.AppendLine("- **Koupit / Nekoupit / Vyjednávat**");
