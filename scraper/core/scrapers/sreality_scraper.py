@@ -321,23 +321,57 @@ class SrealityScraper:
         async with semaphore:
             return await self._fetch_estate_detail(hash_id)
 
+    # Mapping category_main_cb → slug (singular, SReality URL format)
+    _CAT_MAIN_SLUG = {
+        1: "byt",
+        2: "dum",
+        3: "pozemek",
+        4: "komercni",
+        5: "ostatni",
+    }
+
+    # Mapping category_sub_cb → slug (SReality URL sub-type)
+    _CAT_SUB_SLUG = {
+        # Byty (cat_main=1)
+        2: "1+kk", 3: "1+1", 4: "2+kk", 5: "2+1",
+        6: "3+kk", 7: "3+1", 8: "4+kk", 9: "4+1",
+        10: "5+kk", 11: "5+1", 12: "6-a-vice", 16: "atypicke",
+        # Domy (cat_main=2)
+        37: "rodinny", 39: "chata", 33: "vila",
+        38: "zemedelska-usedlost", 41: "jiny", 43: "radovy",
+        44: "bungalov", 45: "bytovy-dum", 46: "atypicky",
+        # Pozemky (cat_main=3)
+        17: "bydleni", 18: "zemedelsky", 19: "komercni",
+        21: "ostatni", 22: "les", 23: "rybniky", 26: "vinice-sad",
+        # Komerční (cat_main=4)
+        27: "kancelar", 28: "sklad", 29: "vyroba", 30: "obchodni",
+        31: "ubytovani", 32: "restaurace", 34: "zemedelsky",
+        35: "jina", 36: "bytovy-dum",
+        # Ostatní (cat_main=5)
+        24: "garaz", 25: "stani", 40: "parkovaci-misto",
+    }
+
     def _normalize_list_item(self, estate: Dict[str, Any]) -> Dict[str, Any]:
         hash_id = estate.get("hash_id")
 
         seo = estate.get("seo", {})
         cat_main = seo.get("category_main_cb", self.category_main_cb or 2)
+        cat_sub  = seo.get("category_sub_cb")
         cat_type = seo.get("category_type_cb", self.category_type_cb)
+        locality_slug = seo.get("locality", "")
 
-        cat_main_slug = {
-            1: "byty",
-            2: "domy",
-            3: "pozemky",
-            4: "komercni",
-            5: "ostatni",
-        }.get(cat_main, "domy")
+        cat_main_slug = self._CAT_MAIN_SLUG.get(cat_main, "dum")
+        cat_sub_slug  = self._CAT_SUB_SLUG.get(cat_sub, "") if cat_sub else ""
         cat_type_slug = {1: "prodej", 2: "pronajem", 3: "drazba"}.get(cat_type, "prodej")
 
-        detail_url = f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{hash_id}"
+        # Build full canonical URL: /detail/{type}/{main}/{sub}/{locality}/{hash_id}
+        # Falls back gracefully when sub/locality are missing
+        if cat_sub_slug and locality_slug:
+            detail_url = f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{cat_sub_slug}/{locality_slug}/{hash_id}"
+        elif locality_slug:
+            detail_url = f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{locality_slug}/{hash_id}"
+        else:
+            detail_url = f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{hash_id}"
 
         price_czk = estate.get("price_czk") or {}
         price_raw = price_czk.get("value_raw")
