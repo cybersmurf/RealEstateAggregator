@@ -53,7 +53,7 @@ PROPERTY_TYPE_MAP = {
     "FLAT":       "Apartment",
     "LAND":       "Land",
     "COMMERCIAL": "Commercial",
-    "GARAGE":     "Other",
+    "GARAGE":     "Garage",
 }
 
 # Mapování z tabulky na stránce
@@ -73,8 +73,8 @@ TABLE_PROPERTY_TYPE = {
     "chata":               "Cottage",
     "chalupa":             "Cottage",
     "rekreační":           "Cottage",
-    "garáž":               "Other",
-    "garážové stání":      "Other",
+    "garáž":               "Garage",
+    "garážové stání":      "Garage",
 }
 
 

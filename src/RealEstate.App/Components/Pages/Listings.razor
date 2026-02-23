@@ -378,12 +378,22 @@
         ("rent", "Pronájem", null, "Rent"),
     ];
 
+    [SupplyParameterFromQuery(Name = "source")]
+    public string? SourceQueryParam { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         try
         {
             var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
             _availableSources = sources ?? new List<SourceDto>();
+
+            // Předvybrat zdroj z query parametru (?source=REMAX)
+            if (!string.IsNullOrEmpty(SourceQueryParam) &&
+                _availableSources.Any(s => s.Code.Equals(SourceQueryParam, StringComparison.OrdinalIgnoreCase)))
+            {
+                _selectedSourceCodes = new List<string> { SourceQueryParam.ToUpperInvariant() };
+            }
         }
         catch (Exception ex)
         {

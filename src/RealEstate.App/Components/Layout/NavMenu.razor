@@ -25,8 +25,8 @@
         {
             @foreach (var src in _sources)
             {
-                <MudNavLink Href="@src.BaseUrl" Target="_blank"
-                            Icon="@Icons.Material.Outlined.OpenInNew">
+                <MudNavLink Href="@($"/listings?source={src.Code}")"
+                            Icon="@Icons.Material.Outlined.FilterList">
                     @src.Name
                 </MudNavLink>
             }
