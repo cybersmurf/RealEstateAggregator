@@ -46,7 +46,7 @@ Spustí scraping job v pozadí.
 **Request body:**
 ```json
 {
-  "source_codes": ["REMAX", "MMR", "PRODEJMETO", "ZNOJMOREALITY", "SREALITY"],
+  "source_codes": ["REMAX", "MMR", "PRODEJMETO", "ZNOJMOREALITY", "SREALITY", "NEMZNOJMO", "HVREALITY"],
   "full_rescan": false
 }
 ```

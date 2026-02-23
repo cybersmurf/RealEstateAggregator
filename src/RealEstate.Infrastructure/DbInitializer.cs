@@ -64,6 +64,56 @@ public static class DbInitializer
                 SupportsListScrape = true,
                 ScraperType = "Python",
             },
+            new()
+            {
+                Code = "NEMZNOJMO",
+                Name = "Nemovitosti Znojmo",
+                BaseUrl = "https://www.nemovitostiznojmo.cz",
+                IsActive = true,
+                SupportsUrlScrape = true,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "HVREALITY",
+                Name = "Horák & Vetchý reality",
+                BaseUrl = "https://hvreality.cz",
+                IsActive = true,
+                SupportsUrlScrape = true,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "PREMIAREALITY",
+                Name = "PREMIA Reality s.r.o.",
+                BaseUrl = "https://www.premiareality.cz",
+                IsActive = true,
+                SupportsUrlScrape = true,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "DELUXREALITY",
+                Name = "DeluXreality Znojmo",
+                BaseUrl = "https://deluxreality.cz",
+                IsActive = true,
+                SupportsUrlScrape = true,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "LEXAMO",
+                Name = "Lexamo Reality",
+                BaseUrl = "https://www.lexamo.cz",
+                IsActive = true,
+                SupportsUrlScrape = true,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
         };
 
         dbContext.Sources.AddRange(sources);

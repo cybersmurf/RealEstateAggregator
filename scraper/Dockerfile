@@ -12,6 +12,9 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Playwright browsers (pro JS-heavy weby jako Premia Reality)
+RUN playwright install chromium --with-deps
+
 COPY . .
 
 EXPOSE 8001

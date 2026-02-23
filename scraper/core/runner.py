@@ -65,6 +65,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             "ZNOJMOREALITY",
             "SREALITY",
             "IDNES",
+            "NEMZNOJMO",
+            "HVREALITY",
+            "PREMIAREALITY",
+            "DELUXREALITY",
+            "LEXAMO",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
@@ -74,6 +79,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         from core.scrapers.sreality_scraper import SrealityScraper
         from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper
         from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
+        from core.scrapers.nemovitostiznojmo_scraper import NemovitostiZnojmoScraper
+        from core.scrapers.hvreality_scraper import HvRealityScraper
+        from core.scrapers.premiareality_scraper import PremiaRealityScraper
+        from core.scrapers.deluxreality_scraper import DeluxRealityScraper
+        from core.scrapers.lexamo_scraper import LexamoScraper
 
         # Vybuduj tasku pro paralelní scraping
         tasks = []
@@ -117,6 +127,31 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             logger.info(f"Job {job_id}: Scheduling Idnes Reality scraper...")
             scraper = IdnesRealityScraper()
             tasks.append(("IDNES", scraper.run(full_rescan=request.full_rescan)))
+
+        if "NEMZNOJMO" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Nemovitosti Znojmo scraper...")
+            scraper = NemovitostiZnojmoScraper()
+            tasks.append(("NEMZNOJMO", scraper.run(full_rescan=request.full_rescan)))
+
+        if "HVREALITY" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling HV Reality scraper...")
+            scraper = HvRealityScraper()
+            tasks.append(("HVREALITY", scraper.run(full_rescan=request.full_rescan)))
+
+        if "PREMIAREALITY" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling PREMIA Reality scraper...")
+            scraper = PremiaRealityScraper()
+            tasks.append(("PREMIAREALITY", scraper.run(full_rescan=request.full_rescan)))
+
+        if "DELUXREALITY" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling DeluXreality scraper...")
+            scraper = DeluxRealityScraper()
+            tasks.append(("DELUXREALITY", scraper.run(full_rescan=request.full_rescan)))
+
+        if "LEXAMO" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Lexamo scraper...")
+            scraper = LexamoScraper()
+            tasks.append(("LEXAMO", scraper.run(full_rescan=request.full_rescan)))
 
         # Spusť všechny scrapers paralelně
         if tasks:

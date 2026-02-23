@@ -299,7 +299,12 @@ VALUES
     ('MMR', 'M&M Reality', 'https://www.mmreality.cz', true, true, true, 'Python'),
     ('PRODEJMETO', 'Prodejme.to', 'https://www.prodejme.to', true, true, true, 'Python'),
     ('ZNOJMOREALITY', 'Znojmo Reality', 'https://www.znojmoreality.cz', true, true, true, 'Python'),
-    ('SREALITY', 'Sreality', 'https://www.sreality.cz', true, true, true, 'Python')
+    ('SREALITY', 'Sreality', 'https://www.sreality.cz', true, true, true, 'Python'),
+    ('NEMZNOJMO', 'Nemovitosti Znojmo', 'https://www.nemovitostiznojmo.cz', true, true, true, 'Python'),
+    ('HVREALITY', 'Horák & Vetchý reality', 'https://hvreality.cz', true, true, true, 'Python'),
+    ('PREMIAREALITY', 'PREMIA Reality s.r.o.', 'https://www.premiareality.cz', true, true, true, 'Python'),
+    ('DELUXREALITY', 'DeluXreality Znojmo', 'https://deluxreality.cz', true, true, true, 'Python'),
+    ('LEXAMO', 'Lexamo Reality', 'https://www.lexamo.cz', true, true, true, 'Python')
 ON CONFLICT (code) DO NOTHING;
 
 -- ============================================================================
