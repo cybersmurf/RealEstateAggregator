@@ -6,6 +6,28 @@
 
 <MudStack Spacing="3" Class="pa-4">
 
+    <!-- Rychlé filtry -->
+    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+        <MudText Typo="Typo.body2" Class="mr-1">Rychlé filtry:</MudText>
+        @foreach (var qf in _quickFilters)
+        {
+            <MudChip T="string"
+                     Color="@(_activeQuickFilter == qf.Key ? Color.Primary : Color.Default)"
+                     Variant="@(_activeQuickFilter == qf.Key ? Variant.Filled : Variant.Outlined)"
+                     Size="Size.Small"
+                     OnClick="@(() => ApplyQuickFilterAsync(qf.Key))">
+                @qf.Label
+            </MudChip>
+        }
+        @if (_activeQuickFilter != null)
+        {
+            <MudChip T="string" Color="Color.Error" Variant="Variant.Outlined" Size="Size.Small"
+                     OnClick="@(() => ApplyQuickFilterAsync(null))">
+                Zrušit ✕
+            </MudChip>
+        }
+    </MudStack>
+
     <!-- Filtrovací panel -->
     <MudExpansionPanels MultiExpansion="false">
         <MudExpansionPanel Text="Filtry" Expanded="true" Icon="@Icons.Material.Filled.FilterList">
@@ -133,85 +155,167 @@
         </MudExpansionPanel>
     </MudExpansionPanels>
 
-    <!-- Tabulka výsledků -->
-    <MudTable T="ListingSummaryDto"
-              ServerData="@LoadServerData"
-              @ref="_table"
-              Hover="true"
-              Dense="true"
-              Loading="_loading"
-              RowsPerPage="20"
-              Elevation="1">
-        <ToolBarContent>
+    <!-- Lišta výsledků + přepínač pohledu -->
+    <MudPaper Elevation="1" Class="pa-2 px-3">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudText Typo="Typo.h6">Inzeráty</MudText>
             <MudSpacer />
             @if (_totalCount > 0)
             {
-                <MudChip T="string" Size="Size.Small" Color="Color.Primary">@_totalCount celkem</MudChip>
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Class="mr-1">@_totalCount celkem</MudChip>
             }
-        </ToolBarContent>
-        <HeaderContent>
-            <MudTh>Zdroj</MudTh>
-            <MudTh>Titulek</MudTh>
-            <MudTh>Lokalita</MudTh>
-            <MudTh>Typ</MudTh>
-            <MudTh>Nabídka</MudTh>
-            <MudTh Style="text-align:right">Cena</MudTh>
-            <MudTh Style="text-align:right">Plocha</MudTh>
-            <MudTh Style="text-align:right">Pozemek</MudTh>
-            <MudTh>Stav</MudTh>
-            <MudTh></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd>
-                <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
-                    @context.SourceName
-                </MudChip>
-            </MudTd>
-            <MudTd Style="max-width:280px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">
-                @context.Title
-            </MudTd>
-            <MudTd>@context.LocationText</MudTd>
-            <MudTd>@TranslatePropertyType(context.PropertyType)</MudTd>
-            <MudTd>@TranslateOfferType(context.OfferType)</MudTd>
-            <MudTd Style="text-align:right">
-                @if (context.Price.HasValue)
-                {
-                    <MudText Color="Color.Success" Class="fw-bold">@context.Price.Value.ToString("N0") Kč</MudText>
-                }
-                else
-                {
-                    <MudText Color="Color.Default">-</MudText>
-                }
-            </MudTd>
-            <MudTd Style="text-align:right">@(context.AreaBuiltUp?.ToString("N0") ?? "-") m²</MudTd>
-            <MudTd Style="text-align:right">@(context.AreaLand?.ToString("N0") ?? "-") m²</MudTd>
-            <MudTd>
-                <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.UserStatus)" Variant="Variant.Filled">
-                    @TranslateStatus(context.UserStatus)
-                </MudChip>
-            </MudTd>
-            <MudTd>
-                <MudStack Row="true" Spacing="0">
-                    <MudTooltip Text="Detail">
-                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
-                                       Size="Size.Small"
-                                       Color="Color.Primary"
-                                       OnClick="@(async () => await NavigateToDetailAsync(context.Id))" />
-                    </MudTooltip>
-                    <MudTooltip Text="AI Analýza">
-                        <MudIconButton Icon="@Icons.Material.Filled.AutoAwesome"
-                                       Size="Size.Small"
-                                       Color="Color.Secondary"
-                                       OnClick="@(async () => await CreateAnalysisAsync(context.Id))" />
-                    </MudTooltip>
-                </MudStack>
-            </MudTd>
-        </RowTemplate>
-        <PagerContent>
-            <MudTablePager PageSizeOptions="new int[] { 10, 20, 50, 100 }" />
-        </PagerContent>
-    </MudTable>
+            <MudTooltip Text="@(_cardView ? "Tabulkový pohled" : "Kartový pohled")">
+                <MudIconButton Icon="@(_cardView ? Icons.Material.Filled.TableRows : Icons.Material.Filled.GridView)"
+                               Size="Size.Small"
+                               OnClick="ToggleViewAsync" />
+            </MudTooltip>
+        </MudStack>
+    </MudPaper>
+
+    @if (_cardView)
+    {
+        <!-- Kartový pohled -->
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        <MudGrid Spacing="3">
+            @foreach (var item in _cardItems)
+            {
+                <MudItem xs="12" sm="6" md="4" lg="3">
+                    <MudCard @onclick="@(() => Navigation.NavigateTo($"/listings/{item.Id}"))"
+                             Style="cursor:pointer; height:100%;"
+                             Elevation="2">
+                        @if (!string.IsNullOrWhiteSpace(item.ThumbnailUrl))
+                        {
+                            <MudCardMedia Image="@item.ThumbnailUrl" Height="180" />
+                        }
+                        else
+                        {
+                            <div style="height:120px; background:#f0f0f0; display:flex; align-items:center; justify-content:center;">
+                                <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Large" Color="Color.Default" />
+                            </div>
+                        }
+                        <MudCardContent Class="pa-2">
+                            <MudText Typo="Typo.subtitle2"
+                                     Style="overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-height:2.8em;">
+                                @item.Title
+                            </MudText>
+                            @if (item.Price.HasValue)
+                            {
+                                <MudText Typo="Typo.h6" Color="Color.Success" Class="fw-bold mt-1">
+                                    @item.Price.Value.ToString("N0") Kč
+                                </MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Default" Class="mt-1">Cena neuvedena</MudText>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(item.LocationText))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    <MudIcon Icon="@Icons.Material.Filled.LocationOn" Size="Size.Small" Style="vertical-align:text-bottom;" />
+                                    @item.LocationText
+                                </MudText>
+                            }
+                        </MudCardContent>
+                        <MudCardActions Class="pa-2 pt-0">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@item.SourceName</MudChip>
+                            <MudSpacer />
+                            <MudText Typo="Typo.caption" Color="Color.Tertiary">
+                                @TranslatePropertyType(item.PropertyType) · @TranslateOfferType(item.OfferType)
+                            </MudText>
+                        </MudCardActions>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+        @if (_cardTotalPages > 1)
+        {
+            <MudStack AlignItems="AlignItems.Center" Class="mt-2">
+                <MudPagination Count="@_cardTotalPages" Selected="_cardPage" SelectedChanged="CardPageChangedAsync" />
+            </MudStack>
+        }
+    }
+    else
+    {
+        <!-- Tabulkový pohled -->
+        <MudTable T="ListingSummaryDto"
+                  ServerData="@LoadServerData"
+                  @ref="_table"
+                  Hover="true"
+                  Dense="true"
+                  Loading="_loading"
+                  RowsPerPage="20"
+                  Elevation="1"
+                  OnRowClick="OnTableRowClicked"
+                  RowClass="cursor-pointer">
+            <ToolBarContent>
+                <MudSpacer />
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh>Zdroj</MudTh>
+                <MudTh>Titulek</MudTh>
+                <MudTh>Lokalita</MudTh>
+                <MudTh>Typ</MudTh>
+                <MudTh>Nabídka</MudTh>
+                <MudTh Style="text-align:right">Cena</MudTh>
+                <MudTh Style="text-align:right">Plocha</MudTh>
+                <MudTh Style="text-align:right">Pozemek</MudTh>
+                <MudTh>Stav</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                        @context.SourceName
+                    </MudChip>
+                </MudTd>
+                <MudTd Style="max-width:280px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">
+                    @context.Title
+                </MudTd>
+                <MudTd>@context.LocationText</MudTd>
+                <MudTd>@TranslatePropertyType(context.PropertyType)</MudTd>
+                <MudTd>@TranslateOfferType(context.OfferType)</MudTd>
+                <MudTd Style="text-align:right">
+                    @if (context.Price.HasValue)
+                    {
+                        <MudText Color="Color.Success" Class="fw-bold">@context.Price.Value.ToString("N0") Kč</MudText>
+                    }
+                    else
+                    {
+                        <MudText Color="Color.Default">-</MudText>
+                    }
+                </MudTd>
+                <MudTd Style="text-align:right">@(context.AreaBuiltUp?.ToString("N0") ?? "-") m²</MudTd>
+                <MudTd Style="text-align:right">@(context.AreaLand?.ToString("N0") ?? "-") m²</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.UserStatus)" Variant="Variant.Filled">
+                        @TranslateStatus(context.UserStatus)
+                    </MudChip>
+                </MudTd>
+                <MudTd>
+                    <MudStack Row="true" Spacing="0">
+                        <MudTooltip Text="Detail">
+                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                           Size="Size.Small"
+                                           Color="Color.Primary"
+                                           OnClick="@(async () => await NavigateToDetailAsync(context.Id))" />
+                        </MudTooltip>
+                        <MudTooltip Text="AI Analýza">
+                            <MudIconButton Icon="@Icons.Material.Filled.AutoAwesome"
+                                           Size="Size.Small"
+                                           Color="Color.Secondary"
+                                           OnClick="@(async () => await CreateAnalysisAsync(context.Id))" />
+                        </MudTooltip>
+                    </MudStack>
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new int[] { 10, 20, 50, 100 }" />
+            </PagerContent>
+        </MudTable>
+    }
 
 </MudStack>
 
@@ -220,9 +324,27 @@
     private bool _loading;
     private int _totalCount;
 
+    // Kartový pohled
+    private bool _cardView;
+    private List<ListingSummaryDto> _cardItems = new();
+    private int _cardPage = 1;
+    private int _cardPageSize = 20;
+    private int _cardTotalPages;
+
     private ListingFilterDto _filter = new() { Page = 1, PageSize = 20 };
     private IReadOnlyCollection<string> _selectedSourceCodes = new List<string>();
     private List<SourceDto> _availableSources = new();
+
+    // Quick filtry
+    private string? _activeQuickFilter;
+    private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType)> _quickFilters =
+    [
+        ("houses-sale", "Domy k prodeji", "House", "Sale"),
+        ("apartments", "Byty", "Apartment", null),
+        ("land-sale", "Pozemky k prodeji", "Land", "Sale"),
+        ("cottages", "Chaty / chalupy", "Cottage", null),
+        ("rent", "Pronájem", null, "Rent"),
+    ];
 
     protected override async Task OnInitializedAsync()
     {
@@ -270,18 +392,112 @@
         }
     }
 
+    private async Task LoadCardsAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            var cardFilter = new ListingFilterDto
+            {
+                Page = _cardPage,
+                PageSize = _cardPageSize,
+                SearchText = _filter.SearchText,
+                PropertyType = _filter.PropertyType,
+                OfferType = _filter.OfferType,
+                PriceMin = _filter.PriceMin,
+                PriceMax = _filter.PriceMax,
+                AreaBuiltUpMin = _filter.AreaBuiltUpMin,
+                AreaBuiltUpMax = _filter.AreaBuiltUpMax,
+                AreaLandMin = _filter.AreaLandMin,
+                AreaLandMax = _filter.AreaLandMax,
+                SourceCodes = _selectedSourceCodes.Count > 0 ? _selectedSourceCodes.ToList() : null,
+            };
+            var response = await Http.PostAsJsonAsync("api/listings/search", cardFilter);
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>();
+            _totalCount = result?.TotalCount ?? 0;
+            _cardItems = result?.Items?.ToList() ?? new();
+            _cardTotalPages = (int)Math.Ceiling((double)_totalCount / _cardPageSize);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba načítání: {ex.Message}", Severity.Error);
+            _cardItems = new();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleViewAsync()
+    {
+        _cardView = !_cardView;
+        if (_cardView)
+        {
+            _cardPage = 1;
+            await LoadCardsAsync();
+        }
+    }
+
+    private async Task CardPageChangedAsync(int page)
+    {
+        _cardPage = page;
+        await LoadCardsAsync();
+    }
+
+    private async Task ApplyQuickFilterAsync(string? key)
+    {
+        _activeQuickFilter = key;
+        var qf = key != null ? _quickFilters.FirstOrDefault(q => q.Key == key) : default;
+        _filter.PropertyType = qf.PropertyType;
+        _filter.OfferType = qf.OfferType;
+
+        if (_cardView)
+        {
+            _cardPage = 1;
+            await LoadCardsAsync();
+        }
+        else
+        {
+            if (_table != null)
+                await _table.ReloadServerData();
+        }
+    }
+
     private async Task SearchAsync()
     {
-        if (_table is null) return;
-        await _table.ReloadServerData();
+        _activeQuickFilter = null;
+        if (_cardView)
+        {
+            _cardPage = 1;
+            await LoadCardsAsync();
+        }
+        else if (_table != null)
+            await _table.ReloadServerData();
     }
 
     private async Task ResetFilterAsync()
     {
         _filter = new ListingFilterDto { Page = 1, PageSize = 20 };
         _selectedSourceCodes = new List<string>();
-        if (_table is not null)
+        _activeQuickFilter = null;
+
+        if (_cardView)
+        {
+            _cardPage = 1;
+            await LoadCardsAsync();
+        }
+        else if (_table is not null)
             await _table.ReloadServerData();
+    }
+
+    private void OnTableRowClicked(TableRowClickEventArgs<ListingSummaryDto> args)
+    {
+        if (args.Item is not null)
+            Navigation.NavigateTo($"/listings/{args.Item.Id}");
     }
 
     private async Task NavigateToDetailAsync(Guid id)

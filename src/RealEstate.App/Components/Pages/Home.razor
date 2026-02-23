@@ -122,36 +122,21 @@
     {
         try
         {
-            // Načteme zdroje
-            var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
-            if (sources != null)
+            // Načteme stats a zdroje paralelně – dvě volání místo N+1
+            var statsTask = Http.GetFromJsonAsync<ListingStatsDto>("api/listings/stats");
+            var sourcesTask = Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
+
+            await Task.WhenAll(statsTask, sourcesTask);
+
+            var stats = statsTask.Result;
+            if (stats != null)
             {
-                _sources = sources;
-                _activeSources = sources.Count(s => s.IsActive);
+                _totalListings = stats.TotalCount;
+                _activeSources = stats.ActiveSourceCount;
+                _countsBySource = stats.CountsBySource.ToDictionary(s => s.SourceCode, s => s.Count);
             }
 
-            // Načteme celkový počet inzerátů + breakdown podle zdroje
-            var searchResult = await Http.PostAsJsonAsync("api/listings/search", new { page = 1, pageSize = 1 });
-            if (searchResult.IsSuccessStatusCode)
-            {
-                var data = await searchResult.Content.ReadFromJsonAsync<SearchResultDto>();
-                if (data != null) _totalListings = data.TotalCount;
-            }
-
-            // Counts per source – dotáváme se postupně pro každý aktivní zdroj
-            foreach (var src in _sources.Where(s => s.IsActive))
-            {
-                try
-                {
-                    var r = await Http.PostAsJsonAsync("api/listings/search", new { page = 1, pageSize = 1, sourceCodes = new[] { src.Code } });
-                    if (r.IsSuccessStatusCode)
-                    {
-                        var d = await r.Content.ReadFromJsonAsync<SearchResultDto>();
-                        _countsBySource[src.Code] = d?.TotalCount ?? 0;
-                    }
-                }
-                catch { /* skip – zobrazí se bez počtu */ }
-            }
+            _sources = sourcesTask.Result ?? [];
         }
         catch (Exception ex)
         {
@@ -164,5 +149,6 @@
     }
 
     private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
-    private record SearchResultDto(List<object> Items, int Page, int PageSize, int TotalCount);
+    private record ListingStatsDto(int TotalCount, int ActiveSourceCount, List<SourceCountDto> CountsBySource);
+    private record SourceCountDto(string SourceCode, string SourceName, int Count);
 }

@@ -17,4 +17,6 @@ public interface IListingService
         Guid listingId,
         ListingUserStateUpdateDto request,
         CancellationToken cancellationToken);
+
+    Task<ListingStatsDto> GetStatsAsync(CancellationToken cancellationToken);
 }

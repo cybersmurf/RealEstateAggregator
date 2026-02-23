@@ -1,0 +1,174 @@
+@page "/scrape"
+
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+
+<PageTitle>Scrapování – RealEstate</PageTitle>
+
+<MudStack Spacing="4" Class="pa-4">
+
+    <MudText Typo="Typo.h5" Class="fw-bold">
+        <MudIcon Icon="@Icons.Material.Filled.Sync" Class="mb-1 mr-1" />
+        Správa scrapování
+    </MudText>
+
+    <!-- Karta pro spuštění -->
+    <MudPaper Elevation="2" Class="pa-4">
+        <MudText Typo="Typo.h6" Class="mb-3">Spustit scrapování</MudText>
+
+        <!-- Výběr zdrojů -->
+        <MudText Typo="Typo.body2" Class="mb-1">Zdroje (prázdné = všechny aktivní)</MudText>
+        @if (_availableSources.Count > 0)
+        {
+            <MudChipSet T="string" @bind-SelectedValues="_selectedSourceCodes"
+                        SelectionMode="SelectionMode.MultiSelection"
+                        CheckMark="true"
+                        Class="mb-3">
+                @foreach (var src in _availableSources.Where(s => s.IsActive))
+                {
+                    <MudChip T="string" Value="@src.Code" Size="Size.Small" Variant="Variant.Outlined">
+                        @src.Code
+                    </MudChip>
+                }
+            </MudChipSet>
+        }
+        else if (_loadingSources)
+        {
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mb-3" />
+        }
+
+        <!-- Full rescan toggle -->
+        <MudSwitch @bind-Value="_fullRescan" Color="Color.Warning" Class="mb-3">
+            Plný rescan (ignoruj cache, přepiš vše)
+        </MudSwitch>
+
+        <!-- Spustit -->
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                   Size="Size.Large"
+                   Disabled="_running"
+                   OnClick="TriggerScrapeAsync">
+            @if (_running)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <span>Spouštím…</span>
+            }
+            else
+            {
+                <span>Spustit scrapování</span>
+            }
+        </MudButton>
+    </MudPaper>
+
+    <!-- Výsledek posledního jobu -->
+    @if (_lastResult != null)
+    {
+        <MudAlert Severity="@(_lastResult.Status == "Failed" ? Severity.Error : Severity.Success)"
+                  Variant="Variant.Outlined"
+                  Icon="@(_lastResult.Status == "Failed" ? Icons.Material.Filled.Error : Icons.Material.Filled.CheckCircle)">
+            <MudText>
+                <strong>Job ID:</strong> @_lastResult.JobId
+                &nbsp;|&nbsp;
+                <strong>Status:</strong> @_lastResult.Status
+                @if (!string.IsNullOrWhiteSpace(_lastResult.Message))
+                {
+                    <span>&nbsp;— @_lastResult.Message</span>
+                }
+            </MudText>
+        </MudAlert>
+    }
+
+    <!-- Přehled zdrojů -->
+    <MudPaper Elevation="1" Class="pa-4">
+        <MudText Typo="Typo.h6" Class="mb-3">Přehled zdrojů</MudText>
+        @if (_loadingSources)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else
+        {
+            <MudTable Items="_availableSources" Dense="true" Hover="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Kód</MudTh>
+                    <MudTh>Název</MudTh>
+                    <MudTh>URL</MudTh>
+                    <MudTh>Aktivní</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><strong>@context.Code</strong></MudTd>
+                    <MudTd>@context.Name</MudTd>
+                    <MudTd>
+                        <MudLink Href="@context.BaseUrl" Target="_blank" Typo="Typo.caption">@context.BaseUrl</MudLink>
+                    </MudTd>
+                    <MudTd>
+                        <MudChip T="string" Size="Size.Small"
+                                 Color="@(context.IsActive ? Color.Success : Color.Default)"
+                                 Variant="Variant.Filled">
+                            @(context.IsActive ? "Aktivní" : "Neaktivní")
+                        </MudChip>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </MudPaper>
+
+</MudStack>
+
+@code {
+    private bool _running;
+    private bool _loadingSources = true;
+    private bool _fullRescan;
+    private List<SourceDto> _availableSources = new();
+    private IReadOnlyCollection<string> _selectedSourceCodes = new List<string>();
+    private ScrapeTriggerResultDto? _lastResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
+            _availableSources = sources ?? new();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Nepodařilo se načíst zdroje: {ex.Message}", Severity.Warning);
+        }
+        finally
+        {
+            _loadingSources = false;
+        }
+    }
+
+    private async Task TriggerScrapeAsync()
+    {
+        _running = true;
+        _lastResult = null;
+        try
+        {
+            var request = new
+            {
+                sourceCodes = _selectedSourceCodes.Count > 0 ? _selectedSourceCodes.ToList() : null,
+                fullRescan = _fullRescan,
+            };
+            var response = await Http.PostAsJsonAsync("api/scraping/trigger", request);
+            response.EnsureSuccessStatusCode();
+            _lastResult = await response.Content.ReadFromJsonAsync<ScrapeTriggerResultDto>();
+            if (_lastResult?.Status == "Failed")
+                Snackbar.Add($"Scrapování selhalo: {_lastResult.Message}", Severity.Error);
+            else
+                Snackbar.Add("Scrapování bylo úspěšně spuštěno!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+
+    private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
+    private record ScrapeTriggerResultDto(Guid JobId, string Status, string? Message);
+}

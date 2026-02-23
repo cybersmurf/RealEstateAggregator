@@ -175,6 +175,28 @@ public class ListingService : IListingService
         };
     }
 
+    public async Task<ListingStatsDto> GetStatsAsync(CancellationToken cancellationToken)
+    {
+        var countsBySource = await _dbContext.Listings
+            .Where(l => l.IsActive)
+            .GroupBy(l => new { l.Source.Code, l.Source.Name })
+            .Select(g => new SourceCountDto
+            {
+                SourceCode = g.Key.Code,
+                SourceName = g.Key.Name,
+                Count = g.Count()
+            })
+            .OrderByDescending(x => x.Count)
+            .ToListAsync(cancellationToken);
+
+        return new ListingStatsDto
+        {
+            TotalCount = countsBySource.Sum(x => x.Count),
+            ActiveSourceCount = countsBySource.Count,
+            CountsBySource = countsBySource
+        };
+    }
+
     private static string NormalizeStatus(string? status)
     {
         if (string.IsNullOrWhiteSpace(status))
@@ -352,6 +374,10 @@ public class ListingService : IListingService
             FirstSeenAt = entity.FirstSeenAt,
             UpdatedAtSource = entity.UpdatedAtSource,
             IsActive = entity.IsActive,
+            ThumbnailUrl = entity.Photos
+                .OrderBy(p => p.Order)
+                .Select(p => p.StoredUrl ?? p.OriginalUrl)
+                .FirstOrDefault(),
             UserStatus = userState?.Status.ToString() ?? "New",
             HasNotes = !string.IsNullOrWhiteSpace(userState?.Notes),
             UserStatusLastUpdated = userState?.LastUpdated

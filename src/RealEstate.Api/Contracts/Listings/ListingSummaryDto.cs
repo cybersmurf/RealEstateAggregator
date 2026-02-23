@@ -20,6 +20,9 @@ public sealed class ListingSummaryDto
     public DateTime? UpdatedAtSource { get; set; }
     public bool IsActive { get; set; }
 
+    // Thumbnail pro kartový pohled
+    public string? ThumbnailUrl { get; set; }
+
     // User-specific info (denormalizované kvůli UI)
     public string UserStatus { get; set; } = "New"; // "New", "Liked", "Disliked"...
     public bool HasNotes { get; set; }

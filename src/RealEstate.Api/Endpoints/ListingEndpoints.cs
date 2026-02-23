@@ -16,6 +16,9 @@ public static class ListingEndpoints
         group.MapPost("/search", SearchListings)
             .WithName("SearchListings");
 
+        group.MapGet("/stats", GetStats)
+            .WithName("GetListingStats");
+
         group.MapGet("/{id:guid}", GetListingById)
             .WithName("GetListingById");
 
@@ -34,6 +37,14 @@ public static class ListingEndpoints
         CancellationToken cancellationToken)
     {
         var result = await listingService.SearchAsync(filter, cancellationToken);
+        return TypedResults.Ok(result);
+    }
+
+    private static async Task<Ok<ListingStatsDto>> GetStats(
+        [FromServices] IListingService listingService,
+        CancellationToken cancellationToken)
+    {
+        var result = await listingService.GetStatsAsync(cancellationToken);
         return TypedResults.Ok(result);
     }
 
