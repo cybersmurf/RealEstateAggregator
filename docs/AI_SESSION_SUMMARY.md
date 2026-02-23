@@ -1,17 +1,48 @@
 # AI Session Summary – RealEstateAggregator
-**Datum:** 22. února 2026  
-**Celková doba:** ~3 hodiny  
-**Celkové commity:** 9  
-**Status:** ✅ Production-ready full-stack aplikace s funkčním scraperem
+**Datum:** 23. února 2026  
+**Celková doba:** ~6 hodin (2 sessions)  
+**Celkové commity:** 20+  
+**Status:** ✅ Production-ready full-stack aplikace, 12 scraperů, 1 236 aktivních inzerátů
 
 ---
 
-## ✅ Latest Updates (22. února 2026)
+## ✅ Latest Updates (23. února 2026)
 
-- REMAX Playwright scraping: aktualizovány CSS selektory dle aktualniho HTML (`.pl-items__item`, `data-title`, `data-price`).
-- Pridana detekce `PropertyType` a `OfferType` z textu (Byt, Dum, Pozemek, Pronajem).
-- Dokumentace srovnana na .NET 10 + MudBlazor 9 jako primarni stack.
-- Pridan samostatny REMAX scraping guide a known issues v backlogu.
+### Fáze 17: 5 nových scraperů + kritický bug fix + logo integrace
+
+**5 nových scraperů:** DELUXREALITY, LEXAMO, PREMIAREALITY, HVREALITY, NEMZNOJMO
+
+**Kritisé opravy:**
+- `RealEstateDbContext.cs` – HasConversion mapoval enum na česká slova (`PropertyType.House → "Dům"`), ale DB ukládá anglicky (`"House"`) → všechny PropertyType/OfferType filtry vrácely 0 výsledků
+- Fix: switch expression + `v.ToString()` pro zápis | ⚠️ `Enum.TryParse+out var` NELZE v EF Core expression tree (CS8198)
+- Výsledky po fixu: House=357 ✅, Apartment=159 ✅, Rent=36 ✅, celkem 1236 ✅
+
+**Logo integrace do UI:**
+- `_sourceLogoMap` dictionary (StringComparer.OrdinalIgnoreCase) + `SourceLogoUrl()` metoda
+- Integrováno na 3 místech v Listings.razor: tabulka, karty, filtr panel
+- 11 logo souborů SVG/PNG v `wwwroot/images/logos/`
+
+**Aktuální stav DB:** 1 236 inzerátů, 12 zdrojů (SREALITY=851, IDNES=168, ...)
+
+**Commit:** `b94343e` – Fix PropertyType/OfferType converter + integrate logos into UI
+
+---
+
+### Fáze 14–16: MudBlazor theme + loga (23. února 2026)
+- `b467209` – Replace Bootstrap layout with full MudBlazor theme (odstraněn duplikat MudPopoverProvider)
+- `2b20412` – Apply Warm Property design system (Primary `#C17F3E`, Secondary `#4A6FA5`)
+- `b83639d` – Add real estate agency logos (11 souborů SVG/PNG)
+
+---
+
+### Fáze 6–13: Rozšíření scraperů (22. února 2026)
+- Scrapeři: MMR, Prodejme.to, Sreality, IDNES, ZnojmoReality, Century21
+- Kompletní filtrovací panel + Home badges
+- Opraveny selektory pro SReality, MMR, HVREALITY
+
+---
+
+### Fáze 1–5: Initial Setup & REMAX Scraper (22. února 2026)
 
 ---
 
@@ -377,24 +408,26 @@ settings.yaml               - Scraper DB config
 ## ⏳ TODO / Známé Limitace
 
 ### High Priority
-- [ ] **MM Reality scraper** - implementovat reálné selektory analogicky k REMAX
-- [ ] **Prodejme.to scraper** - implementovat reálné selektory
-- [ ] **Photo download pipeline** - stahování z original_url → stored_url (S3/local storage)
-- [ ] **DTO centralizace** - přesunout duplicitní DTOs z Listings.razor do RealEstate.Api.Contracts
+- [ ] **Photo download pipeline** - original_url → stored_url (S3/lokální)
+- [ ] **DTO centralizace** - přesunout DTOs z Listings.razor do RealEstate.Api.Contracts
+- [ ] **CENTURY21 logo** - placeholder SVG 274 B, reálné za WP loginem
+- [ ] **Kontejnerizace Blazor App** - přidat do docker-compose nebo přejít na .NET Aspire
+
+### Scraper kvalita (málo výsledků)
+- [ ] ZNOJMOREALITY (5), DELUXREALITY (5), PRODEJMETO (4), LEXAMO (4) – ověřit selektory
+- [ ] Retry logic – exponential backoff pro HTTP 429/503
+- [ ] Playwright fallback – pro JS-heavy weby
 
 ### Medium Priority
-- [ ] **Python scraper API deployment** - containerization + docker-compose integration
-- [ ] **Semantic search** - implementovat pgvector search s OpenAI embeddings
-- [ ] **Analysis jobs** - implementovat AI analýzu inzerátů
-- [ ] **User listing states** - sledování saved/archived/contacted
-- [ ] **Background scheduled scraping** - APScheduler integration
+- [ ] **Semantic search** - pgvector s OpenAI embeddings
+- [ ] **Analysis jobs** - AI analýza inzerátů
+- [ ] **User listing states** - saved/archived/contacted tracking
+- [ ] **Scheduled scraping** - APScheduler/Hangfire integration
 
 ### Low Priority
-- [ ] **Unit tests** - scraper parsing tests s mock HTML
-- [ ] **Retry logic** - exponential backoff pro failed requests
-- [ ] **Playwright fallback** - pro JS-heavy detail pages
+- [ ] **Unit tests** - scraper parsing s mock HTML
 - [ ] **Monitoring** - Prometheus metrics, health checks
-- [ ] **Rate limiting** - Redis-based throttling
+- [ ] **Export CSV/Excel** - projekt RealEstate.Export existuje
 
 ---
 
@@ -485,15 +518,18 @@ curl http://localhost:8001/v1/scrape/jobs/{job_id}
 ## 🔗 Git History
 
 ```
-091b7eb - (HEAD -> master) Implement database persistence for REMAX scraper
-0038ea3 - Fix: NavigationManager + ISnackbar + MudBlazor types
-a12212e - REMAX scraper complete rewrite + REMAX_SCRAPER.md docs
-2617f20 - Cleanup: delete templates, add Dockerfile, add ListingDetail
-1a1c138 - Remove Counter and Weather from navigation
-ffc6a91 - Fix: API base URL HTTPS → HTTP
-dc3170b - SourceService + enum converters + MudBlazor fix
-68ad16b - Home page with info cards
-84b7883 - Initial project setup
+b94343e (HEAD) Fix PropertyType/OfferType converter + integrate logos into UI
+b83639d        Add real estate agency logos (SVG/PNG)
+2b20412        Apply Warm Property design system
+b467209        Replace Bootstrap layout with full MudBlazor theme
+0116968        UI: card view, quick filters, stats endpoint, scraping page
+f826a2d        fix(sreality): _merge_detail text je dict
+f8c8e1b        fix: ZnojmoReality, Prodejme.to, SReality, IDNES opravy
+37c31c5        Listings.razor kompletní filtrovací panel
+dda2087        Fix scrapers: C21 location, MMR district, HVREALITY
+0d03355        Add Century21 scraper, seed scripts
+a12212e        REMAX scraper complete rewrite + docs
+091b7eb        Implement database persistence for REMAX scraper
 ```
 
 ---
@@ -520,5 +556,6 @@ dc3170b - SourceService + enum converters + MudBlazor fix
 
 ---
 
-**Session completed:** 22. února 2026  
-**Next steps:** Implementovat MM Reality + Prodejme.to scrapers, photo download pipeline
+**Session completed:** 23. února 2026  
+**Current Commit:** b94343e  
+**Next steps:** Kontejnerizace (docker-compose/Aspire), photo download pipeline, opravit selektory s málo výsledky

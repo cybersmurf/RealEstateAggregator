@@ -1,8 +1,12 @@
 # Product Backlog - Real Estate Aggregator
 
 **Projekt**: Real Estate Aggregator  
-**Verze**: 1.0.0-alpha  
-**Datum**: 22. února 2026
+**Verze**: 1.2.0  
+**Datum**: 23. února 2026  
+**Stav:** 12 scraperů, 1 236 inzerátů, "Warm Property" UI design, loga integrována
+
+> **Aktualizace 23. 02.:** Opraveny PropertyType/OfferType filtry (EF Core HasConversion bug).
+> 5 nových scraperů přidáno. Loga všech 12 zdrojů integrována do UI.
 
 ---
 

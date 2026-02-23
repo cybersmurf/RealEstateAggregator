@@ -2,13 +2,29 @@
 
 **Project:** Real Estate Aggregator with Semantic Search & AI Analysis  
 **Stack:** .NET 10, Blazor Server, PostgreSQL 15 + pgvector, Python FastAPI scrapers  
-**Last Updated:** 22. února 2026
+**Last Updated:** 23. února 2026
 
 ---
 
 ## Project Context
 
-Full-stack aplikace pro agregaci realitních inzerátů z českých webů (REMAX, M&M Reality, Prodejme.to). Podporuje sémantické vyhledávání pomocí pgvector embeddings a AI analýzu inzerátů.
+Full-stack aplikace pro agregaci realitních inzerátů z českých webů. Aktuálně integruje **12 zdrojů a 1 236+ aktivních inzerátů**. Podporuje sémantické vyhledávání pomocí pgvector, filtrování dle typu nemovitosti/nabídky/ceny a AI analýzu inzerátů.
+
+### Aktivní scrapeři (12 zdrojů)
+| Kód | Název | Soubor |
+|---|---|---|
+| REMAX | RE/MAX Czech Republic | remax_scraper.py |
+| MMR | M&M Reality | mmreality_scraper.py |
+| PRODEJMETO | Prodejme.to | prodejmeto_scraper.py |
+| SREALITY | Sreality.cz | sreality_scraper.py |
+| IDNES | iDnes Reality | idnes_reality_scraper.py |
+| CENTURY21 | CENTURY 21 Czech Republic | century21_scraper.py |
+| PREMIAREALITY | Premiera Reality | premiareality_scraper.py |
+| DELUXREALITY | Delux Reality | deluxreality_scraper.py |
+| HVREALITY | HV Reality | hvreality_scraper.py |
+| LEXAMO | Lexamo | lexamo_scraper.py |
+| ZNOJMOREALITY | Znojmo Reality | znojmoreality_scraper.py |
+| NEMZNOJMO | Nemovitosti Znojmo | nemovitostiznojmo_scraper.py |
 
 ## Persistent Rules (Always Apply)
 
@@ -66,16 +82,28 @@ public record ListingSummaryDto(
 // ✅ USE: Snake_case via EFCore.NamingConventions
 options.UseSnakeCaseNamingConvention();
 
-// ✅ USE: Enum converters for Czech↔English mapping
+// ✅ USE: Enum converters s switch expression (NE Enum.Parse – nefunguje v EF Core expression trees)
+// ⚠️ KRITICKÉ: DB ukládá anglicky ("House", "Apartment", "Sale", "Rent")
+// ⚠️ NESMÍŠ použít česky ("Dům", "Byt") – způsobuje 0 výsledků při filtrování!
 modelBuilder.Entity<Listing>()
     .Property(l => l.PropertyType)
     .HasConversion(
-        v => v.ToString(), // House → "House"
-        v => Enum.Parse<PropertyType>(v)
-    );
+        v => v.ToString(),  // zápis: "House", "Apartment", ...
+        v => v == "House" ? PropertyType.House
+           : v == "Apartment" ? PropertyType.Apartment
+           : v == "Land" ? PropertyType.Land
+           : v == "Cottage" ? PropertyType.Cottage
+           : v == "Commercial" ? PropertyType.Commercial
+           : v == "Industrial" ? PropertyType.Industrial
+           : v == "Garage" ? PropertyType.Garage
+           : PropertyType.Other);
+
+// OfferType analogicky:
+//   v => v.ToString()  →  "Sale", "Rent"
+//   v => v == "Rent" ? OfferType.Rent : OfferType.Sale
 
 // Table: re_realestate.listings
-// Columns: id, source_id, external_id, title, property_type...
+// Columns: id, source_id, source_code, external_id, title, property_type, offer_type, price...
 ```
 
 ### Python (Scraper)
@@ -174,7 +202,7 @@ dotnet ef database update --project src/RealEstate.Api
 
 ### Creating a New Scraper
 
-1. **Copy remax_scraper.py template**
+1. **Copy remax_scraper.py template** (nebo jiný hotový scraper jako vzor)
 ```python
 # scraper/core/scrapers/novyscraper_scraper.py
 class NovyScraperScraper:
@@ -189,7 +217,8 @@ class NovyScraperScraper:
         # Regex-based selectors (robust)
         
     def _parse_detail_page(self, html: str, item: Dict) -> Dict[str, Any]:
-        # Extract: title, price, location, photos, area
+        # Extract: title, price, location, photos (max 20), area
+        # Mapuj property_type a offer_type pomocí property_type_map/offer_type_map z database.py
 ```
 
 2. **Add to runner.py**
@@ -328,7 +357,12 @@ database:
 docker-compose up -d postgres
 dotnet run --project src/RealEstate.Api --urls "http://localhost:5001"
 dotnet run --project src/RealEstate.App --urls "http://localhost:5002"
-cd scraper && python run_api.py
+
+# Scraper vyžaduje virtualenv (python3 není v PATH, použij venv):
+cd scraper && .venv/bin/python run_api.py
+# Pokud venv neexistuje:
+# python3 -m venv scraper/.venv && source scraper/.venv/bin/activate
+# pip install -r scraper/requirements.txt
 
 # Test endpoints
 curl http://localhost:5001/api/sources
@@ -336,10 +370,15 @@ curl -X POST http://localhost:5001/api/listings/search \
   -H "Content-Type: application/json" \
   -d '{"page":1,"pageSize":10}'
 
-# Trigger scraping
+# Trigger scraping (přes .NET API → Python Scraper API)
 curl -X POST http://localhost:5001/api/scraping/trigger \
   -H "Content-Type: application/json" \
   -d '{"sourceCodes":["REMAX"],"fullRescan":false}'
+
+# Nebo přímo na Python Scraper API:
+curl -X POST http://localhost:8001/v1/scrape/run \
+  -H "Content-Type: application/json" \
+  -d '{"source_codes":["REMAX"],"full_rescan":false}'
 ```
 
 ### Database Queries
@@ -359,22 +398,26 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 ## Known Limitations & TODOs
 
 ### High Priority
-- [ ] MM Reality scraper – implement real selectors
-- [ ] Prodejme.to scraper – implement real selectors
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
 - [ ] Centralize DTOs – move from Listings.razor to shared project
+- [ ] CENTURY21 logo – placeholder SVG (274B), reálné logo za WP loginem
+- [ ] Kontejnerizace Blazor App – přidat do docker-compose nebo přejít na .NET Aspire
+
+### Scraper kvalita (některé zdroje mají málo výsledků)
+- [ ] ZNOJMOREALITY (5 inz.), DELUXREALITY (5), PRODEJMETO (4), LEXAMO (4) – ověřit selektory
+- [ ] Retry logic – exponential backoff pro HTTP 429/503
+- [ ] Playwright fallback – pro JS-heavy weby
 
 ### Medium Priority
-- [ ] Semantic search – pgvector with OpenAI embeddings
-- [ ] Analysis jobs – AI analysis implementation
-- [ ] User listing states – save/archive/contact tracking
-- [ ] Background scheduled scraping – APScheduler integration
+- [ ] Semantic search – pgvector s OpenAI embeddings
+- [ ] Analysis jobs – AI analýza inzerátů
+- [ ] User listing states – uložit/archivovat/kontakt tracking
+- [ ] Background scheduled scraping – pravidelný re-run (APScheduler/Hangfire)
 
 ### Low Priority
-- [ ] Unit tests – scraper parsing with mock HTML
-- [ ] Retry logic – exponential backoff
-- [ ] Playwright fallback – for JS-heavy sites
+- [ ] Unit tests – scraper parsing s mock HTML
 - [ ] Monitoring – Prometheus metrics
+- [ ] Export funkce (CSV/Excel) – projekt RealEstate.Export existuje
 
 ---
 
@@ -383,7 +426,8 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 ### Common Issues
 
 **Problem:** API returns 500 when calling `/api/scraping/trigger`  
-**Solution:** Python scraper not running. Start with `cd scraper && python run_api.py`
+**Solution:** Python scraper neběží. Spusť: `cd scraper && .venv/bin/python run_api.py`  
+(Pokud `python` není v PATH, musíš použít virtualenv venv)
 
 **Problem:** EF Core mapping errors (snake_case vs PascalCase)  
 **Solution:** Ensure `UseSnakeCaseNamingConvention()` is called in DbContext
@@ -392,7 +436,13 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 **Solution:** Add explicit type parameters: `<MudChip T="string">`, `<MudCarousel TData="object">`
 
 **Problem:** Scraper can't connect to database  
-**Solution:** Check `settings.yaml` has correct host (localhost vs postgres in Docker)
+**Solution:** Zkontroluj `scraper/config/settings.yaml` – host=localhost (local) nebo host=postgres (Docker)
+
+**Problem:** PropertyType/OfferType filtry vracejí 0 výsledků  
+**Solution:** Zkontroluj HasConversion v RealEstateDbContext.cs – zápis musí být `v.ToString()` ("House"), NE české hodnoty ("Dům"). DB ukládá vždy anglicky.
+
+**Problem:** EF Core CS8198 – `out` parameter in expression tree  
+**Solution:** Nepoužívej `Enum.TryParse(v, out var x)` v HasConversion lambda. Použij switch expression.
 
 **Problem:** Navigation doesn't work in Blazor  
 **Solution:** Ensure `@inject NavigationManager Navigation` is present
@@ -402,9 +452,12 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 ## Resources
 
 - **Repository:** https://github.com/cybersmurf/RealEstateAggregator
-- **Documentation:** /docs/AI_SESSION_SUMMARY.md, /docs/TECHNICAL_DESIGN.md
-- **Scraper Docs:** /scraper/REMAX_SCRAPER.md
+- **Session Summary:** /docs/AI_SESSION_SUMMARY.md
+- **Technical Design:** /docs/TECHNICAL_DESIGN.md
+- **API Contracts:** /docs/API_CONTRACTS.md
+- **Backlog:** /docs/BACKLOG.md
 - **Database Schema:** /scripts/init-db.sql
+- **Loga zdrojů:** /src/RealEstate.App/wwwroot/images/logos/ (11 souborů SVG/PNG)
 
 ---
 
@@ -430,5 +483,6 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 22. února 2026  
-**Current Commit:** 091b7eb (REMAX DB persistence implemented)
+**Last Updated:** 23. února 2026  
+**Current Commit:** b94343e (Fix PropertyType/OfferType converter + integrate logos into UI)
+**DB stav:** 1 236 aktivních inzerátů, 12 zdrojů (SREALITY=851, IDNES=168, …)
