@@ -36,6 +36,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=${POSTGRES_PASSWORD:-dev}
       - SCRAPER_API_BASE_URL=http://realestate-scraper:8001
+      - API_KEY=${API_KEY:-dev-key-change-me}
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,6 +45,12 @@ services:
     volumes:
       - ./logs/api:/app/logs
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   app:
     build:
@@ -57,7 +64,8 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - ApiBaseUrl=http://realestate-api:8080
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     networks:
       - realestate-network
     restart: unless-stopped

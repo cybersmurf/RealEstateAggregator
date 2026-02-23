@@ -1,4 +1,5 @@
 @page "/listings"
+@implements IDisposable
 
 @inject HttpClient Http
 @inject NavigationManager Navigation
@@ -329,7 +330,7 @@
                             <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
                                            Size="Size.Small"
                                            Color="Color.Primary"
-                                           OnClick="@(async () => await NavigateToDetailAsync(context.Id))" />
+                                           OnClick="@(() => NavigateToDetailAsync(context.Id))" />
                         </MudTooltip>
                         <MudTooltip Text="AI Analýza">
                             <MudIconButton Icon="@Icons.Material.Filled.AutoAwesome"
@@ -363,6 +364,7 @@
     private ListingFilterDto _filter = new() { Page = 1, PageSize = 20 };
     private IReadOnlyCollection<string>? _selectedSourceCodes = new List<string>();
     private List<SourceDto> _availableSources = new();
+    private CancellationTokenSource _cts = new();
 
     // Quick filtry
     private string? _activeQuickFilter;
@@ -423,8 +425,8 @@
 
     private async Task LoadCardsAsync()
     {
+        var ct = _cts.Token;
         _loading = true;
-        StateHasChanged();
         try
         {
             var cardFilter = new ListingFilterDto
@@ -442,12 +444,17 @@
                 AreaLandMax = _filter.AreaLandMax,
                 SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0 ? _selectedSourceCodes!.ToList() : null,
             };
-            var response = await Http.PostAsJsonAsync("api/listings/search", cardFilter);
+            var response = await Http.PostAsJsonAsync("api/listings/search", cardFilter, ct);
+            ct.ThrowIfCancellationRequested();
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>();
+            var result = await response.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>(cancellationToken: ct);
             _totalCount = result?.TotalCount ?? 0;
             _cardItems = result?.Items?.ToList() ?? new();
             _cardTotalPages = (int)Math.Ceiling((double)_totalCount / _cardPageSize);
+        }
+        catch (OperationCanceledException)
+        {
+            // Komponenta byla zrušena nebo přepnuta – ignorujeme
         }
         catch (Exception ex)
         {
@@ -529,11 +536,8 @@
             Navigation.NavigateTo($"/listings/{args.Item.Id}");
     }
 
-    private async Task NavigateToDetailAsync(Guid id)
-    {
-        Navigation.NavigateTo($"/listings/{id}");
-        await Task.CompletedTask;
-    }
+    private void NavigateToDetailAsync(Guid id)
+        => Navigation.NavigateTo($"/listings/{id}");
 
     private async Task CreateAnalysisAsync(Guid id)
     {
@@ -624,6 +628,7 @@
         { "PREMIAREALITY","/images/logos/PREMIAREALITY.svg" },
         { "CENTURY21",    "/images/logos/CENTURY21.svg" },
         { "SREALITY",     "/images/logos/SREALITY.png" },
+        { "IDNES",        "/images/logos/IDNES.svg" },
         { "DELUXREALITY", "/images/logos/DELUXREALITY.png" },
         { "HVREALITY",    "/images/logos/HVREALITY.png" },
         { "ZNOJMOREALITY","/images/logos/ZNOJMOREALITY.png" },
@@ -633,6 +638,10 @@
     private static string? SourceLogoUrl(string? code)
         => code != null && _sourceLogoMap.TryGetValue(code, out var url) ? url : null;
 
-    private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
 }
 

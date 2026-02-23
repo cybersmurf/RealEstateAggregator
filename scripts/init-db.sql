@@ -182,6 +182,28 @@ COMMENT ON TABLE re_realestate.user_listing_state IS 'Uživatelské stavy a pozn
 COMMENT ON COLUMN re_realestate.user_listing_state.status IS 'Stav z pohledu uživatele (New, Liked, Disliked, ToVisit, Visited)';
 
 -- ----------------------------------------------------------------------------
+-- User Listing Photos (fotky pořízené uživatelem při prohlídce nemovitosti)
+-- ----------------------------------------------------------------------------
+CREATE TABLE re_realestate.user_listing_photos (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    listing_id uuid NOT NULL REFERENCES re_realestate.listings (id) ON DELETE CASCADE,
+    stored_url text NOT NULL,
+    original_file_name text NOT NULL,
+    file_size_bytes bigint,
+    taken_at timestamptz,
+    uploaded_at timestamptz NOT NULL DEFAULT now(),
+    notes text
+);
+
+CREATE INDEX idx_user_listing_photos_listing
+    ON re_realestate.user_listing_photos (listing_id);
+
+CREATE INDEX idx_user_listing_photos_uploaded_at
+    ON re_realestate.user_listing_photos (uploaded_at DESC);
+
+COMMENT ON TABLE re_realestate.user_listing_photos IS 'Fotky pořízené uživatelem při prohlídce nemovitosti';
+
+-- ----------------------------------------------------------------------------
 -- Analysis Jobs (Export pro AI analýzu)
 -- ----------------------------------------------------------------------------
 CREATE TABLE re_realestate.analysis_jobs (

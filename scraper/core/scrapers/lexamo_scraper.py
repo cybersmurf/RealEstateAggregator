@@ -12,6 +12,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from ..database import get_db_manager
+from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,13 @@ class LexamoScraper:
     # Private helpers
     # ------------------------------------------------------------------
 
+    @http_retry
+    async def _fetch(self, client: httpx.AsyncClient, url: str) -> str:
+        """Stahne stránku, při 429/503 automaticky opakuje (max 3×)."""
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.text
+
     async def _get_listing_urls(self, client: httpx.AsyncClient) -> List[str]:
         """Collect all unique detail URLs from the homepage (Webflow CMS)."""
         urls = []
@@ -103,9 +111,8 @@ class LexamoScraper:
 
         while True:
             page_url = LISTINGS_URL if page == 1 else f"{LISTINGS_URL}?65cdb0cc_page={page}"
-            resp = await client.get(page_url)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
+            html = await self._fetch(client, page_url)
+            soup = BeautifulSoup(html, "html.parser")
 
             new_found = False
             for a in soup.select("a[href*='/realman-listing/']"):
@@ -129,9 +136,8 @@ class LexamoScraper:
         self, client: httpx.AsyncClient, url: str
     ) -> Optional[Dict[str, Any]]:
         """Fetch and parse a single property detail page."""
-        resp = await client.get(url)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        html = await self._fetch(client, url)
+        soup = BeautifulSoup(html, "html.parser")
 
         # External ID = numeric suffix at end of URL slug
         id_match = re.search(r"-(\d+)/?$", url)

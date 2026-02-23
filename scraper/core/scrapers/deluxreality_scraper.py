@@ -12,6 +12,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from ..database import get_db_manager
+from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +93,17 @@ class DeluxRealityScraper:
     # Private helpers
     # ------------------------------------------------------------------
 
+    @http_retry
+    async def _fetch(self, client: httpx.AsyncClient, url: str) -> str:
+        """Stahne stránku, při 429/503 automaticky opakuje (max 3×)."""
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.text
+
     async def _get_listing_urls(self, client: httpx.AsyncClient) -> List[str]:
         """Scrape the main listings page and return unique detail URLs."""
-        resp = await client.get(LISTINGS_URL)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        html = await self._fetch(client, LISTINGS_URL)
+        soup = BeautifulSoup(html, "html.parser")
 
         urls = []
         seen = set()
@@ -117,9 +124,8 @@ class DeluxRealityScraper:
         self, client: httpx.AsyncClient, url: str
     ) -> Optional[Dict[str, Any]]:
         """Fetch and parse a single property detail page."""
-        resp = await client.get(url)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        html = await self._fetch(client, url)
+        soup = BeautifulSoup(html, "html.parser")
 
         # External ID = URL slug after /nemovitost/
         slug_match = re.search(r"/nemovitost/([^/]+)/?$", url)

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using NpgsqlTypes;
 using Pgvector.EntityFrameworkCore;
 using RealEstate.Domain.Entities;
 using RealEstate.Domain.Enums;
@@ -101,6 +102,12 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.LastSeenAt).HasColumnName("last_seen_at").HasColumnType("timestamptz");
             entity.Property(e => e.IsActive).HasColumnName("is_active");
             entity.Property(e => e.DescriptionEmbedding).HasColumnName("description_embedding").HasColumnType("vector(1536)");
+
+            // 🔍 Shadow property pro precomputed tsvector (GIN index) – fulltext search
+            entity.Property<NpgsqlTsVector>("SearchTsv")
+                .HasColumnName("search_tsv")
+                .HasColumnType("tsvector")
+                .ValueGeneratedOnAddOrUpdate();
 
             // Indexes
             entity.HasIndex(e => new { e.SourceId, e.ExternalId }).IsUnique();

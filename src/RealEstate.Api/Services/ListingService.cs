@@ -1,5 +1,6 @@
 using LinqKit;
 using Microsoft.EntityFrameworkCore;
+using NpgsqlTypes;
 using RealEstate.Api.Contracts.Common;
 using RealEstate.Api.Contracts.Listings;
 using RealEstate.Domain.Entities;
@@ -45,10 +46,11 @@ public class ListingService : IListingService
         // 3) Counting před stránkováním
         var totalCount = await query.CountAsync(cancellationToken);
 
-        // 4) Sorting
+        // 4) Sorting – .ThenBy(Id) zajišťuje deterministické pořadí při shodě
         query = query
             .OrderByDescending(x => x.FirstSeenAt)
-            .ThenBy(x => x.Price);
+            .ThenBy(x => x.Price)
+            .ThenBy(x => x.Id);
 
         // 5) Paging
         var skip = (filter.Page - 1) * filter.PageSize;
@@ -321,32 +323,24 @@ public class ListingService : IListingService
     }
 
     /// <summary>
-    /// Staví fulltext predikát s OR kombinací klíčových slov.
+    /// Staví fulltext predikát pomocí precomputed tsvector sloupce s GIN indexem (search_tsv).
+    /// Využívá PostgreSQL plainto_tsquery pro multi-keyword OR vyhledávání.
     /// </summary>
     private static ExpressionStarter<Listing> BuildSearchPredicate(string searchText)
     {
-        var keywords = searchText
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(k => k.ToLower())
-            .ToArray();
+        var trimmed = searchText.Trim();
 
-        if (keywords.Length == 0)
+        if (string.IsNullOrWhiteSpace(trimmed))
         {
-            // Žádná klíčová slova = povoleno vše
             return PredicateBuilder.New<Listing>(true);
         }
 
-        // false = začínáme s "nic není povoleno" (identita OR)
+        // plainto_tsquery("simple", "byt znojmo") generuje 'byt' & 'znojmo'
+        // Wrapper přes shadow property search_tsv (GENERATED ALWAYS, má GIN index)
         var predicate = PredicateBuilder.New<Listing>(false);
-
-        foreach (var keyword in keywords)
-        {
-            var temp = keyword; // closure workaround
-            predicate = predicate.Or(x =>
-                x.Title.ToLower().Contains(temp) ||
-                (x.Description != null && x.Description.ToLower().Contains(temp)) ||
-                (x.LocationText != null && x.LocationText.ToLower().Contains(temp)));
-        }
+        predicate = predicate.Or(x =>
+            EF.Property<NpgsqlTsVector>(x, "SearchTsv")
+                .Matches(EF.Functions.PlainToTsQuery("simple", trimmed)));
 
         return predicate;
     }

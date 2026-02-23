@@ -34,6 +34,7 @@ python-json-logger>=2.0.0
 # Utilities
 python-dotenv>=1.0.0
 python-dateutil>=2.8.0
+tenacity>=8.2.0            # Retry with exponential backoff (HTTP 429/503 resilience)
 
 # Geo / Route Corridor module (geo/)
 geopandas>=0.14.0          # spatial dataframes (reads SHP, GeoJSON, GeoPackage)

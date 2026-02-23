@@ -7,7 +7,7 @@ namespace RealEstate.Api.Endpoints;
 
 public static class ScrapingEndpoints
 {
-    public static IEndpointRouteBuilder MapScrapingEndpoints(this IEndpointRouteBuilder app)
+    public static RouteGroupBuilder MapScrapingEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/scraping")
             .WithTags("Scraping");
@@ -15,7 +15,7 @@ public static class ScrapingEndpoints
         group.MapPost("/trigger", TriggerScrape)
             .WithName("TriggerScrape");
 
-        return app;
+        return group;
     }
 
     private static async Task<Ok<ScrapeTriggerResultDto>> TriggerScrape(

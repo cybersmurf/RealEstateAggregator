@@ -23,6 +23,7 @@ from bs4 import BeautifulSoup
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,7 @@ class ZnojmoRealityScraper:
 
         return scraped
 
+    @http_retry
     async def _fetch(self, url: str) -> str:
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")

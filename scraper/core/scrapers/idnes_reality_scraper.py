@@ -18,6 +18,8 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
+from ..http_utils import http_retry
+
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
 
@@ -159,8 +161,9 @@ class IdnesRealityScraper:
         logger.info(f"Total Znojmo detail URLs found: {len(urls)}")
         return urls
 
+    @http_retry
     async def _fetch_page(self, url: str) -> str:
-        """Fetch detail page via HTTP."""
+        """Fetch detail page via HTTP. Opakuje při 429/503."""
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")
 

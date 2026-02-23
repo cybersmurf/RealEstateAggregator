@@ -18,6 +18,8 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
+from ..http_utils import http_retry
+
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
 
@@ -99,6 +101,7 @@ class ProdejmeToScraper:
         logger.info("Prodejme.to scraper finished. Scraped %s listings", self.scraped_count)
         return self.scraped_count
 
+    @http_retry
     async def _fetch(self, url: str) -> str:
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")

@@ -8,6 +8,8 @@ namespace RealEstate.Infrastructure.Repositories;
 public sealed class ListingRepository : IListingRepository
 {
     private readonly RealEstateDbContext _context;
+    // Výchozí uživatel – stejný DefaultUserId jako v ListingService
+    private static readonly Guid DefaultUserId = new("00000000-0000-0000-0000-000000000001");
 
     public ListingRepository(RealEstateDbContext context)
     {
@@ -20,7 +22,7 @@ public sealed class ListingRepository : IListingRepository
             .AsExpandable() // Důležité pro PredicateBuilder + EF Core
             .Include(l => l.Source)
             .Include(l => l.Photos)
-            .Include(l => l.UserStates)
+            .Include(l => l.UserStates.Where(s => s.UserId == DefaultUserId)) // Filtered Include – načte jen záznamy pro výchozího uživatele
             .AsSplitQuery()  // Prevents cartesian explosion when paging with multiple Includes
             .AsQueryable();
     }

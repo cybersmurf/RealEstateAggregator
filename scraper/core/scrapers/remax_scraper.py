@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from ..browser import get_browser_manager
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
 
@@ -153,10 +154,11 @@ class RemaxScraper:
         logger.info(f"REMAX scraper finished. Scraped {self.scraped_count} listings")
         return self.scraped_count
 
+    @http_retry
     async def _fetch_page_http(self, url: str) -> str:
         """
         Stáhne HTML stránky pomocí httpx (fast).
-        Používej pro non-JS stránky.
+        Při HTTP 429/503 nebo síťových chybách se automaticky opakuje (max 3×).
         """
         logger.debug(f"Fetching via HTTP: {url}")
         

@@ -15,6 +15,7 @@ import httpx
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,7 @@ class SrealityScraper:
         logger.info("Sreality scraper finished. Scraped %s listings", self.scraped_count)
         return self.scraped_count
 
+    @http_retry
     async def _fetch_listings_page(self, page: int) -> Optional[Dict[str, Any]]:
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")

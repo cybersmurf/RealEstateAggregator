@@ -5,6 +5,11 @@ using RealEstate.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ─── API Key ──────────────────────────────────────────────────────────────────
+// Načteme z prostředí, fallback na výchozí dev hodnotu.
+// V produkci nastavit: API_KEY=<tajný klíč>
+var apiKey = Environment.GetEnvironmentVariable("API_KEY") ?? "dev-key-change-me";
+
 // Override connection string and scraper API base URL from environment variables
 var dbHost = Environment.GetEnvironmentVariable("DB_HOST") ?? "localhost";
 var dbPort = Environment.GetEnvironmentVariable("DB_PORT") ?? "5432";
@@ -27,6 +32,20 @@ if (!string.IsNullOrEmpty(scraperApiBaseUrl))
 builder.Services
     .AddEndpointsApiExplorer()
     .AddSwaggerGen();
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy
+            .WithOrigins(
+                "http://localhost:5002",   // Blazor App dev
+                "http://realestate-app:8080") // Docker
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 
 // Custom services
 builder.Services.AddRealEstateDb(builder.Configuration);
@@ -66,9 +85,31 @@ else
 // Enable static files for local storage serving
 app.UseStaticFiles();
 
+app.UseCors();
+
+// ─── Endpoints ────────────────────────────────────────────────────────────────
+// Health check – veřejně přístupný (používá Docker healthcheck a monitoring)
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
+    .WithName("Health")
+    .AllowAnonymous();
+
 app.MapListingEndpoints();
 app.MapSourceEndpoints();
 app.MapAnalysisEndpoints();
-app.MapScrapingEndpoints();
+
+// ─── Scraping endpoints – chráněno API klíčem ─────────────────────────────────
+app.MapScrapingEndpoints()
+    .AddEndpointFilter(async (ctx, next) =>
+    {
+        if (!ctx.HttpContext.Request.Headers.TryGetValue("X-Api-Key", out var providedKey)
+            || providedKey != apiKey)
+        {
+            return Results.Problem(
+                title: "Unauthorized",
+                detail: "Platný API klíč je vyžadován v hlavičce X-Api-Key.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+        return await next(ctx);
+    });
 
 app.Run();

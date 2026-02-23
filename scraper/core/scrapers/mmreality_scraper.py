@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
 
@@ -161,8 +162,9 @@ class MmRealityScraper:
 
         return scraped
 
+    @http_retry
     async def _fetch(self, url: str) -> str:
-        """Stahne HTML stranky pomoci httpx."""
+        """Stáhne HTML stránky pomocí httpx. Opakuje při 429/503."""
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")
         response = await self._http_client.get(url)
