@@ -7,6 +7,7 @@ Strategy:
 - No Playwright needed (server-rendered HTML)
 """
 import asyncio
+import gzip
 import logging
 import re
 import time
@@ -28,6 +29,11 @@ class IdnesRealityScraper:
 
     BASE_URL = "https://reality.idnes.cz"
     SITEMAP_URL = f"{BASE_URL}/sitemap.xml"
+    SITEMAP_BASE = f"{BASE_URL}/sitemap/"
+    # These sub-sitemaps contain individual listing detail pages
+    # nemovitosti-hledani.xml.gz contains search/filter pages only
+    LISTING_SITEMAPS = ["nemovitosti.xml.gz", "nemovitosti2.xml.gz", "nemovitosti3.xml.gz"]
+    SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
     SOURCE_CODE = "IDNES"
 
     def __init__(self):
@@ -68,12 +74,9 @@ class IdnesRealityScraper:
                 self._http_client = client
 
                 try:
-                    # 🔥 Fetch and parse sitemap
-                    with timer("Fetch sitemap"):
-                        sitemap_xml = await self._fetch_sitemap()
-
-                    with timer("Parse sitemap"):
-                        listing_urls = self._extract_listing_urls(sitemap_xml)
+                    # 🔥 Fetch listing URLs from gz sub-sitemaps
+                    with timer("Fetch gz sitemaps"):
+                        listing_urls = await self._fetch_all_listing_urls()
 
                     if not listing_urls:
                         logger.warning("No listings found in sitemap")
@@ -114,42 +117,47 @@ class IdnesRealityScraper:
         logger.info(f"Idnes Reality scraper finished. Scraped {self.scraped_count} listings")
         return self.scraped_count
 
-    async def _fetch_sitemap(self) -> str:
-        """Fetch and parse sitemap XML."""
+    async def _fetch_all_listing_urls(self) -> List[str]:
+        """
+        Fetch Znojmo listing URLs from IDNES gz sub-sitemaps.
+
+        The main sitemap.xml is a sitemap index pointing to .gz sub-sitemaps.
+        nemovitosti*.xml.gz files contain individual listing detail pages.
+        Filter: URL must contain /detail/ AND 'znojmo' in path.
+
+        Returns:
+            List of detail page URLs for Znojmo area.
+        """
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")
 
-        logger.debug(f"Fetching sitemap: {self.SITEMAP_URL}")
-        response = await self._http_client.get(self.SITEMAP_URL)
-        response.raise_for_status()
-        return response.text
+        ns = self.SITEMAP_NS
+        urls: List[str] = []
 
-    def _extract_listing_urls(self, sitemap_xml: str) -> List[str]:
-        """
-        Extract listing URLs from sitemap XML.
+        for sitemap_name in self.LISTING_SITEMAPS:
+            sitemap_url = self.SITEMAP_BASE + sitemap_name
+            try:
+                logger.debug(f"Fetching gz sitemap: {sitemap_url}")
+                response = await self._http_client.get(sitemap_url)
+                response.raise_for_status()
 
-        Sitemap contains URLs like:
-        https://reality.idnes.cz/prodej/byt/praha/1234567
-        """
-        try:
-            root = ET.fromstring(sitemap_xml)
+                # Decompress gzip content
+                xml_bytes = gzip.decompress(response.content)
+                root = ET.fromstring(xml_bytes)
 
-            # Handle XML namespaces
-            namespaces = {"": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-            urls = []
+                batch_urls = [
+                    loc_elem.text
+                    for loc_elem in root.findall(f".//{{{ns}}}loc")
+                    if loc_elem.text and "/detail/" in loc_elem.text and "znojmo" in loc_elem.text.lower()
+                ]
+                urls.extend(batch_urls)
+                logger.info(f"Sitemap {sitemap_name}: {len(batch_urls)} Znojmo URLs")
 
-            for url_elem in root.findall(".//{http://www.sitemaps.org/schemas/sitemap/0.9}loc"):
-                url = url_elem.text
-                if url:
-                    # Filter for listing URLs (prodej/byt, prodej/dům, etc.) + only Znojmo region
-                    if ("/prodej/" in url or "/pronajem/" in url) and "znojmo" in url.lower():
-                        urls.append(url)
+            except Exception as exc:
+                logger.error(f"Failed to process sitemap {sitemap_name}: {exc}")
 
-            return urls
-
-        except Exception as exc:
-            logger.error(f"Failed to parse sitemap: {exc}")
-            return []
+        logger.info(f"Total Znojmo detail URLs found: {len(urls)}")
+        return urls
 
     async def _fetch_page(self, url: str) -> str:
         """Fetch detail page via HTTP."""
@@ -184,65 +192,114 @@ class IdnesRealityScraper:
                 title_elem = soup.select_one("h1")
             title = title_elem.get_text(strip=True) if title_elem else "N/A"
 
-            # Extract price
-            price_elem = soup.find("span", class_=re.compile("price"))
+            # Extract price - IDNES uses .b-detail__price
             price = None
-            if price_elem:
-                price_text = price_elem.get_text(strip=True)
-                price_match = re.search(r"(\d+[\s.]?)+(Kč|CZK)?", price_text)
-                if price_match:
-                    digits = re.sub(r"\D", "", price_match.group(0))
-                    try:
-                        price = int(digits) if digits else None
-                    except ValueError:
-                        price = None
+            for sel in [".b-detail__price", ".cena", "[itemprop='price']"]:
+                price_elem = soup.select_one(sel)
+                if price_elem:
+                    price_text = price_elem.get_text(strip=True)
+                    # Match a plausible Czech price: 4-9 digits optionally separated by spaces/dots
+                    # e.g. "1 500 000 Kč" or "2.500.000 Kč" or "950000 Kč"
+                    price_match = re.search(r"\b(\d[\d\s.]{2,10}\d)\s*(Kč|CZK)", price_text)
+                    if price_match:
+                        digits = re.sub(r"[^\d]", "", price_match.group(1))
+                        try:
+                            val = int(digits)
+                            # Sanity check: 10 000 – 500 000 000 Kč
+                            if 10_000 <= val <= 500_000_000:
+                                price = val
+                        except ValueError:
+                            pass
+                    break
 
-            # Extract location
-            location_elem = soup.find("span", class_=re.compile("location|place|address"))
-            if not location_elem:
-                location_elem = soup.select_one("[itemprop='addressLocality']")
-            location = location_elem.get_text(strip=True) if location_elem else "N/A"
+            # Extract location - try HTML first, fallback to URL slug
+            # IDNES uses .b-detail__info-item or address elements
+            location = None
+            for sel in [
+                ".b-detail__info .icoi-location",
+                ".b-detail__info-item--location",
+                "[itemprop='addressLocality']",
+                ".b-detail__place",
+            ]:
+                elem = soup.select_one(sel)
+                if elem:
+                    location = elem.get_text(strip=True)
+                    break
 
-            # Determine property type from URL
-            property_type = "Ostatni"
-            offer_type = "Sale"
+            # Fallback: extract location slug from URL path
+            # URL format: /detail/{prodej|pronajem}/{type}/{location-slug}/{id}/
+            if not location:
+                url_parts = url.rstrip("/").split("/")
+                # Parts: ['', 'detail', 'prodej', 'dum', 'znojmo-na-valech', 'ID']
+                if len(url_parts) >= 5:
+                    location_slug = url_parts[-2]
+                    # Convert kebab-case slug to readable text
+                    location = location_slug.replace("-", " ").title()
 
-            if "/byt" in url.lower():
+            location = location or "Znojmo"
+
+            # Determine property type from URL (IDNES uses English slugs)
+            # URL segments: /dum/, /byt/, /pozemek/, /chata/, /komercni-nemovitost/, etc.
+            url_lower = url.lower()
+            property_type = "Other"
+            if "/byt/" in url_lower or "/byt-" in url_lower:
                 property_type = "Apartment"
-            elif "/dům" in url.lower() or "/dum" in url.lower():
+            elif "/dum/" in url_lower or "/dum-" in url_lower or "/domy/" in url_lower:
                 property_type = "House"
-            elif "/pozemek" in url.lower():
+            elif "/pozemek/" in url_lower or "/pozemek-" in url_lower:
                 property_type = "Land"
+            elif "/chata/" in url_lower or "/chalupa/" in url_lower or "/chata-" in url_lower:
+                property_type = "Cottage"
+            elif "/komercni" in url_lower or "/komerci" in url_lower:
+                property_type = "Commercial"
+            elif "/garaz/" in url_lower or "/garaz-" in url_lower:
+                property_type = "Garage"
 
-            if "/pronajem" in url.lower():
-                offer_type = "Rent"
-            else:
-                offer_type = "Sale"
+            # Offer type from URL
+            offer_type = "Rent" if "/pronajem/" in url_lower else "Sale"
 
-            # Extract photos
+            # Extract photos - IDNES uses .photoSlider or .b-slider images
             photos = []
-            for img in soup.find_all("img", class_=re.compile("photo|image|gallery")):
-                src = img.get("src") or img.get("data-src")
-                if src:
-                    full_url = urljoin(self.BASE_URL, src)
-                    photos.append(full_url)
+            for img in soup.select(".b-slider__item img, .photoSlider img, .gallery img"):
+                src = img.get("src") or img.get("data-src") or img.get("data-lazy")
+                if src and src.startswith("http"):
+                    photos.append(src)
+            # Also check og:image tags
+            if not photos:
+                for og in soup.find_all("meta", property="og:image"):
+                    content = og.get("content")
+                    if content:
+                        photos.append(content)
+            photos = list(dict.fromkeys(photos))[:20]  # deduplicate, max 20
 
-            # Extract description
-            desc_elem = soup.find("div", class_=re.compile("description|details|text"))
-            if not desc_elem:
-                desc_elem = soup.select_one("[itemprop='description']")
-            description = desc_elem.get_text(strip=True) if desc_elem else ""
+            # Extract description - IDNES uses .b-detail__desc or .b-detail__text
+            description = ""
+            for sel in [".b-detail__desc", ".b-detail__text", "[itemprop='description']"]:
+                elem = soup.select_one(sel)
+                if elem:
+                    description = elem.get_text(strip=True)
+                    break
 
-            # Extract area (optional)
+            # Extract area - look in table params or title
             area = None
-            area_text = soup.find("span", class_=re.compile("area|size"))
-            if area_text:
-                area_match = re.search(r"(\d+)\s*m", area_text.get_text())
+            # Try to find in spec table (IDNES uses .b-detail__info table)
+            for row in soup.select(".b-detail__info-item, .b-detail__param"):
+                text = row.get_text(" ", strip=True)
+                area_match = re.search(r"Plocha\D+?(\d+)\s*m", text, re.IGNORECASE)
                 if area_match:
                     try:
                         area = int(area_match.group(1))
+                        break
                     except ValueError:
-                        area = None
+                        pass
+            # Fallback: extract area from title (e.g. "Prodej domu 120 m²")
+            if not area:
+                title_area = re.search(r"(\d+)\s*m[²2]", title)
+                if title_area:
+                    try:
+                        area = int(title_area.group(1))
+                    except ValueError:
+                        pass
 
             # Return normalized data
             return {
@@ -254,7 +311,7 @@ class IdnesRealityScraper:
                 "property_type": property_type,
                 "offer_type": offer_type,
                 "price": price,
-                "location_text": location[:200],
+                "location_text": location[:200] if location else "Znojmo",
                 "photos": photos[:20],
                 "area_built_up": area,
             }
@@ -268,13 +325,11 @@ class IdnesRealityScraper:
         """
         Extract external ID from URL.
 
-        URL format: https://reality.idnes.cz/prodej/byt/praha/1234567
-        ID is last numeric part
+        URL format: https://reality.idnes.cz/detail/prodej/dum/znojmo/68f114793da2f02fc20a2b19/
+        ID is last path segment (hexadecimal or numeric).
         """
-        match = re.search(r"(\d+)/?$", url)
-        if match:
-            return match.group(1)
-        return url.split("/")[-1]
+        # Strip trailing slash, take last path segment
+        return url.rstrip("/").split("/")[-1]
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         """Save listing to database."""

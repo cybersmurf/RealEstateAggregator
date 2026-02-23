@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1"
+     creator="RealEstateAggregator geo module"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:schemaLocation="http://www.topografix.com/GPX/1/1
+                         http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>Štítary → Pohořelice</name>
+    <desc>
+      Trasa podél silnice 54 jihomoravskou nížinou.
+      Úsek Štítary (Znojemsko) – Pohořelice (Brno-venkov).
+      Délka cca 70 km, koridor 5 km na každou stranu.
+    </desc>
+    <link href="https://github.com/cybersmurf/RealEstateAggregator">
+      <text>RealEstateAggregator</text>
+    </link>
+  </metadata>
+  <trk>
+    <name>Štítary – Pohořelice (silnice 54 / D52)</name>
+    <trkseg>
+      <!-- Štítary -->
+      <trkpt lat="48.7789" lon="16.1437"><ele>233</ele><name>Štítary</name></trkpt>
+      <!-- Hnanice -->
+      <trkpt lat="48.8056" lon="16.0489"><ele>241</ele><name>Hnanice</name></trkpt>
+      <!-- Znojmo – centrum -->
+      <trkpt lat="48.8558" lon="16.0488"><ele>272</ele><name>Znojmo</name></trkpt>
+      <!-- Znojmo – sever / výjezd -->
+      <trkpt lat="48.8780" lon="16.0633"><ele>264</ele><name>Znojmo-sever</name></trkpt>
+      <!-- Olbramkostel -->
+      <trkpt lat="48.9046" lon="16.1001"><ele>256</ele><name>Olbramkostel</name></trkpt>
+      <!-- Senorady -->
+      <trkpt lat="48.9223" lon="16.1384"><ele>248</ele><name>Senorady</name></trkpt>
+      <!-- Výrovice -->
+      <trkpt lat="48.9416" lon="16.1723"><ele>239</ele><name>Výrovice</name></trkpt>
+      <!-- Miroslav -->
+      <trkpt lat="48.9515" lon="16.2689"><ele>223</ele><name>Miroslav</name></trkpt>
+      <!-- Miroslavské Knínice -->
+      <trkpt lat="48.9578" lon="16.3012"><ele>218</ele><name>Miroslavské Knínice</name></trkpt>
+      <!-- Hostěradice -->
+      <trkpt lat="48.9594" lon="16.3509"><ele>212</ele><name>Hostěradice</name></trkpt>
+      <!-- Vlasatice -->
+      <trkpt lat="48.9634" lon="16.3887"><ele>208</ele><name>Vlasatice</name></trkpt>
+      <!-- Pohořelice – jih -->
+      <trkpt lat="48.9701" lon="16.4528"><ele>202</ele><name>Pohořelice-jih</name></trkpt>
+      <!-- Pohořelice – centrum -->
+      <trkpt lat="48.9762" lon="16.5222"><ele>197</ele><name>Pohořelice</name></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

@@ -35,6 +35,13 @@ python-json-logger>=2.0.0
 python-dotenv>=1.0.0
 python-dateutil>=2.8.0
 
+# Geo / Route Corridor module (geo/)
+geopandas>=0.14.0          # spatial dataframes (reads SHP, GeoJSON, GeoPackage)
+shapely>=2.0.0             # geometry operations (buffer, intersect)
+pyproj>=3.6.0              # CRS reprojection (WGS84 ↔ S-JTSK / EPSG:5514)
+pyogrio>=0.7.0             # fast GDAL-based I/O backend for geopandas (replaces fiona)
+gpxpy>=1.6.0               # GPX route file parser
+
 # Development
 pytest>=7.4.0
 pytest-asyncio>=0.21.0

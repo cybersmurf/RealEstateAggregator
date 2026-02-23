@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1"
+     creator="RealEstateAggregator geo module"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:schemaLocation="http://www.topografix.com/GPX/1/1
+                         http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>Znojmo → Brno (D52)</name>
+    <desc>
+      Dálniční osa D52 ze Znojma do Brna.
+      Délka cca 55 km, koridor 10 km na každou stranu.
+      Pokrývá okresy Znojmo + Brno-venkov.
+    </desc>
+  </metadata>
+  <trk>
+    <name>Znojmo – Brno (D52 / E461)</name>
+    <trkseg>
+      <!-- Znojmo -->
+      <trkpt lat="48.8558" lon="16.0488"><ele>272</ele><name>Znojmo</name></trkpt>
+      <!-- Pohořelice -->
+      <trkpt lat="48.9762" lon="16.5222"><ele>197</ele><name>Pohořelice</name></trkpt>
+      <!-- Rajhrad -->
+      <trkpt lat="49.0613" lon="16.5949"><ele>199</ele><name>Rajhrad</name></trkpt>
+      <!-- Modřice (jižní brněnský okruh) -->
+      <trkpt lat="49.1184" lon="16.6138"><ele>205</ele><name>Modřice</name></trkpt>
+      <!-- Brno – centrum -->
+      <trkpt lat="49.1951" lon="16.6068"><ele>237</ele><name>Brno</name></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

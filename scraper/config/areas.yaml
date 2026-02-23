@@ -1,0 +1,60 @@
+# ────────────────────────────────────────────────────────────────────────────
+# Route Corridor Areas Configuration
+# ────────────────────────────────────────────────────────────────────────────
+# Each entry in `areas` defines a route corridor:
+#
+#   name         – human-readable label (used in logs and output JSON)
+#   routeFile    – path to the GPX or GeoJSON route file
+#                  (relative to THIS config file's directory = scraper/config/)
+#   bufferKm     – corridor half-width in kilometres (buffer on each side)
+#   regionFilter – optional NUTS-3 code to restrict municipality search
+#                    CZ010 = Praha
+#                    CZ064 = Jihomoravský kraj   ← most relevant here
+#   districtFilter – optional LAU-1 district code
+#                    ZNO  = Znojmo
+#                    BRV  = Brno-venkov
+#                    HOD  = Hodonín
+#   outputFile   – where to write the resulting JSON
+#                  (relative to this config file's directory)
+#
+# Run with:
+#   cd scraper
+#   python -m geo.cli --config config/areas.yaml --shapefile data/ruian/obce.shp
+#
+# Download RÚIAN data automatically:
+#   python -m geo.cli --config config/areas.yaml --download-ruian --shapefile data/ruian/
+# ────────────────────────────────────────────────────────────────────────────
+
+areas:
+
+  # --------------------------------------------------------------------------
+  # Štítary → Pohořelice corridor
+  # Main route along road 54 / highway D52 through the southern Moravia plain.
+  # Covers: Znojmo, Moravský Krumlov, Pohořelice vicinity.
+  # --------------------------------------------------------------------------
+  - name: "Stitary-Pohorelice"
+    routeFile: "../geo/routes/stitary-pohorelice.gpx"
+    bufferKm: 5.0
+    regionFilter: "CZ064"       # Jihomoravský kraj only
+    districtFilter: null         # both ZNO and BRV districts
+    outputFile: "../geo/output/stitary-pohorelice/municipalities.json"
+
+  # --------------------------------------------------------------------------
+  # Znojmo → Brno corridor (D52 highway axis)
+  # --------------------------------------------------------------------------
+  - name: "Znojmo-Brno-D52"
+    routeFile: "../geo/routes/znojmo-brno-d52.gpx"
+    bufferKm: 10.0
+    regionFilter: "CZ064"
+    districtFilter: null
+    outputFile: "../geo/output/znojmo-brno-d52/municipalities.json"
+
+  # --------------------------------------------------------------------------
+  # Example: Znojmo district only, tighter corridor
+  # --------------------------------------------------------------------------
+  - name: "Znojmo-District-Tight"
+    routeFile: "../geo/routes/stitary-pohorelice.gpx"
+    bufferKm: 2.0
+    regionFilter: "CZ064"
+    districtFilter: "ZNO"       # Znojmo district only
+    outputFile: "../geo/output/znojmo-tight/municipalities.json"
