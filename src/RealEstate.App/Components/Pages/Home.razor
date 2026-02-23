@@ -1,4 +1,5 @@
 ﻿@page "/"
+@inject HttpClient Http
 
 <PageTitle>Real Estate Aggregator</PageTitle>
 
@@ -7,47 +8,91 @@
         <MudPaper Class="pa-8 mb-4" Elevation="0" Style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
             <MudStack>
                 <MudText Typo="Typo.h2" Class="fw-bold">🏠 Real Estate Aggregator</MudText>
-                <MudText Typo="Typo.h6">Inteligentní agregátor nemovitostí se sémantickým vyhledáváním</MudText>
+                <MudText Typo="Typo.h6">Inteligentní agregátor nemovitostí – Znojemsko a okolí</MudText>
             </MudStack>
         </MudPaper>
 
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-4" />
+        }
+
+        <!-- Statistiky -- dynamické z API -->
         <MudGrid>
-            <MudItem xs="12" sm="6" md="4">
+            <MudItem xs="12" sm="6" md="3">
                 <MudCard>
                     <MudCardContent>
-                        <MudStack Spacing="2">
+                        <MudStack Spacing="1" AlignItems="AlignItems.Center">
                             <MudIcon Icon="@Icons.Material.Filled.Home" Size="Size.Large" Color="Color.Primary" />
-                            <MudText Typo="Typo.h6">4 zdroje</MudText>
-                            <MudText Typo="Typo.body2">REMAX, M&M Reality, Prodejme.to, Znojmo Reality</MudText>
+                            <MudText Typo="Typo.h4" Class="fw-bold">@_totalListings</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">inzerátů celkem</MudText>
                         </MudStack>
                     </MudCardContent>
                 </MudCard>
             </MudItem>
 
-            <MudItem xs="12" sm="6" md="4">
+            <MudItem xs="12" sm="6" md="3">
                 <MudCard>
                     <MudCardContent>
-                        <MudStack Spacing="2">
+                        <MudStack Spacing="1" AlignItems="AlignItems.Center">
+                            <MudIcon Icon="@Icons.Material.Filled.Business" Size="Size.Large" Color="Color.Secondary" />
+                            <MudText Typo="Typo.h4" Class="fw-bold">@_activeSources</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">aktivních zdrojů</MudText>
+                        </MudStack>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard>
+                    <MudCardContent>
+                        <MudStack Spacing="1" AlignItems="AlignItems.Center">
                             <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Large" Color="Color.Success" />
-                            <MudText Typo="Typo.h6">Sémantické hledání</MudText>
-                            <MudText Typo="Typo.body2">S pgvector embeddings</MudText>
+                            <MudText Typo="Typo.h4" Class="fw-bold">pgvector</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">sémantické hledání</MudText>
                         </MudStack>
                     </MudCardContent>
                 </MudCard>
             </MudItem>
 
-            <MudItem xs="12" sm="6" md="4">
+            <MudItem xs="12" sm="6" md="3">
                 <MudCard>
                     <MudCardContent>
-                        <MudStack Spacing="2">
+                        <MudStack Spacing="1" AlignItems="AlignItems.Center">
                             <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Large" Color="Color.Warning" />
-                            <MudText Typo="Typo.h6">AI Analýza</MudText>
-                            <MudText Typo="Typo.body2">S Copilot & Perplexity</MudText>
+                            <MudText Typo="Typo.h4" Class="fw-bold">AI</MudText>
+                            <MudText Typo="Typo.body2" Align="Align.Center">analýza inzerátů</MudText>
                         </MudStack>
                     </MudCardContent>
                 </MudCard>
             </MudItem>
         </MudGrid>
+
+        <!-- Zdroje dat – dynamický seznam -->
+        @if (_sources.Count > 0)
+        {
+            <MudPaper Class="pa-4 mt-6" Elevation="1">
+                <MudText Typo="Typo.h6" Class="mb-3 fw-bold">Aktivní zdroje dat</MudText>
+                <MudGrid>
+                    @foreach (var src in _sources)
+                    {
+                        <MudItem xs="6" sm="4" md="3" lg="2">
+                            <MudPaper Class="pa-3 text-center" Elevation="2">
+                                <MudStack Spacing="1" AlignItems="AlignItems.Center">
+                                    <MudIcon Icon="@Icons.Material.Filled.Language" Color="@(src.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                                    <MudText Typo="Typo.caption" Class="fw-bold">@src.Code</MudText>
+                                    <MudText Typo="Typo.caption" Style="font-size:0.7rem; opacity:0.8">@src.Name</MudText>
+                                    @if (_countsBySource.TryGetValue(src.Code, out var cnt))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@cnt inz.</MudChip>
+                                    }
+                                </MudStack>
+                            </MudPaper>
+                        </MudItem>
+                    }
+                </MudGrid>
+            </MudPaper>
+        }
 
         <MudPaper Class="pa-6 mt-6" Elevation="1">
             <MudStack Spacing="3">
@@ -55,10 +100,67 @@
                 <MudText>Klikni na <strong>Inzeráty</strong> v levé navigaci pro prohlédnutí dostupných nemovitostí.</MudText>
                 <div>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" Href="/listings">
-                        Prohlédnout inzeráty
+                        Prohlédnout inzeráty (@_totalListings)
                     </MudButton>
                 </div>
             </MudStack>
         </MudPaper>
     </MudContainer>
 </div>
+
+@code {
+    private bool _loading = true;
+    private int _totalListings = 0;
+    private int _activeSources = 0;
+    private List<SourceDto> _sources = new();
+    private Dictionary<string, int> _countsBySource = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Načteme zdroje
+            var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
+            if (sources != null)
+            {
+                _sources = sources;
+                _activeSources = sources.Count(s => s.IsActive);
+            }
+
+            // Načteme celkový počet inzerátů + breakdown podle zdroje
+            var searchResult = await Http.PostAsJsonAsync("api/listings/search", new { page = 1, pageSize = 1 });
+            if (searchResult.IsSuccessStatusCode)
+            {
+                var data = await searchResult.Content.ReadFromJsonAsync<SearchResultDto>();
+                if (data != null) _totalListings = data.TotalCount;
+            }
+
+            // Counts per source – dotáváme se postupně pro každý aktivní zdroj
+            foreach (var src in _sources.Where(s => s.IsActive))
+            {
+                try
+                {
+                    var r = await Http.PostAsJsonAsync("api/listings/search", new { page = 1, pageSize = 1, sourceCodes = new[] { src.Code } });
+                    if (r.IsSuccessStatusCode)
+                    {
+                        var d = await r.Content.ReadFromJsonAsync<SearchResultDto>();
+                        if (d != null && d.TotalCount > 0)
+                            _countsBySource[src.Code] = d.TotalCount;
+                    }
+                }
+                catch { /* skip – zobrazí se bez počtu */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Home stats error: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
+    private record SearchResultDto(List<object> Items, int Page, int PageSize, int TotalCount);
+}
