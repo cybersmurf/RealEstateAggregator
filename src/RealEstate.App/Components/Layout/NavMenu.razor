@@ -1,30 +1,24 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">🏠 RealEstate.App</a>
-    </div>
-</div>
-
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="listings">
-                <span class="bi bi-building-nav-menu" aria-hidden="true"></span> Inzeráty
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="scrape">
-                <span class="bi bi-arrow-repeat-nav-menu" aria-hidden="true"></span> Scrapování
-            </NavLink>
-        </div>
-    </nav>
-</div>
+﻿<MudNavMenu>
+    <MudNavLink Href="" Match="NavLinkMatch.All"
+                Icon="@Icons.Material.Filled.Dashboard">
+        Přehled
+    </MudNavLink>
+    <MudNavLink Href="listings"
+                Icon="@Icons.Material.Filled.Apartment">
+        Inzeráty
+    </MudNavLink>
+    <MudNavLink Href="scrape"
+                Icon="@Icons.Material.Filled.CloudSync">
+        Scrapování
+    </MudNavLink>
+    <MudDivider Class="my-2" />
+    <MudNavGroup Title="Zdroje dat" Icon="@Icons.Material.Filled.Source" Expanded="false">
+        <MudNavLink Href="https://www.remax-czech.cz" Target="_blank"
+                    Icon="@Icons.Material.Outlined.OpenInNew">REMAX</MudNavLink>
+        <MudNavLink Href="https://www.mmreality.cz" Target="_blank"
+                    Icon="@Icons.Material.Outlined.OpenInNew">M&M Reality</MudNavLink>
+        <MudNavLink Href="https://www.sreality.cz" Target="_blank"
+                    Icon="@Icons.Material.Outlined.OpenInNew">Sreality</MudNavLink>
+    </MudNavGroup>
+</MudNavMenu>
 
