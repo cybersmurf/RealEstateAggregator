@@ -26,12 +26,22 @@ logger = logging.getLogger(__name__)
 
 
 # Konfigurace search URL pro ruzne lokality (default - Znojmo)
-# 🔥 Można být přepsáno z settings.yaml v runner.py
+# 🔥 Možná být přepsáno z settings.yaml v runner.py
 DEFAULT_SEARCH_CONFIGS = [
     {
         "url": "https://www.mmreality.cz/nemovitosti/prodej/domy/znojmo/",
         "offer_type": "Prodej",
         "property_type": "Dům",
+    },
+    {
+        "url": "https://www.mmreality.cz/nemovitosti/prodej/byty/znojmo/",
+        "offer_type": "Prodej",
+        "property_type": "Byt",
+    },
+    {
+        "url": "https://www.mmreality.cz/nemovitosti/prodej/pozemky/znojmo/",
+        "offer_type": "Prodej",
+        "property_type": "Pozemek",
     },
 ]
 
@@ -182,12 +192,15 @@ class MmRealityScraper:
 
                 detail_url = urljoin(self.BASE_URL, f"/nemovitosti/{external_id}")
                 title = (offer.get("title") or offer.get("originalTitle") or "").strip()
-                location = (
-                    offer.get("location")
-                    or offer.get("municipality")
+                municipality = (
+                    offer.get("municipality")
+                    or offer.get("location")
                     or offer.get("district")
                     or ""
                 )
+                district = offer.get("district", "")
+                # Vždy zahrneme okres, aby prošel FilterManager (kontroluje "Znojmo" v location_text)
+                location = f"{municipality}, okres {district}" if district and district.lower() not in municipality.lower() else municipality
 
                 results.append(
                     {
@@ -381,7 +394,8 @@ class MmRealityScraper:
     def _extract_location(self, soup: BeautifulSoup) -> str:
         breadcrumb = soup.select("nav[aria-label='breadcrumb'] a, ol.breadcrumb a")
         if breadcrumb:
-            return breadcrumb[-1].get_text(strip=True)
+            # Vrátíme celý path – "Jihomoravský > Znojmo > Bítov" → obsahuje "Znojmo"
+            return " › ".join(a.get_text(strip=True) for a in breadcrumb if a.get_text(strip=True))
         return ""
 
     def _extract_photos(self, soup: BeautifulSoup, html: str) -> List[str]:

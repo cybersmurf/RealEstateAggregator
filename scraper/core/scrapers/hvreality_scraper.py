@@ -121,38 +121,44 @@ class HvRealityScraper:
     def _parse_list_page(self, html: str, current_url: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         soup = BeautifulSoup(html, "html.parser")
         results: List[Dict[str, Any]] = []
+        seen_urls: set = set()
 
-        # Elementor grid items
-        for link in soup.select("a[href*='/property/'], a[href*='/nemovitost/'], .elementor-post__title a, .elementor-post a"):
-            href = link.get("href", "")
-            if not href or href == current_url or "#" in href:
-                continue
-            
-            # Filter out pagination links or category links
-            if "page" in href or "category" in href or "author" in href:
-                continue
-
+        def _add_item(href: str, title: str) -> None:
             full_url = urljoin(BASE_URL, href)
-            
-            # Deduplicate
-            if any(r["url"] == full_url for r in results):
+            if full_url in seen_urls or full_url.rstrip("/") == current_url.rstrip("/"):
+                return
+            # Přeskočit kategoriální / paginační linky
+            if any(x in full_url for x in ["page/", "/category/", "/author/", "/tag/"]):
+                return
+            seen_urls.add(full_url)
+            results.append({"url": full_url, "title": title[:200] if title else ""})
+
+        # Priorita 1: WordPress .hentry articles (hvreality.cz téma)
+        for article in soup.select("article.hentry, .hentry"):
+            title_el = article.select_one(".entry-title a, h1 a, h2 a, h3 a, h4 a, h5 a, h6 a")
+            if title_el and title_el.get("href"):
+                _add_item(title_el["href"], title_el.get_text(strip=True))
                 continue
+            # Fallback – první non-trivial <a> v article
+            for a in article.select("a[href]"):
+                href = a.get("href", "")
+                if len(href) > 30 and href.startswith("http"):
+                    title_txt = article.select_one("h1,h2,h3,h4,h5,h6")
+                    _add_item(href, title_txt.get_text(strip=True) if title_txt else a.get_text(strip=True))
+                    break
 
-            title_el = link.select_one("h1, h2, h3, h4, h5, h6")
-            title = title_el.get_text(strip=True) if title_el else link.get_text(strip=True)
-            
-            if not title or len(title) < 5:
-                # Try to find title in parent
-                parent = link.find_parent(['article', 'div'])
-                if parent:
-                    title_el = parent.select_one("h1, h2, h3, h4, h5, h6")
-                    if title_el:
-                        title = title_el.get_text(strip=True)
-
-            results.append({
-                "url": full_url,
-                "title": title[:200] if title else "",
-            })
+        # Priorita 2: Elementor post grid (fallback pro jiná témata)
+        if not results:
+            for link in soup.select(
+                "a[href*='/property/'], a[href*='/nemovitost/'], "
+                ".elementor-post__title a, .elementor-post a"
+            ):
+                href = link.get("href", "")
+                if not href or "#" in href:
+                    continue
+                title_el = link.select_one("h1, h2, h3, h4, h5, h6")
+                title = title_el.get_text(strip=True) if title_el else link.get_text(strip=True)
+                _add_item(href, title)
 
         # Find next page URL
         next_url = None
@@ -160,7 +166,6 @@ class HvRealityScraper:
         if next_link and next_link.get("href"):
             next_url = urljoin(BASE_URL, next_link.get("href"))
         else:
-            # Try to find by text
             for a in soup.find_all("a"):
                 text = a.get_text(strip=True).lower()
                 if "další" in text or "next" in text or "»" in text:

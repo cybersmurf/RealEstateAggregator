@@ -303,9 +303,16 @@ class Century21Scraper:
         location = params.get("LOKALITA", "") or params.get("OBEC", "")
         if not location:
             # Fallback z URL slug
-            slug_match = re.search(r"/prodej-[^/]+-([^-]+)-id=", url)
+            slug_match = re.search(r"/(?:prodej|pronajem)-[^/]+-([^-]+(?:-u-znojma)?)-id=", url)
             if slug_match:
                 location = slug_match.group(1).replace("-", " ").title()
+
+        # Zajistíme, aby location_text vždy obsahoval "Znojmo" – všechny C21 listingy
+        # pocházejí ze Znojemského okresu (URL filter), ale LOKALITA vrací jen obec (např. "Dobšice").
+        if location and "znojmo" not in location.lower() and "jihomoravsk" not in location.lower():
+            location = f"{location}, okres Znojmo"
+        elif not location:
+            location = "okres Znojmo"
 
         # Popis
         description = self._extract_description(soup)
