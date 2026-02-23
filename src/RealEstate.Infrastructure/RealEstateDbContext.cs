@@ -73,13 +73,20 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.PropertyType)
                 .HasColumnName("property_type")
                 .HasConversion(
-                    v => v == PropertyType.House ? "Dům" : v == PropertyType.Apartment ? "Byt" : v.ToString(),
-                    v => v == "Dům" ? PropertyType.House : v == "Byt" ? PropertyType.Apartment : PropertyType.Other);
+                    v => v.ToString(),
+                    v => v == "House" ? PropertyType.House
+                       : v == "Apartment" ? PropertyType.Apartment
+                       : v == "Land" ? PropertyType.Land
+                       : v == "Cottage" ? PropertyType.Cottage
+                       : v == "Commercial" ? PropertyType.Commercial
+                       : v == "Industrial" ? PropertyType.Industrial
+                       : v == "Garage" ? PropertyType.Garage
+                       : PropertyType.Other);
             entity.Property(e => e.OfferType)
                 .HasColumnName("offer_type")
                 .HasConversion(
-                    v => v.ToString() == "Rent" ? "Pronájem" : "Prodej",
-                    v => v == "Pronájem" ? OfferType.Rent : OfferType.Sale);
+                    v => v.ToString(),
+                    v => v == "Rent" ? OfferType.Rent : OfferType.Sale);
             entity.Property(e => e.Price).HasColumnName("price").HasColumnType("numeric(15,2)");
             entity.Property(e => e.PriceNote).HasColumnName("price_note");
             entity.Property(e => e.AreaBuiltUp).HasColumnName("area_built_up");

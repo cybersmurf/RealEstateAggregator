@@ -129,7 +129,15 @@
                         @foreach (var src in _availableSources)
                         {
                             <MudChip T="string" Value="@src.Code" Size="Size.Small" Variant="Variant.Outlined">
-                                @src.Code
+                                @{ var logoFilter = SourceLogoUrl(src.Code); }
+                                @if (logoFilter != null)
+                                {
+                                    <img src="@logoFilter" alt="@src.Code" style="height:16px;max-width:60px;object-fit:contain;vertical-align:middle;margin-right:4px;" />
+                                }
+                                else
+                                {
+                                    @src.Code
+                                }
                             </MudChip>
                         }
                     </MudChipSet>
@@ -220,7 +228,17 @@
                             }
                         </MudCardContent>
                         <MudCardActions Class="pa-2 pt-0">
-                            <MudChip T="string" Size="Size.Small" Color="@SourceColor(item.SourceCode)" Variant="Variant.Outlined">@item.SourceName</MudChip>
+                            @{ var cardLogo = SourceLogoUrl(item.SourceCode); }
+                            @if (cardLogo != null)
+                            {
+                                <MudTooltip Text="@item.SourceName">
+                                    <img src="@cardLogo" alt="@item.SourceName" style="height:22px;max-width:80px;object-fit:contain;opacity:0.85;" />
+                                </MudTooltip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="@SourceColor(item.SourceCode)" Variant="Variant.Outlined">@item.SourceName</MudChip>
+                            }
                             <MudSpacer />
                             @{ var pti = PropertyTypeInfo(item.PropertyType); }
                             <MudChip T="string" Size="Size.Small" Color="@pti.Color" Variant="Variant.Text" Icon="@pti.Icon">@TranslatePropertyType(item.PropertyType)</MudChip>
@@ -265,10 +283,20 @@
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd>
-                    <MudChip T="string" Size="Size.Small" Color="@SourceColor(context.SourceCode)" Variant="Variant.Outlined">
-                        @context.SourceName
-                    </MudChip>
+                <MudTd Style="white-space:nowrap;">
+                    @{ var tableLogoUrl = SourceLogoUrl(context.SourceCode); }
+                    @if (tableLogoUrl != null)
+                    {
+                        <MudTooltip Text="@context.SourceName">
+                            <img src="@tableLogoUrl" alt="@context.SourceName" style="height:20px;max-width:70px;object-fit:contain;vertical-align:middle;" />
+                        </MudTooltip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="@SourceColor(context.SourceCode)" Variant="Variant.Outlined">
+                            @context.SourceName
+                        </MudChip>
+                    }
                 </MudTd>
                 <MudTd Style="max-width:280px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">
                     @context.Title
@@ -586,6 +614,24 @@
         "Garage"     => (Color.Dark,      Icons.Material.Filled.Garage),
         _            => (Color.Default,   Icons.Material.Filled.Home)
     };
+
+    private static readonly Dictionary<string, string> _sourceLogoMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        { "REMAX",        "/images/logos/REMAX.svg" },
+        { "MMR",          "/images/logos/MMR.svg" },
+        { "PRODEJMETO",   "/images/logos/PRODEJMETO.svg" },
+        { "LEXAMO",       "/images/logos/LEXAMO.svg" },
+        { "PREMIAREALITY","/images/logos/PREMIAREALITY.svg" },
+        { "CENTURY21",    "/images/logos/CENTURY21.svg" },
+        { "SREALITY",     "/images/logos/SREALITY.png" },
+        { "DELUXREALITY", "/images/logos/DELUXREALITY.png" },
+        { "HVREALITY",    "/images/logos/HVREALITY.png" },
+        { "ZNOJMOREALITY","/images/logos/ZNOJMOREALITY.png" },
+        { "NEMZNOJMO",    "/images/logos/NEMZNOJMO.png" },
+    };
+
+    private static string? SourceLogoUrl(string? code)
+        => code != null && _sourceLogoMap.TryGetValue(code, out var url) ? url : null;
 
     private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
 }
