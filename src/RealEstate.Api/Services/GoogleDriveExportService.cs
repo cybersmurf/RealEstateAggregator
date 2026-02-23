@@ -104,7 +104,9 @@ public sealed class GoogleDriveExportService(
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
         var req = drive.Files.Create(meta, stream, mimeType);
         req.Fields = "id";
-        await req.UploadAsync(ct);
+        var result = await req.UploadAsync(ct);
+        if (result.Status == Google.Apis.Upload.UploadStatus.Failed)
+            throw new InvalidOperationException($"Upload souboru '{fileName}' selhal: {result.Exception?.Message}", result.Exception);
     }
 
     private static async Task UploadBytesAsync(DriveService drive, string fileName, byte[] data, string parentId, CancellationToken ct)
@@ -113,7 +115,9 @@ public sealed class GoogleDriveExportService(
         using var stream = new MemoryStream(data);
         var req = drive.Files.Create(meta, stream, "image/jpeg");
         req.Fields = "id";
-        await req.UploadAsync(ct);
+        var result = await req.UploadAsync(ct);
+        if (result.Status == Google.Apis.Upload.UploadStatus.Failed)
+            throw new InvalidOperationException($"Upload fotky '{fileName}' selhal: {result.Exception?.Message}", result.Exception);
     }
 
     private static async Task SetPublicReadAsync(DriveService drive, string fileId, CancellationToken ct)
