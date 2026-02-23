@@ -121,7 +121,9 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             fetch_details = sreality_config.get("fetch_details", True)
             scraper = SrealityScraper(
                 fetch_details=fetch_details,
-                detail_fetch_concurrency=detail_fetch_concurrency
+                detail_fetch_concurrency=detail_fetch_concurrency,
+                locality_region_id=sreality_config.get("locality_region_id"),
+                locality_district_id=sreality_config.get("locality_district_id"),
             )
             tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
 

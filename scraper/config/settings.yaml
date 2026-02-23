@@ -148,4 +148,6 @@ scrapers:
   sreality:
     detail_fetch_concurrency: 5  # 🔥 Number of concurrent detail requests
     fetch_details: true
+    locality_region_id: 14       # Jihomoravský kraj (JMK)
+    # locality_district_id: 49   # Znojmo okres (nepovinné, pro užší filtr)
   min_description_length: 20  # znaků

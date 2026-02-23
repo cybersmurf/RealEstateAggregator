@@ -141,8 +141,8 @@ class IdnesRealityScraper:
             for url_elem in root.findall(".//{http://www.sitemaps.org/schemas/sitemap/0.9}loc"):
                 url = url_elem.text
                 if url:
-                    # Filter for listing URLs (prodej/byt, prodej/dům, etc.)
-                    if "/prodej/" in url or "/pronajem/" in url:
+                    # Filter for listing URLs (prodej/byt, prodej/dům, etc.) + only Znojmo region
+                    if ("/prodej/" in url or "/pronajem/" in url) and "znojmo" in url.lower():
                         urls.append(url)
 
             return urls

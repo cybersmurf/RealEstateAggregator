@@ -74,6 +74,7 @@ class SrealityScraper:
         category_main_cb: Optional[int] = None,
         category_type_cb: int = 1,
         locality_region_id: Optional[int] = None,
+        locality_district_id: Optional[int] = None,
         per_page: int = 60,
         fetch_details: bool = True,
         detail_fetch_concurrency: int = 5,
@@ -81,6 +82,7 @@ class SrealityScraper:
         self.category_main_cb = category_main_cb
         self.category_type_cb = category_type_cb
         self.locality_region_id = locality_region_id
+        self.locality_district_id = locality_district_id
         self.per_page = per_page
         self.fetch_details = fetch_details
         self.detail_fetch_concurrency = detail_fetch_concurrency  # 🔥 Semaphore limit
@@ -179,6 +181,8 @@ class SrealityScraper:
             params["category_type_cb"] = self.category_type_cb
         if self.locality_region_id is not None:
             params["locality_region_id"] = self.locality_region_id
+        if self.locality_district_id is not None:
+            params["locality_district_id"] = self.locality_district_id
 
         url = f"{BASE_API}/estates"
         logger.debug("GET %s params=%s", url, params)

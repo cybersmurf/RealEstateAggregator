@@ -188,7 +188,8 @@ class ProdejmeToScraper:
             "offer_type": self._normalize_offer_type(list_item.get("offer_type", "Prodej")),
         }
 
-        h1 = soup.find("h1")
+        # Prodejme.to používá h2 jako hlavní nadpis na detail stránce
+        h1 = soup.find("h1") or soup.find("h2")
         result["title"] = h1.get_text(" ", strip=True)[:200] if h1 else list_item.get("title", "")
 
         params = self._parse_params(soup)

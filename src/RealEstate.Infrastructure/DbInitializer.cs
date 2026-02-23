@@ -124,6 +124,16 @@ public static class DbInitializer
                 SupportsListScrape = true,
                 ScraperType = "Python",
             },
+            new()
+            {
+                Code = "IDNES",
+                Name = "iDnes Reality",
+                BaseUrl = "https://reality.idnes.cz",
+                IsActive = true,
+                SupportsUrlScrape = true,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
         };
 
         var newSources = allSources.Where(s => !existingCodes.Contains(s.Code)).ToList();

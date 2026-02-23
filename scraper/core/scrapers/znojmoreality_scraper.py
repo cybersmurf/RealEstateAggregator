@@ -398,13 +398,18 @@ class ZnojmoRealityScraper:
 
     @staticmethod
     def _parse_price(text: str) -> Optional[int]:
-        digits = "".join(c for c in text if c.isdigit())
+        # isdigit() vrací True i pro unicode znaky jako '²' – použij re.sub
+        digits = re.sub(r"[^0-9]", "", text)
         return int(digits) if digits else None
 
     @staticmethod
     def _parse_area(text: str) -> Optional[int]:
-        digits = "".join(c for c in text if c.isdigit())
-        return int(digits) if digits else None
+        # Extrahuj první sekvenci ASCII číslic (zabraňuje '180²' → '1802')
+        match = re.search(r"(\d[\d\s]*)", text)
+        if match:
+            digits = re.sub(r"[^0-9]", "", match.group(1))
+            return int(digits) if digits else None
+        return None
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         db = get_db_manager()
