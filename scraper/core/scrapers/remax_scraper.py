@@ -24,20 +24,39 @@ logger = logging.getLogger(__name__)
 
 class RemaxScraper:
     """
-    Scraper pro REMAX Czech Republic.
+    Scraper pro REMAX Czech Republic - Znojmo region.
     
     Strategy:
     1. List pages: httpx + BeautifulSoup (fast)
     2. Detail pages: httpx first, Playwright fallback pokud je JS required
     
     URL structure:
-    - List: https://www.remax-czech.cz/reality/vyhledavani/?stranka=1
+    - List: https://www.remax-czech.cz/reality/{category}/prodej/jihomoravsky-kraj/znojmo/?stranka=1
     - Detail: https://www.remax-czech.cz/reality/detail/{id}/{slug}
     """
     
     BASE_URL = "https://www.remax-czech.cz"
-    SEARCH_URL = "https://www.remax-czech.cz/reality/vyhledavani/"
     SOURCE_CODE = "REMAX"
+    
+    # Znojmo-specific search URLs (domy + pozemky prodej a pronájem)
+    SEARCH_CONFIGS = [
+        {
+            "url": "https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/znojmo/",
+            "offer_type": "Prodej",
+            "property_type": "Dům",
+        },
+        # pronajeti URL vrací 404 – REMAX nemá Znojmo pronájmy domů
+        {
+            "url": "https://www.remax-czech.cz/reality/pozemky/prodej/jihomoravsky-kraj/znojmo/",
+            "offer_type": "Prodej",
+            "property_type": "Pozemek",
+        },
+        {
+            "url": "https://www.remax-czech.cz/reality/byty/prodej/jihomoravsky-kraj/znojmo/",
+            "offer_type": "Prodej",
+            "property_type": "Byt",
+        },
+    ]
     
     def __init__(self, use_playwright_for_details: bool = False):
         """
@@ -59,9 +78,13 @@ class RemaxScraper:
             Počet úspěšně scrapnutých inzerátů
         """
         max_pages = 100 if full_rescan else 5
-        return await self.scrape(max_pages=max_pages)
+        total = 0
+        for config in self.SEARCH_CONFIGS:
+            count = await self.scrape(config["url"], config["offer_type"], config["property_type"], max_pages=max_pages)
+            total += count
+        return total
     
-    async def scrape(self, max_pages: int = 5) -> int:
+    async def scrape(self, search_url: str, offer_type: str, property_type: str, max_pages: int = 5) -> int:
         """
         Hlavní entry point pro scraping.
         
@@ -71,7 +94,7 @@ class RemaxScraper:
         Returns:
             Počet úspěšně scrapnutých inzerátů
         """
-        logger.info(f"Starting REMAX scraper (max_pages={max_pages}, use_playwright={self.use_playwright_for_details})")
+        logger.info(f"Starting REMAX scraper for {search_url} (max_pages={max_pages})")
         
         with scraper_metrics_context() as metrics:
             # Reuse HTTP client pro všechny requesty
@@ -81,7 +104,7 @@ class RemaxScraper:
                 page = 1
                 
                 while page <= max_pages:
-                    url = f"{self.SEARCH_URL}?stranka={page}"
+                    url = f"{search_url}?stranka={page}"
                     
                     try:
                         with timer(f"Fetch list page {page}"):
@@ -100,6 +123,9 @@ class RemaxScraper:
 
                         # Zpracuj items
                         for item in items:
+                            # Předáme hint pro offer/property typ z URL konfigurace
+                            item["offer_type_hint"] = offer_type
+                            item["property_type_hint"] = property_type
                             try:
                                 # Fetch detail page pro kompletní data
                                 detail_url = item["detail_url"]
@@ -218,12 +244,26 @@ class RemaxScraper:
         else:
             result["title"] = list_item.get("title", "")
         
-        # Location (hledej text s "ulice" nebo "část obce")
-        location_candidates = soup.find_all(string=re.compile(r'ulice|část obce|okres', re.I))
-        if location_candidates:
-            result["location_text"] = location_candidates[0].strip()[:200]
-        else:
-            result["location_text"] = ""
+        # Location — zkusí různé strategie
+        location_text = ""
+        # 1) Hledat breadcrumb nebo meta lokaci
+        for sel in ['[class*="location"]', '[class*="address"]', '[class*="breadcrumb"]', '.property-location']:
+            el = soup.select_one(sel)
+            if el:
+                location_text = el.get_text(' ', strip=True)[:200]
+                break
+        # 2) Textové uzly s "ulice", "část obce", "okres"
+        if not location_text:
+            location_candidates = soup.find_all(string=re.compile(r'ulice|část obce|okres|Znojmo', re.I))
+            if location_candidates:
+                location_text = location_candidates[0].strip()[:200]
+        # 3) Záloha: extrahuj z URL (REMAX URLs: /reality/detail/ID/prodej-domu-znojmo-...)
+        if not location_text:
+            url_slug = list_item.get("detail_url", "")
+            slug_match = re.search(r'/reality/detail/\d+/(.+)', url_slug)
+            if slug_match:
+                location_text = slug_match.group(1).replace('-', ' ')[:200]
+        result["location_text"] = location_text
         
         # Price (hledej čísla s "Kč")
         price_text = soup.find(string=re.compile(r'(\d[\d\s]+)\s*Kč'))
@@ -282,13 +322,16 @@ class RemaxScraper:
         elif "komerč" in title_lower or "sklado" in title_lower or "kancelář" in title_lower:
             result["property_type"] = "Komerční"
         else:
-            result["property_type"] = "Ostatní"
+            # Záloha: použij hint ze search config
+            result["property_type"] = list_item.get("property_type_hint", "Ostatní")
         
-        # Offer type (prodej vs pronájem)
+        # Offer type (prodej vs pronájem) - záloha: hint ze search config URL
         if "pronájem" in title_lower or "pronajem" in title_lower:
             result["offer_type"] = "Pronájem"
-        else:
+        elif "prodej" in title_lower:
             result["offer_type"] = "Prodej"
+        else:
+            result["offer_type"] = list_item.get("offer_type_hint", "Prodej")
         
         return result
 

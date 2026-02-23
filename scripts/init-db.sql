@@ -304,7 +304,8 @@ VALUES
     ('HVREALITY', 'Horák & Vetchý reality', 'https://hvreality.cz', true, true, true, 'Python'),
     ('PREMIAREALITY', 'PREMIA Reality s.r.o.', 'https://www.premiareality.cz', true, true, true, 'Python'),
     ('DELUXREALITY', 'DeluXreality Znojmo', 'https://deluxreality.cz', true, true, true, 'Python'),
-    ('LEXAMO', 'Lexamo Reality', 'https://www.lexamo.cz', true, true, true, 'Python')
+    ('LEXAMO', 'Lexamo Reality', 'https://www.lexamo.cz', true, true, true, 'Python'),
+    ('CENTURY21', 'CENTURY 21 Czech Republic', 'https://www.century21.cz', true, true, true, 'Python')
 ON CONFLICT (code) DO NOTHING;
 
 -- ============================================================================

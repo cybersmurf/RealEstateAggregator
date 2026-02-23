@@ -7,12 +7,12 @@ public static class DbInitializer
 {
     public static async Task SeedAsync(RealEstateDbContext dbContext, CancellationToken cancellationToken = default)
     {
-        if (await dbContext.Sources.AnyAsync(cancellationToken))
-        {
-            return;
-        }
+        // Upsert logika: přidá chybějící sources, stávající nevymaže
+        var existingCodes = await dbContext.Sources
+            .Select(s => s.Code)
+            .ToHashSetAsync(cancellationToken);
 
-        var sources = new List<Source>
+        var allSources = new List<Source>
         {
             new()
             {
@@ -114,9 +114,23 @@ public static class DbInitializer
                 SupportsListScrape = true,
                 ScraperType = "Python",
             },
+            new()
+            {
+                Code = "CENTURY21",
+                Name = "CENTURY 21 Czech Republic",
+                BaseUrl = "https://www.century21.cz",
+                IsActive = true,
+                SupportsUrlScrape = true,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
         };
 
-        dbContext.Sources.AddRange(sources);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        var newSources = allSources.Where(s => !existingCodes.Contains(s.Code)).ToList();
+        if (newSources.Count > 0)
+        {
+            dbContext.Sources.AddRange(newSources);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 }

@@ -70,6 +70,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             "PREMIAREALITY",
             "DELUXREALITY",
             "LEXAMO",
+            "CENTURY21",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
@@ -84,6 +85,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         from core.scrapers.premiareality_scraper import PremiaRealityScraper
         from core.scrapers.deluxreality_scraper import DeluxRealityScraper
         from core.scrapers.lexamo_scraper import LexamoScraper
+        from core.scrapers.century21_scraper import Century21Scraper
 
         # Vybuduj tasku pro paralelní scraping
         tasks = []
@@ -152,6 +154,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             logger.info(f"Job {job_id}: Scheduling Lexamo scraper...")
             scraper = LexamoScraper()
             tasks.append(("LEXAMO", scraper.run(full_rescan=request.full_rescan)))
+
+        if "CENTURY21" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling CENTURY 21 scraper...")
+            scraper = Century21Scraper()
+            tasks.append(("CENTURY21", scraper.run(full_rescan=request.full_rescan)))
 
         # Spusť všechny scrapers paralelně
         if tasks:

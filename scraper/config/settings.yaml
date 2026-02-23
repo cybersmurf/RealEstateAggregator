@@ -1,10 +1,10 @@
 # Database configuration
 database:
-  host: ${DB_HOST:-localhost}
-  port: ${DB_PORT:-5432}
-  database: ${DB_NAME:-realestate_dev}
-  user: ${DB_USER:-postgres}
-  password: ${DB_PASSWORD:-dev}
+  host: localhost        # přepsáno env DB_HOST v Docker (postgres)
+  port: 5432             # přepsáno env DB_PORT
+  database: realestate_dev  # přepsáno env DB_NAME
+  user: postgres         # přepsáno env DB_USER
+  password: dev          # přepsáno env DB_PASSWORD
   min_connections: 5
   max_connections: 20
   source_cache_ttl_seconds: 3600  # 🔥 In-memory source code cache (1 hour)
@@ -68,7 +68,9 @@ deactivation_threshold: 3
 search_filters:
   # Primární region interest - Znojmo okres
   target_districts:
-    - "Znojmo"  # Okres/okres
+    - "Znojmo"        # Okres/město
+    - "znojemsk"      # Znojemský okres (v URL slugách)
+    - "jihomoravsk"   # Jihomoravský kraj (záloha pro scrapers, které nedávají okres)
 
   # Filtery pro domy (Houses)
   houses:
@@ -110,17 +112,17 @@ search_filters:
 # ============================================================================
 quality_filters:
   # Vyžaduj fotky pro inzerát
-  require_photos: true
+  require_photos: false   # ← uvolněno pro vývoj (REMAX photos parser se ladí)
   min_photos: 1
   
   # Vyžaduj cenu
-  require_price: true
+  require_price: false    # ← uvolněno - ne všechny typy mají cenu (pozemky na dotaz)
   
   # Vyžaduj lokaci
-  require_location: true
+  require_location: false # ← uvolněno - lokace se parsuje z URL jako záloha
   
   # Vyžaduj popis
-  require_description: true
+  require_description: false  # ← vypnuto, příliš přísné pro development
 
 # ============================================================================
 # SCRAPER-SPECIFIC CONFIGURATION
