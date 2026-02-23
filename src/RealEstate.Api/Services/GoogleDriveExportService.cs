@@ -39,27 +39,32 @@ public sealed class GoogleDriveExportService(
         logger.LogInformation("Vytvořena Drive složka: {Name} ({Id})", folderName, folder.Id);
 
         // INFO.md – přehled inzerátu v čitelné formě
-        await UploadTextAsync(driveService, "INFO.md", BuildInfoMarkdown(listing), "text/markdown", folder.Id, ct);
+        var infoId = await UploadTextAsync(driveService, "INFO.md", BuildInfoMarkdown(listing), "text/markdown", folder.Id, ct);
+        await SetPublicReadAsync(driveService, infoId, ct);
 
         // DATA.json – strojově čitelná data
-        await UploadTextAsync(driveService, "DATA.json", BuildDataJson(listing), "application/json", folder.Id, ct);
+        var dataId = await UploadTextAsync(driveService, "DATA.json", BuildDataJson(listing), "application/json", folder.Id, ct);
+        await SetPublicReadAsync(driveService, dataId, ct);
 
         // AI_INSTRUKCE.md – šablona pro konzultaci s AI
-        await UploadTextAsync(driveService, "AI_INSTRUKCE.md", BuildAiInstructions(listing), "text/markdown", folder.Id, ct);
+        var aiId = await UploadTextAsync(driveService, "AI_INSTRUKCE.md", BuildAiInstructions(listing), "text/markdown", folder.Id, ct);
+        await SetPublicReadAsync(driveService, aiId, ct);
 
         // Fotky – stáhni z original_url a nahraj do podsložky Fotky/
         var photos = listing.Photos.OrderBy(p => p.Order).Take(20).ToList();
         if (photos.Count > 0)
         {
             var fotoFolder = await CreateFolderAsync(driveService, "Fotky_z_inzeratu", folder.Id, ct);
+            await SetPublicReadAsync(driveService, fotoFolder.Id, ct);
             await UploadPhotosAsync(driveService, photos, fotoFolder.Id, ct);
             logger.LogInformation("Nahráno {Count} fotek do Drive", photos.Count);
         }
 
         // Podsložka pro vlastní fotky z prohlídky (prázdná, připravená)
-        await CreateFolderAsync(driveService, "Moje_fotky_z_prohlidky", folder.Id, ct);
+        var myfotoFolder = await CreateFolderAsync(driveService, "Moje_fotky_z_prohlidky", folder.Id, ct);
+        await SetPublicReadAsync(driveService, myfotoFolder.Id, ct);
 
-        // Složku nastavíme jako "každý s odkazem může zobrazit"
+        // Kořenovou složku nastavíme jako "každý s odkazem může zobrazit"
         await SetPublicReadAsync(driveService, folder.Id, ct);
 
         var folderUrl = $"https://drive.google.com/drive/folders/{folder.Id}";
@@ -146,7 +151,7 @@ public sealed class GoogleDriveExportService(
         return await req.ExecuteAsync(ct);
     }
 
-    private static async Task UploadTextAsync(DriveService drive, string fileName, string content, string mimeType, string parentId, CancellationToken ct)
+    private static async Task<string> UploadTextAsync(DriveService drive, string fileName, string content, string mimeType, string parentId, CancellationToken ct)
     {
         var meta = new DriveFile { Name = fileName, Parents = [parentId] };
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
@@ -155,9 +160,10 @@ public sealed class GoogleDriveExportService(
         var result = await req.UploadAsync(ct);
         if (result.Status == Google.Apis.Upload.UploadStatus.Failed)
             throw new InvalidOperationException($"Upload souboru '{fileName}' selhal: {result.Exception?.Message}", result.Exception);
+        return req.ResponseBody!.Id;
     }
 
-    private static async Task UploadBytesAsync(DriveService drive, string fileName, byte[] data, string parentId, CancellationToken ct)
+    private static async Task<string> UploadBytesAsync(DriveService drive, string fileName, byte[] data, string parentId, CancellationToken ct)
     {
         var meta = new DriveFile { Name = fileName, Parents = [parentId] };
         using var stream = new MemoryStream(data);
@@ -166,6 +172,7 @@ public sealed class GoogleDriveExportService(
         var result = await req.UploadAsync(ct);
         if (result.Status == Google.Apis.Upload.UploadStatus.Failed)
             throw new InvalidOperationException($"Upload fotky '{fileName}' selhal: {result.Exception?.Message}", result.Exception);
+        return req.ResponseBody!.Id;
     }
 
     private static async Task SetPublicReadAsync(DriveService drive, string fileId, CancellationToken ct)
@@ -190,13 +197,19 @@ public sealed class GoogleDriveExportService(
                 var rawExt = Path.GetExtension(url.Split('?')[0]).ToLowerInvariant();
                 var ext = rawExt is ".jpg" or ".jpeg" or ".png" or ".webp" ? rawExt : ".jpg";
                 var name = $"foto_{i + 1:D2}{ext}";
-                await UploadBytesAsync(drive, name, bytes, folderId, ct);
+                await UploadPhotoBytesWithPermAsync(drive, name, bytes, folderId, ct);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Přeskočena fotka {Url}", url);
             }
         }
+    }
+
+    private async Task UploadPhotoBytesWithPermAsync(DriveService drive, string fileName, byte[] data, string parentId, CancellationToken ct)
+    {
+        var fileId = await UploadBytesAsync(drive, fileName, data, parentId, ct);
+        await SetPublicReadAsync(drive, fileId, ct);
     }
 
     // ── Content builders ────────────────────────────────────────────────────
