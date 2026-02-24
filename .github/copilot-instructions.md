@@ -426,6 +426,7 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **deactivate_unseen_listings()** – automatická deaktivace expired inzerátů po full_rescan v runner.py
 - [x] **Filter state persistence** – `ListingsPageState` + `ProtectedSessionStorage` (bylo již v Session 4 kódu, Docker image byl stary – fixed rebuildeem)
 - [x] **5 expired SReality inzerátů** deaktivováno přímo v DB; 5 dražeb retroaktivně opraveno na `offer_type='Auction'`
+- [x] **MSBuild CS2021 glob fix** – `EnableDefaultCompileItems=false` + explicitní Compile items v `Infrastructure.csproj`, `Api.csproj`, `Background.csproj`; Docker image api/scraper/app úspěšně rebuild
 
 ### High Priority (zbývá)
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
@@ -503,7 +504,16 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 **Solution:** Dražba skončila – SReality ihned maže inzerát. URL formát je správný (cat_type=3 → `/drazba/`), jde o expected chování. Inzerát bude deaktivován při příštím `full_rescan`.
 
 **Problem:** MSBuild error `CS2021: File name '**/*.cs'` při `docker compose build`  
-**Solution:** SDK 10.0 glob cache bug. Použij `docker compose build --no-cache app api` (bez cache).
+**Solution:** SDK 10.0 glob cache bug na Colima (overlay2 fs). `Pgvector.EntityFrameworkCore` nebo `Microsoft.NET.Sdk.Web` emituje literální glob do CSC místo expanded file listu. Fix: přidat do každého postiženého `.csproj`:
+```xml
+<EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+<!-- nebo pro Web SDK projekt: -->
+<EnableDefaultItems>false</EnableDefaultItems>
+```
+A explicitně vyjmenovat `<Compile Include="Subdir/*.cs" />` bez `**` rekurze. Hotovo v `Infrastructure.csproj`, `Api.csproj`, `Background.csproj`.
+
+**Problem:** Po změně C# kódu je nutné použít `--no-cache`  
+**Solution:** Použij `docker compose build --no-cache app api` (bez cache).
 
 ---
 
@@ -542,7 +552,7 @@ Include upsert to database via get_db_manager().
 ---
 
 **Last Updated:** 24. února 2026 (Session 5)  
-**Current Commit:** `5962fba` – Auction OfferType + deactivate_unseen_listings + Docker restart policy
+**Current Commit:** `e382515` – Docker SDK 10.0 CS2021 glob fix + Session 5 docs
 **DB stav:** ~1 230 aktivních inzerátů (5 expired deaktivováno), 12 zdrojů (SREALITY=846, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432  
 **Unit testy:** 39 testů zelených (`dotnet test tests/RealEstate.Tests`)
