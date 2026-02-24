@@ -357,7 +357,8 @@
 
 @code {
     private MudTable<ListingSummaryDto>? _table;
-    private int _tableCurrentPage = 0; // 0-indexed, binding na MudTable CurrentPage
+    private int _tableCurrentPage = 0; // 0-indexed, vizuální CurrentPage binding pro MudTable
+    private int _overridePage = -1;    // při restore z SessionStorage: stránka pro první LoadServerData
     private bool _loading;
     private int _totalCount;
 
@@ -448,8 +449,10 @@
                 _activeQuickFilter    = s.ActiveQuickFilter;
                 _cardView             = s.CardView;
                 _cardPage             = s.CardPage;
-                // Nastavit před prvním renderem MudTable – CurrentPage binding tak funguje správně
-                _tableCurrentPage     = Math.Max(0, s.TablePage - 1);
+                // _overridePage: LoadServerData ho přečte na prvním volání místo state.Page=0
+                // (MudTable v ServerData módu vždy začíná s state.Page=0, CurrentPage je jen vizuální)
+                _overridePage         = s.TablePage > 0 ? s.TablePage : 1;
+                _tableCurrentPage     = Math.Max(0, s.TablePage - 1); // vizuální paginator
 
                 await SessionStorage.DeleteAsync(FilterStateKey);
             }
@@ -521,7 +524,17 @@
         _loading = true;
         try
         {
-            _filter.Page = Math.Max(1, state.Page + 1); // guard: MudTable může předat -1 při cancel
+            // Pokud máme override stránku z SessionStorage (návrat z detailu), použijeme ji
+            // právě jednou – MudTable totiž vždy volá první LoadServerData s state.Page=0.
+            if (_overridePage > 0)
+            {
+                _filter.Page = _overridePage;
+                _overridePage = -1;
+            }
+            else
+            {
+                _filter.Page = Math.Max(1, state.Page + 1);
+            }
             _filter.PageSize = state.PageSize;
             _filter.SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0
                 ? _selectedSourceCodes!.ToList()
