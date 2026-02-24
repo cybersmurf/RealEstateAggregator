@@ -297,6 +297,23 @@ class SrealityScraper:
                 normalized = self._merge_detail(normalized, detail)
 
         return normalized
+        def _build_detail_url(self, hash_id: Any, seo: Dict[str, Any]) -> str:
+            cat_main = seo.get("category_main_cb", self.category_main_cb or 2)
+            cat_sub = seo.get("category_sub_cb")
+            cat_type = seo.get("category_type_cb", self.category_type_cb)
+            locality_slug = seo.get("locality", "")
+
+            cat_main_slug = self._CAT_MAIN_SLUG.get(cat_main, "dum")
+            cat_sub_slug = self._CAT_SUB_SLUG.get(cat_sub, "") if cat_sub else ""
+            cat_type_slug = {1: "prodej", 2: "pronajem", 3: "drazba"}.get(cat_type, "prodej")
+
+            # Build canonical URL: /detail/{type}/{main}/{sub}/{locality}/{hash_id}
+            if cat_sub_slug and locality_slug:
+                return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{cat_sub_slug}/{locality_slug}/{hash_id}"
+            if locality_slug:
+                return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{locality_slug}/{hash_id}"
+            return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{hash_id}"
+
     
     async def _fetch_estate_detail_with_semaphore(self, hash_id: int,
                                                   semaphore: Optional[asyncio.Semaphore] = None
@@ -355,23 +372,7 @@ class SrealityScraper:
         hash_id = estate.get("hash_id")
 
         seo = estate.get("seo", {})
-        cat_main = seo.get("category_main_cb", self.category_main_cb or 2)
-        cat_sub  = seo.get("category_sub_cb")
-        cat_type = seo.get("category_type_cb", self.category_type_cb)
-        locality_slug = seo.get("locality", "")
-
-        cat_main_slug = self._CAT_MAIN_SLUG.get(cat_main, "dum")
-        cat_sub_slug  = self._CAT_SUB_SLUG.get(cat_sub, "") if cat_sub else ""
-        cat_type_slug = {1: "prodej", 2: "pronajem", 3: "drazba"}.get(cat_type, "prodej")
-
-        # Build full canonical URL: /detail/{type}/{main}/{sub}/{locality}/{hash_id}
-        # Falls back gracefully when sub/locality are missing
-        if cat_sub_slug and locality_slug:
-            detail_url = f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{cat_sub_slug}/{locality_slug}/{hash_id}"
-        elif locality_slug:
-            detail_url = f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{locality_slug}/{hash_id}"
-        else:
-            detail_url = f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{hash_id}"
+        detail_url = self._build_detail_url(hash_id, seo)
 
         price_czk = estate.get("price_czk") or {}
         price_raw = price_czk.get("value_raw")
@@ -383,6 +384,8 @@ class SrealityScraper:
         images = links.get("images") or []
         photos = [img.get("href") for img in images if img.get("href")]
 
+        cat_main = seo.get("category_main_cb", self.category_main_cb or 2)
+        cat_type = seo.get("category_type_cb", self.category_type_cb)
         property_type = CATEGORY_MAIN_MAP.get(cat_main, "Ostatni")
         offer_type = CATEGORY_TYPE_MAP.get(cat_type, "Prodej")
 
@@ -427,6 +430,12 @@ class SrealityScraper:
             disposition = params.get("Dispozice")
             if disposition:
                 normalized["disposition"] = str(disposition).strip()
+
+        detail_seo = detail.get("seo") or {}
+        if detail_seo:
+            hash_id = detail.get("hash_id") or normalized.get("external_id")
+            if hash_id:
+                normalized["url"] = self._build_detail_url(hash_id, detail_seo)
 
         return normalized
 
