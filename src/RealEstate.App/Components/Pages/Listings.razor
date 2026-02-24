@@ -207,54 +207,51 @@
             <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
         }
         <!-- Třídění karty – kompaktní chipset -->
-        @if (!string.IsNullOrEmpty(_filter.SortBy) || true)
-        {
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2" Style="overflow-x:auto; padding:0 0 4px 0;">
-                <MudText Typo="Typo.caption" Style="white-space:nowrap; flex-shrink:0;">Seřadit:</MudText>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2" Style="overflow-x:auto; display:flex; padding:8px 0; flex-wrap:wrap;">
+            <MudText Typo="Typo.caption" Style="white-space:nowrap; flex-shrink:0; min-width:60px;">Seřadit:</MudText>
+            <MudChip T="string" 
+                     Value="@("price")" 
+                     Clickable="true" 
+                     OnClick="@(() => OnCardSortChangedAsync("price"))"
+                     Color="@(_filter.SortBy == "price" ? Color.Primary : Color.Default)"
+                     Variant="@(_filter.SortBy == "price" ? Variant.Filled : Variant.Outlined)"
+                     Size="Size.Small">Cena</MudChip>
+            <MudChip T="string" 
+                     Value="@("area")" 
+                     Clickable="true" 
+                     OnClick="@(() => OnCardSortChangedAsync("area"))"
+                     Color="@(_filter.SortBy == "area" ? Color.Primary : Color.Default)"
+                     Variant="@(_filter.SortBy == "area" ? Variant.Filled : Variant.Outlined)"
+                     Size="Size.Small">Plocha</MudChip>
+            <MudChip T="string" 
+                     Value="@("land")" 
+                     Clickable="true" 
+                     OnClick="@(() => OnCardSortChangedAsync("land"))"
+                     Color="@(_filter.SortBy == "land" ? Color.Primary : Color.Default)"
+                     Variant="@(_filter.SortBy == "land" ? Variant.Filled : Variant.Outlined)"
+                     Size="Size.Small">Pozemek</MudChip>
+            <MudChip T="string" 
+                     Value="@("date")" 
+                     Clickable="true" 
+                     OnClick="@(() => OnCardSortChangedAsync("date"))"
+                     Color="@(_filter.SortBy == "date" ? Color.Primary : Color.Default)"
+                     Variant="@(_filter.SortBy == "date" ? Variant.Filled : Variant.Outlined)"
+                     Size="Size.Small">Přidáno</MudChip>
+            @if (!string.IsNullOrEmpty(_filter.SortBy))
+            {
+                <MudTooltip Text="@(_filter.SortDescending ? "Sestupně" : "Vzestupně")">
+                    <MudIconButton Icon="@(_filter.SortDescending ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward)"
+                                   OnClick="ToggleCardSortDirectionAsync"
+                                   Size="Size.Small" />
+                </MudTooltip>
                 <MudChip T="string" 
-                         Value="@("price")" 
                          Clickable="true" 
-                         OnClick="@(() => OnCardSortChangedAsync("price"))"
-                         Color="@(_filter.SortBy == "price" ? Color.Primary : Color.Default)"
-                         Variant="@(_filter.SortBy == "price" ? Variant.Filled : Variant.Outlined)"
-                         Size="Size.Small">Cena</MudChip>
-                <MudChip T="string" 
-                         Value="@("area")" 
-                         Clickable="true" 
-                         OnClick="@(() => OnCardSortChangedAsync("area"))"
-                         Color="@(_filter.SortBy == "area" ? Color.Primary : Color.Default)"
-                         Variant="@(_filter.SortBy == "area" ? Variant.Filled : Variant.Outlined)"
-                         Size="Size.Small">Plocha</MudChip>
-                <MudChip T="string" 
-                         Value="@("land")" 
-                         Clickable="true" 
-                         OnClick="@(() => OnCardSortChangedAsync("land"))"
-                         Color="@(_filter.SortBy == "land" ? Color.Primary : Color.Default)"
-                         Variant="@(_filter.SortBy == "land" ? Variant.Filled : Variant.Outlined)"
-                         Size="Size.Small">Pozemek</MudChip>
-                <MudChip T="string" 
-                         Value="@("date")" 
-                         Clickable="true" 
-                         OnClick="@(() => OnCardSortChangedAsync("date"))"
-                         Color="@(_filter.SortBy == "date" ? Color.Primary : Color.Default)"
-                         Variant="@(_filter.SortBy == "date" ? Variant.Filled : Variant.Outlined)"
-                         Size="Size.Small">Přidáno</MudChip>
-                @if (!string.IsNullOrEmpty(_filter.SortBy))
-                {
-                    <MudTooltip Text="@(_filter.SortDescending ? "Sestupně" : "Vzestupně")">
-                        <MudIconButton Icon="@(_filter.SortDescending ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward)"
-                                       OnClick="ToggleCardSortDirectionAsync"
-                                       Size="Size.Small" />
-                    </MudTooltip>
-                    <MudChip T="string" 
-                             Clickable="true" 
-                             OnClick="@(() => OnCardSortChangedAsync(null))"
-                             Color="Color.Error"
-                             Variant="Variant.Outlined"
-                             Size="Size.Small">✕</MudChip>
-                }
-            </MudStack>
-        }
+                         OnClick="@(() => OnCardSortChangedAsync(null))"
+                         Color="Color.Error"
+                         Variant="Variant.Outlined"
+                         Size="Size.Small">✕</MudChip>
+            }
+        </MudStack>
         <MudGrid Spacing="3">
             @foreach (var item in _cardItems)
             {
