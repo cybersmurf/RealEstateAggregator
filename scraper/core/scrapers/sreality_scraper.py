@@ -304,7 +304,13 @@ class SrealityScraper:
             locality_slug = seo.get("locality", "")
 
             cat_main_slug = self._CAT_MAIN_SLUG.get(cat_main, "dum")
-            cat_sub_slug = self._CAT_SUB_SLUG.get(cat_sub, "") if cat_sub else ""
+            if cat_sub:
+                cat_sub_slug = (
+                    self._CAT_SUB_SLUG_OVERRIDES.get(cat_main, {}).get(cat_sub)
+                    or self._CAT_SUB_SLUG.get(cat_sub, "")
+                )
+            else:
+                cat_sub_slug = ""
             cat_type_slug = {1: "prodej", 2: "pronajem", 3: "drazba"}.get(cat_type, "prodej")
 
             # Build canonical URL: /detail/{type}/{main}/{sub}/{locality}/{hash_id}
@@ -366,6 +372,14 @@ class SrealityScraper:
         35: "jina", 36: "bytovy-dum",
         # Ostatní (cat_main=5)
         24: "garaz", 25: "stani", 40: "parkovaci-misto",
+    }
+
+    # Overrides for category_sub_cb that depend on category_main_cb
+    _CAT_SUB_SLUG_OVERRIDES = {
+        # Domy (cat_main=2)
+        2: {
+            40: "na-klic",
+        },
     }
 
     def _normalize_list_item(self, estate: Dict[str, Any]) -> Dict[str, Any]:
