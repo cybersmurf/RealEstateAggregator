@@ -492,6 +492,8 @@ class SrealityScraper:
             return "Užitná plocha"
         if "pozem" in lower:
             return "Plocha pozemku"
+        if "dispoz" in lower:
+            return "Dispozice"
         return name.strip()
 
     @staticmethod
