@@ -1,5 +1,6 @@
 @page "/listings"
 @implements IDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 
@@ -356,8 +357,7 @@
 
 @code {
     private MudTable<ListingSummaryDto>? _table;
-    private int _tableCurrentPage = 0;      // 0-indexed, binding na MudTable CurrentPage (první render)
-    private int _pendingNavigatePage  = -1; // -1 = nic; ≥0 = navigovat po renderu
+    private int _tableCurrentPage = 0; // 0-indexed, binding na MudTable CurrentPage
     private bool _loading;
     private int _totalCount;
 
@@ -453,10 +453,9 @@
                     _cardView             = s.CardView;
                     _cardPage             = s.CardPage;
                     // Restore stránky tabulky (0-indexed pro MudTable, uloženo 1-indexed)
-                    // CurrentPage funguje jako počáteční hodnota pro první render;
-                    // po druhém (interaktivním) renderu musíme navigovat přes _table.NavigateTo.
-                    _tableCurrentPage    = Math.Max(0, s.TablePage - 1);
-                    _pendingNavigatePage = _tableCurrentPage;
+                    // Prerendering je vypnutý → OnInitializedAsync běží jen jednou v interaktivním
+                    // módu → CurrentPage binding funguje správně.
+                    _tableCurrentPage = Math.Max(0, s.TablePage - 1);
 
                     // Vymaz po načtení – stav je jednorázový (byl použit)
                     await SessionStorage.DeleteAsync(FilterStateKey);
@@ -475,19 +474,6 @@
         {
             Snackbar.Add($"Nepodařilo se načíst zdroje: {ex.Message}", Severity.Warning);
         }
-    }
-
-    protected override Task OnAfterRenderAsync(bool firstRender)
-    {
-        // Pokud máme čekající navigaci na stránku (obnovení stavu po návratu z detailu),
-        // provedeme ji teď – _table ref je k dispozici a MudTable je plně inicializován.
-        if (_pendingNavigatePage >= 0 && _table is not null)
-        {
-            var page = _pendingNavigatePage;
-            _pendingNavigatePage = -1; // zrušíme dříve, než volání (prevents double-call)
-            _table.NavigateTo(page);
-        }
-        return base.OnAfterRenderAsync(firstRender);
     }
 
     /// <summary>Uloží aktuální stav stránky do SessionStorage před navigací na detail.</summary>
