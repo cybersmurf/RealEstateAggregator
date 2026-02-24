@@ -297,28 +297,29 @@ class SrealityScraper:
                 normalized = self._merge_detail(normalized, detail)
 
         return normalized
-        def _build_detail_url(self, hash_id: Any, seo: Dict[str, Any]) -> str:
-            cat_main = seo.get("category_main_cb", self.category_main_cb or 2)
-            cat_sub = seo.get("category_sub_cb")
-            cat_type = seo.get("category_type_cb", self.category_type_cb)
-            locality_slug = seo.get("locality", "")
 
-            cat_main_slug = self._CAT_MAIN_SLUG.get(cat_main, "dum")
-            if cat_sub:
-                cat_sub_slug = (
-                    self._CAT_SUB_SLUG_OVERRIDES.get(cat_main, {}).get(cat_sub)
-                    or self._CAT_SUB_SLUG.get(cat_sub, "")
-                )
-            else:
-                cat_sub_slug = ""
-            cat_type_slug = {1: "prodej", 2: "pronajem", 3: "drazba"}.get(cat_type, "prodej")
+    def _build_detail_url(self, hash_id: Any, seo: Dict[str, Any]) -> str:
+        cat_main = seo.get("category_main_cb", self.category_main_cb or 2)
+        cat_sub = seo.get("category_sub_cb")
+        cat_type = seo.get("category_type_cb", self.category_type_cb)
+        locality_slug = seo.get("locality", "")
 
-            # Build canonical URL: /detail/{type}/{main}/{sub}/{locality}/{hash_id}
-            if cat_sub_slug and locality_slug:
-                return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{cat_sub_slug}/{locality_slug}/{hash_id}"
-            if locality_slug:
-                return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{locality_slug}/{hash_id}"
-            return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{hash_id}"
+        cat_main_slug = self._CAT_MAIN_SLUG.get(cat_main, "dum")
+        if cat_sub:
+            cat_sub_slug = (
+                self._CAT_SUB_SLUG_OVERRIDES.get(cat_main, {}).get(cat_sub)
+                or self._CAT_SUB_SLUG.get(cat_sub, "")
+            )
+        else:
+            cat_sub_slug = ""
+        cat_type_slug = {1: "prodej", 2: "pronajem", 3: "drazba"}.get(cat_type, "prodej")
+
+        # Build canonical URL: /detail/{type}/{main}/{sub}/{locality}/{hash_id}
+        if cat_sub_slug and locality_slug:
+            return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{cat_sub_slug}/{locality_slug}/{hash_id}"
+        if locality_slug:
+            return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{locality_slug}/{hash_id}"
+        return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{hash_id}"
 
     
     async def _fetch_estate_detail_with_semaphore(self, hash_id: int,
