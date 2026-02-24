@@ -2,16 +2,17 @@
 Prodejme.to scraper (prodejme.to/nabidky).
 
 Site characteristics:
-- SSR page, no JS required
-- Single listing page without server-side pagination
-- Client-side filters only
+- Listing page renders via AJAX endpoint POST /nabidky/ajax/
+  with params: page=N&sold=0
+  response: { count: 55, html: '<div class="project-item">...' }
+- Each page returns ~9 items; paginate until we collect all
 - Detail URL: /nabidky/{slug}
-- Photos on https://www.prodejme.to/upload/{id}/{hash}_{file}.jpg
+- Photos: /media/estate/upload/{id}/{hash}_{file}.jpg
 """
 import asyncio
 import logging
+import math
 import re
-import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.prodejme.to"
 LISTING_URL = f"{BASE_URL}/nabidky/"
+AJAX_URL = f"{BASE_URL}/nabidky/ajax/"
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -36,6 +38,8 @@ DEFAULT_HEADERS = {
     ),
     "Accept-Language": "cs-CZ,cs;q=0.9",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Referer": LISTING_URL,
+    "X-Requested-With": "XMLHttpRequest",
 }
 
 SKIP_STATUSES = {"Prodano", "Prodáno", "Pronajato"}
@@ -56,6 +60,7 @@ class ProdejmeToScraper:
     """Scraper for Prodejme.to listings."""
 
     SOURCE_CODE = "PRODEJMETO"
+    PAGE_SIZE = 9  # items per AJAX page
 
     def __init__(self, include_sold: bool = False):
         self.include_sold = include_sold
@@ -76,17 +81,14 @@ class ProdejmeToScraper:
             ) as client:
                 self._http_client = client
 
-                with timer("Fetch listing page"):
-                    start = time.perf_counter()
-                    html = await self._fetch(LISTING_URL)
-                    metrics.record_fetch(time.perf_counter() - start)
+                with timer("Fetch all listing pages via AJAX"):
+                    items = await self._fetch_all_pages(include_sold=include_sold)
 
-                items = self._parse_listing(html, include_sold=include_sold)
                 logger.info("Found %s listings to process", len(items))
 
                 for item in items:
                     try:
-                        detail_html = await self._fetch(item["detail_url"])
+                        detail_html = await self._fetch_get(item["detail_url"])
                         normalized = self._parse_detail(detail_html, item)
                         await self._save_listing(normalized)
                         self.scraped_count += 1
@@ -101,85 +103,113 @@ class ProdejmeToScraper:
         logger.info("Prodejme.to scraper finished. Scraped %s listings", self.scraped_count)
         return self.scraped_count
 
+    async def _fetch_all_pages(self, include_sold: bool = False) -> List[Dict[str, Any]]:
+        """Fetch all listing pages from the AJAX endpoint and return merged list."""
+        all_items: List[Dict[str, Any]] = []
+        seen_slugs: set = set()
+
+        # Fetch page 1 to get total count
+        first_response = await self._fetch_ajax_page(1, include_sold)
+        total_count = first_response.get("count", 0)
+        total_pages = max(1, math.ceil(total_count / self.PAGE_SIZE))
+        logger.info("Prodejme.to: total=%s listings on %s pages", total_count, total_pages)
+
+        for page_num in range(1, total_pages + 1):
+            if page_num == 1:
+                response = first_response
+            else:
+                response = await self._fetch_ajax_page(page_num, include_sold)
+                await asyncio.sleep(0.3)
+
+            items = self._parse_ajax_html(response.get("html", ""), include_sold, seen_slugs)
+            all_items.extend(items)
+            logger.debug("Page %s: %s items (cumulative: %s)", page_num, len(items), len(all_items))
+
+        return all_items
+
     @http_retry
-    async def _fetch(self, url: str) -> str:
+    async def _fetch_ajax_page(self, page: int, include_sold: bool = False) -> Dict[str, Any]:
+        """POST to /nabidky/ajax/ and return parsed JSON response."""
+        if self._http_client is None:
+            raise RuntimeError("HTTP client not initialized")
+
+        sold_param = "1" if include_sold else "0"
+        response = await self._http_client.post(
+            AJAX_URL,
+            data={"page": page, "sold": sold_param},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    @http_retry
+    async def _fetch_get(self, url: str) -> str:
+        """GET request for detail pages."""
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")
         response = await self._http_client.get(url)
         response.raise_for_status()
         return response.text
 
-    def _parse_listing(self, html: str, include_sold: bool = False) -> List[Dict[str, Any]]:
+    def _parse_ajax_html(
+        self,
+        html: str,
+        include_sold: bool,
+        seen_slugs: set,
+    ) -> List[Dict[str, Any]]:
+        """Parse project-item cards from AJAX HTML fragment."""
         soup = BeautifulSoup(html, "html.parser")
         results: List[Dict[str, Any]] = []
-        seen_slugs: set[str] = set()
 
-        for link in soup.find_all("a", href=re.compile(r"^/nabidky/[^/]+$")):
-            href = link.get("href", "")
+        for card in soup.find_all("div", class_="project-item"):
+            # Extract href / slug from title link
+            title_tag = card.select_one("h3.title a, h2.title a")
+            if not title_tag:
+                continue
+            href = title_tag.get("href", "")
             slug = href.rstrip("/").split("/")[-1]
-            if slug in seen_slugs:
+            if not slug or slug in seen_slugs:
                 continue
 
-            container = link.find_parent() or link
-            badges = self._collect_badges(container)
-            if not badges:
-                badges = self._collect_badges(link)
+            # Badges: Novinka, Prodej, Pronájem, Prodáno, …
+            badges = [
+                b.get_text(strip=True)
+                for b in card.select("div.badge, span.badge")
+            ]
 
             is_sold = any(b in SKIP_STATUSES for b in badges)
             if is_sold and not include_sold:
                 continue
 
-            title = self._find_title_near(soup, href)
-            price_text = self._find_price_near(soup, href)
-            offer_type = "Pronájem" if ("Pronájem" in badges or "Pronajem" in badges) else "Prodej"
-
-            seen_slugs.add(slug)
-            results.append(
-                {
-                    "source_code": self.SOURCE_CODE,
-                    "external_id": slug,
-                    "detail_url": urljoin(BASE_URL, href),
-                    "title": title[:200],
-                    "price_text": price_text,
-                    "offer_type": offer_type,
-                    "is_sold": is_sold,
-                    "badges": badges,
-                }
+            offer_type = (
+                "Pronájem" if any("pronaj" in b.lower() or b == "Pronajem" for b in badges)
+                else "Prodej"
             )
 
+            title = title_tag.get_text(" ", strip=True)[:200]
+
+            # Price from <span> inside project-content
+            price_span = card.select_one("div.project-content span")
+            price_text = price_span.get_text(strip=True) if price_span else ""
+
+            # Thumbnail
+            img = card.select_one("div.project-thumb img")
+            thumbnail = img.get("src", "") if img else ""
+
+            seen_slugs.add(slug)
+            results.append({
+                "source_code": self.SOURCE_CODE,
+                "external_id": slug,
+                "detail_url": urljoin(BASE_URL, href),
+                "title": title,
+                "price_text": price_text,
+                "offer_type": offer_type,
+                "is_sold": is_sold,
+                "badges": badges,
+                "thumbnail": thumbnail,
+            })
+
         return results
-
-    def _collect_badges(self, container: Any) -> List[str]:
-        badges: List[str] = []
-        for tag in container.find_all(["span", "div"], class_=re.compile(r"badge|tag|label|status", re.I)):
-            text = tag.get_text(strip=True)
-            if text in STATUS_LABELS:
-                badges.append(text)
-
-        if not badges:
-            for tag in container.find_all("span"):
-                text = tag.get_text(strip=True)
-                if text in STATUS_LABELS:
-                    badges.append(text)
-
-        return badges
-
-    def _find_title_near(self, soup: BeautifulSoup, href: str) -> str:
-        for heading in soup.find_all(["h3", "h2", "h4"]):
-            link = heading.find("a", href=href)
-            if link:
-                return heading.get_text(" ", strip=True)
-        return href.split("/")[-1].replace("-", " ").title()
-
-    def _find_price_near(self, soup: BeautifulSoup, href: str) -> str:
-        for link in soup.find_all("a", href=href):
-            parent = link.find_parent()
-            if parent:
-                text = parent.get_text(" ", strip=True)
-                match = re.search(r"([\d\s]+(?:[\.,]\d+)?)\s*K[cč]", text, re.IGNORECASE)
-                if match:
-                    return match.group(0).strip()
-        return ""
 
     def _parse_detail(self, html: str, list_item: Dict[str, Any]) -> Dict[str, Any]:
         soup = BeautifulSoup(html, "html.parser")
