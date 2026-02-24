@@ -206,6 +206,29 @@
         {
             <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
         }
+        <!-- Třídění karty -->
+        <MudPaper Elevation="0" Class="pa-2 mb-3">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudSelect T="string" Value="@_filter.SortBy" ValueChanged="OnCardSortChangedAsync"
+                           Label="Seřadit podle" Variant="Variant.Outlined" Dense="true"
+                           Clearable="true" Style="max-width:200px;">
+                    <MudSelectItem T="string" Value="@("price")">Cena</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("area")">Plocha</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("land")">Pozemek</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("date")">Přidáno</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("title")">Titulek</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("location")">Lokalita</MudSelectItem>
+                </MudSelect>
+                @if (!string.IsNullOrEmpty(_filter.SortBy))
+                {
+                    <MudTooltip Text="@(_filter.SortDescending ? "Sestupně" : "Vzestupně")">
+                        <MudIconButton Icon="@(_filter.SortDescending ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward)"
+                                       OnClick="ToggleCardSortDirectionAsync"
+                                       Size="Size.Small" />
+                    </MudTooltip>
+                }
+            </MudStack>
+        </MudPaper>
         <MudGrid Spacing="3">
             @foreach (var item in _cardItems)
             {
@@ -629,13 +652,19 @@
                 SearchText = _filter.SearchText,
                 PropertyType = _filter.PropertyType,
                 OfferType = _filter.OfferType,
+                Disposition = (_selectedDispositiones?.Count ?? 0) > 0 ? _selectedDispositiones!.First() : null,
                 PriceMin = _filter.PriceMin,
                 PriceMax = _filter.PriceMax,
                 AreaBuiltUpMin = _filter.AreaBuiltUpMin,
                 AreaBuiltUpMax = _filter.AreaBuiltUpMax,
                 AreaLandMin = _filter.AreaLandMin,
                 AreaLandMax = _filter.AreaLandMax,
+                Region = _filter.Region,
+                District = _filter.District,
+                Municipality = _filter.Municipality,
                 SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0 ? _selectedSourceCodes!.ToList() : null,
+                SortBy = _filter.SortBy,
+                SortDescending = _filter.SortDescending,
             };
             var response = await Http.PostAsJsonAsync("api/listings/search", cardFilter, ct);
             ct.ThrowIfCancellationRequested();
@@ -674,6 +703,24 @@
     private async Task CardPageChangedAsync(int page)
     {
         _cardPage = page;
+        await LoadCardsAsync();
+    }
+
+    private async Task OnCardSortChangedAsync(string? sortBy)
+    {
+        _filter.SortBy = sortBy;
+        if (string.IsNullOrEmpty(sortBy))
+        {
+            _filter.SortDescending = false; // Reset směru při zrušení třídění
+        }
+        _cardPage = 1;
+        await LoadCardsAsync();
+    }
+
+    private async Task ToggleCardSortDirectionAsync()
+    {
+        _filter.SortDescending = !_filter.SortDescending;
+        _cardPage = 1;
         await LoadCardsAsync();
     }
 
