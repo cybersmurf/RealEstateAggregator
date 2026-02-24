@@ -229,7 +229,32 @@ class DatabaseManager:
             
             logger.debug(f"Upserted listing {final_listing_id} (external_id={external_id})")
             return final_listing_id
-    
+
+    async def deactivate_unseen_listings(self, source_code: str, seen_since: datetime) -> int:
+        """
+        Deaktivuje inzeráty ze zdroje source_code, které nebyly viděny od seen_since.
+        Volá se po full_rescan – inzeráty které scraper nevrátil jsou expirované.
+
+        Returns: počet deaktivovaných inzerátů
+        """
+        async with self.acquire() as conn:
+            status = await conn.execute(
+                """
+                UPDATE re_realestate.listings
+                SET is_active = false
+                WHERE source_code = $1
+                  AND is_active = true
+                  AND last_seen_at < $2
+                """,
+                source_code,
+                seen_since
+            )
+            # asyncpg vrací "UPDATE N" – parsujeme počet ovlivněných řádků
+            deactivated = int(status.split()[-1]) if status else 0
+            if deactivated > 0:
+                logger.info(f"Deactivated {deactivated} expired listings for source {source_code} (not seen since {seen_since})")
+            return deactivated
+
     async def _upsert_photos(self, conn, listing_id: UUID, photo_urls: List[str]) -> None:
         """
         Upsert fotek pro listing.

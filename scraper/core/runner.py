@@ -162,6 +162,9 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             scraper = Century21Scraper()
             tasks.append(("CENTURY21", scraper.run(full_rescan=request.full_rescan)))
 
+        # Čas před spuštěním scrapingu – slouží pro deaktivaci neviděných inzerátů
+        scrape_started_at = datetime.utcnow()
+
         # Spusť všechny scrapers paralelně
         if tasks:
             source_names = [name for name, _ in tasks]
@@ -177,7 +180,12 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
                 else:
                     total_scraped += result
                     logger.info(f"Job {job_id}: {source_name} scraped {result} listings")
-            
+                    # Po úspěšném full_rescan deaktivuj inzeráty které scraper neviděl
+                    if request.full_rescan:
+                        deactivated = await db_manager.deactivate_unseen_listings(source_name, scrape_started_at)
+                        if deactivated > 0:
+                            logger.info(f"Job {job_id}: {source_name} deactivated {deactivated} expired listings")
+
             logger.info(f"Job {job_id}: All scrapers completed. Total listings: {total_scraped}")
             
             # Update status na Succeeded
