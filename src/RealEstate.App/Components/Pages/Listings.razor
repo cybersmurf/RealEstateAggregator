@@ -527,7 +527,7 @@
         _loading = true;
         try
         {
-            _filter.Page = state.Page + 1;
+            _filter.Page = Math.Max(1, state.Page + 1); // guard: MudTable může předat -1 při cancel
             _filter.PageSize = state.PageSize;
             _filter.SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0
                 ? _selectedSourceCodes!.ToList()
@@ -545,6 +545,11 @@
                 Items = result?.Items ?? Array.Empty<ListingSummaryDto>(),
                 TotalItems = _totalCount
             };
+        }
+        catch (OperationCanceledException)
+        {
+            // Normální předčasné ukončení (NavigateTo / změna filtru) – nezobrazovat chybu
+            return new TableData<ListingSummaryDto> { Items = Array.Empty<ListingSummaryDto>(), TotalItems = _totalCount };
         }
         catch (Exception ex)
         {

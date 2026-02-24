@@ -74,7 +74,7 @@ public class ListingService : IListingService
         };
 
         // 5) Paging
-        var skip = (filter.Page - 1) * filter.PageSize;
+        var skip = Math.Max(0, (filter.Page - 1) * filter.PageSize); // guard pro případ Page=0 z race condition
         var entities = await query
             .Skip(skip)
             .Take(filter.PageSize)
