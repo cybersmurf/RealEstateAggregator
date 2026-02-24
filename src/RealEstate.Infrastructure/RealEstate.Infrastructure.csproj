@@ -26,6 +26,23 @@
     <Nullable>enable</Nullable>
     <!-- Disable default resx glob – no .resx files in this project; prevents MSB3552 in Docker SDK 10.0.103 -->
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <!--
+      WORKAROUND: SDK 10.0 + Pgvector.EntityFrameworkCore emits a stale Compile item '**/*.cs'
+      that is passed literally to CSC in Docker (Colima overlay2 fs).
+      Disable SDK default Compile items and enumerate source directories explicitly.
+    -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
+
+  <!-- Explicit Compile inclusions replacing the SDK default **/*.cs glob -->
+  <ItemGroup>
+    <Compile Include="*.cs" />
+    <Compile Include="BackgroundServices/*.cs" />
+    <Compile Include="Migrations/*.cs" />
+    <Compile Include="Repositories/*.cs" />
+    <Compile Include="Scraping/*.cs" />
+    <Compile Include="Scraping/Remax/*.cs" />
+    <Compile Include="Storage/*.cs" />
+  </ItemGroup>
 
 </Project>

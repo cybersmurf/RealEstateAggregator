@@ -4,7 +4,34 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!--
+      WORKAROUND: SDK 10.0 + Microsoft.NET.Sdk.Web emits stale Compile/Razor items
+      ('**/*.cs', '**/*.razor', '**/*.cshtml') that are passed literally to CSC
+      in Docker (Colima overlay2 fs). Disable all SDK default item include globs.
+    -->
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
   </PropertyGroup>
+
+  <!-- Explicit Compile inclusions replacing the SDK default **/*.cs glob -->
+  <ItemGroup>
+    <Compile Include="*.cs" />
+    <Compile Include="Contracts/Analysis/*.cs" />
+    <Compile Include="Contracts/Common/*.cs" />
+    <Compile Include="Contracts/Export/*.cs" />
+    <Compile Include="Contracts/Listings/*.cs" />
+    <Compile Include="Contracts/Scraping/*.cs" />
+    <Compile Include="Contracts/Sources/*.cs" />
+    <Compile Include="Contracts/UserPhotos/*.cs" />
+    <Compile Include="Endpoints/*.cs" />
+    <Compile Include="Services/*.cs" />
+  </ItemGroup>
+
+  <!-- Content files needed at publish/runtime -->
+  <ItemGroup>
+    <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />

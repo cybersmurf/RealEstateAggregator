@@ -31,6 +31,8 @@ Full-stack aplikace pro agregaci realitních inzerátů z českých webů. Aktu�
 - MudBlazor 9 je primarni UI stack. Nezminuj MudBlazor 7, pokud nejde o historickou poznamku.
 - Udrzuj verze stacku konzistentni napric README, QUICK_START, TECHNICAL_DESIGN, API_CONTRACTS, AI_SESSION_SUMMARY.
 - Pri zmenach scrapingu aktualizuj souvisejici dokumentaci a instrukce, aby odpovidaly realnemu chovani.
+- **Po kazde zmene C# kodu ktera jde do Docker: `docker compose build --no-cache app api && docker compose up -d --no-deps app api`.** Zapomenuty rebuild = stary kod v kontejnerech. VZDY rebuild po zmene kodu.
+- **Docker restart policy:** vsechny 4 sluzby (postgres, api, app, scraper) MUSI mit `restart: unless-stopped` v docker-compose.yml.
 
 ### Architecture
 
@@ -242,31 +244,36 @@ VALUES (gen_random_uuid(), 'NOVYSCRAPER', 'Nový Scraper', 'https://novyscraper.
 
 ### Enum Mapping (Czech ↔ English)
 
-```csharp
-// Database stores English: "House", "Apartment", "Sale", "Rent"
-// Scraper sends Czech: "Dům", "Byt", "Prodej", "Pronájem"
-
-// In database.py:
+```python
+# Database stores English. Scraper mapuje z češtiny:
 property_type_map = {
-    "Dům": "House",
-    "Byt": "Apartment",
-    "Pozemek": "Land",
-    "Chata": "Cottage",
-    "Komerční": "Commercial",
-    "Ostatní": "Other",
+    "Dům": "House", "Byt": "Apartment", "Pozemek": "Land",
+    "Chata": "Cottage", "Komerční": "Commercial", "Ostatní": "Other",
 }
 
 offer_type_map = {
     "Prodej": "Sale",
     "Pronájem": "Rent",
+    "Dražba": "Auction",   # ← SReality category_type_cb=3
 }
-
-# In RealEstateDbContext.cs:
-.HasConversion(
-    v => v.ToString(),
-    v => Enum.Parse<PropertyType>(v)
-);
 ```
+
+```csharp
+// OfferType enum: Sale, Rent, Auction
+// DB ukládá: "Sale", "Rent", "Auction"
+// HasConversion: Enum.Parse → NEPOUŽÍVAT, použij switch expression:
+// v == "Rent" ? OfferType.Rent : v == "Auction" ? OfferType.Auction : OfferType.Sale
+```
+
+### SReality URL pravidla (KRITICKÉ – nerozbíjej!)
+
+URL se builduje v `_build_detail_url()` ve `sreality_scraper.py`:
+- Formát: `/detail/{cat_type_slug}/{cat_main_slug}/{cat_sub_slug}/{locality}/{hash_id}`
+- `cat_type`: 1=prodej, 2=pronajem, **3=drazba**
+- `_merge_detail()` VŽDY refreshuje URL z detail API SEO – nevynechávej to volání
+- `_CAT_SUB_SLUG_OVERRIDES = {2: {40: "na-klic"}}` – domy na klíč mají jiný slug než SReality default
+- Dražby mají krátkou životnost → URL vrátí 404 po skončení dražby. To je **expected chování**, ne bug
+- Expired inzeráty jsou deaktivovány (`is_active=false`) automaticky při příštím `full_rescan` přes `deactivate_unseen_listings()`
 
 ### Upsert Pattern (Deduplication)
 
@@ -412,6 +419,14 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **Tiebreaker** – `.ThenBy(x => x.Id)` pro deterministické stránkování
 - [x] **user_listing_photos** tabulka v init-db.sql
 
+### ✅ Dokončeno v Session 5 (2026-02-24)
+- [x] **Docker restart policy** – `restart: unless-stopped` na všech 4 službách v docker-compose.yml
+- [x] **OfferType.Auction** – přidán do enum, DbContext HasConversion, Listings.razor, ListingDetail.razor, database.py offer_type_map
+- [x] **Dražba URL** – SReality `cat_type=3` → slug `drazba`; `_build_detail_url()` generuje správné URL
+- [x] **deactivate_unseen_listings()** – automatická deaktivace expired inzerátů po full_rescan v runner.py
+- [x] **Filter state persistence** – `ListingsPageState` + `ProtectedSessionStorage` (bylo již v Session 4 kódu, Docker image byl stary – fixed rebuildeem)
+- [x] **5 expired SReality inzerátů** deaktivováno přímo v DB; 5 dražeb retroaktivně opraveno na `offer_type='Auction'`
+
 ### High Priority (zbývá)
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
 - [ ] CENTURY21 logo – placeholder SVG (274B), reálné logo za WP loginem
@@ -478,6 +493,18 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 **Problem:** Fulltext hledání je pomalé (ILIKE full scan)  
 **Solution:** Využíváme `search_tsv` GIN index přes `EF.Functions.PlainToTsQuery`. Shadow property `SearchTsv` (NpgsqlTsVector) musí být nakonfigurována v `RealEstateDbContext.OnModelCreating`. Nutný `Npgsql.EntityFrameworkCore.PostgreSQL` v Api.csproj.
 
+**Problem:** UI nereflektuje změny v C# kódu i když byl kód opraven (filtry, řazení, UI pohled)  
+**Solution:** Docker app/api image je starý. **Vždy** po změně C# kódu: `docker compose build --no-cache app api && docker compose up -d --no-deps app api`. Zapoměnutý rebuild = starý kód v kontejnerech.
+
+**Problem:** Po restartu Macu / Colimy kontejnery nenaběhnou (postgres Exited, scraper ConnectionRefused)  
+**Solution:** Zkontroluj `restart: unless-stopped` u všech 4 služeb v `docker-compose.yml`. Pokud chybí: `docker update --restart=unless-stopped realestate-db realestate-api realestate-app realestate-scraper`
+
+**Problem:** SReality dražba odkaz vrací 404  
+**Solution:** Dražba skončila – SReality ihned maže inzerát. URL formát je správný (cat_type=3 → `/drazba/`), jde o expected chování. Inzerát bude deaktivován při příštím `full_rescan`.
+
+**Problem:** MSBuild error `CS2021: File name '**/*.cs'` při `docker compose build`  
+**Solution:** SDK 10.0 glob cache bug. Použij `docker compose build --no-cache app api` (bez cache).
+
 ---
 
 ## Resources
@@ -514,8 +541,8 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 23. února 2026 (Session 4)  
-**Current Commit:** `32077e3` – analysis improvements
-**DB stav:** 1 236 aktivních inzerátů, 6 919 fotek, 12 zdrojů (SREALITY=851, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
+**Last Updated:** 24. února 2026 (Session 5)  
+**Current Commit:** `5962fba` – Auction OfferType + deactivate_unseen_listings + Docker restart policy
+**DB stav:** ~1 230 aktivních inzerátů (5 expired deaktivováno), 12 zdrojů (SREALITY=846, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432  
 **Unit testy:** 39 testů zelených (`dotnet test tests/RealEstate.Tests`)
