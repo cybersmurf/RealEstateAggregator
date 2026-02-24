@@ -425,19 +425,46 @@ class SrealityScraper:
         return normalized
 
     def _extract_photos(self, detail: Dict[str, Any]) -> List[str]:
+        """
+        Extrahuje URL fotek z detail API response.
+
+        Struktura _embedded.images:
+        {
+            "kind": 2,
+            "_links": {
+                "view":   {"href": "...749x562, no watermark..."},   ← POUŽIJEME
+                "self":   {"href": "...1920x1080, with watermark..."},
+                "gallery":{"href": "...221x166 thumbnail..."},
+                "dynamicDown": {"href": "...{width},{height} template..."},
+            },
+            "id": 978780943, "order": 1
+        }
+        """
         photos: List[str] = []
 
-        links = detail.get("_links") or {}
-        for img in links.get("images") or []:
-            href = img.get("href")
-            if href:
-                photos.append(href)
-
+        # Detail API: _embedded.images s vnořenou _links strukturou
         embedded = detail.get("_embedded") or {}
         for img in embedded.get("images") or []:
-            href = img.get("href") or img.get("url")
-            if href:
+            img_links = img.get("_links") or {}
+            # Preferujeme 'view' (749×562, bez vodoznaku), pak 'self', pak 'gallery'
+            href = (
+                (img_links.get("view") or {}).get("href")
+                or (img_links.get("self") or {}).get("href")
+                or (img_links.get("gallery") or {}).get("href")
+                # Starší formát: přímé 'href' na image objektu (seznam)
+                or img.get("href")
+                or img.get("url")
+            )
+            if href and "{width}" not in href:
                 photos.append(href)
+
+        # Fallback: _links.images – jednoduchý formát z list API (přímé href)
+        if not photos:
+            links = detail.get("_links") or {}
+            for img in links.get("images") or []:
+                href = img.get("href")
+                if href:
+                    photos.append(href)
 
         return list(dict.fromkeys(photos))
 

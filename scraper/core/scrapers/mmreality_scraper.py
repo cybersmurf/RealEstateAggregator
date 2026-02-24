@@ -401,21 +401,34 @@ class MmRealityScraper:
         return ""
 
     def _extract_photos(self, soup: BeautifulSoup, html: str) -> List[str]:
-        pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpe?g"
-        filenames = list(dict.fromkeys(re.findall(pattern, html)))
+        # Nový CDN formát (2024+): https://cdn.mmreality.cz/medium2/offer/XX/YY/hash.jpg
+        # Preferujeme medium2 (vyšší rozlišení), fallback na medium
+        urls: List[str] = re.findall(
+            r"https://cdn\.mmreality\.cz/medium2/offer/[^\s\"'<>]+\.jpe?g", html
+        )
+        if not urls:
+            # Fallback: starší formát nebo medium
+            urls = re.findall(
+                r"https://cdn\.mmreality\.cz/medium/offer/[^\s\"'<>]+\.jpe?g", html
+            )
+        if not urls:
+            # Legacy: UUID soubory z HTML (velmi starý formát)
+            pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpe?g"
+            filenames = list(dict.fromkeys(re.findall(pattern, html)))
+            cdn_base = "https://www.mmreality.cz/media/"
+            img_tags = soup.find_all("img", src=True)
+            if filenames:
+                for img in img_tags:
+                    src = img.get("src", "")
+                    if filenames[0] in src:
+                        idx = src.find(filenames[0])
+                        if idx > 0:
+                            cdn_base = src[:idx]
+                        break
+            return [cdn_base + f for f in filenames]
 
-        cdn_base = "https://www.mmreality.cz/media/"
-        img_tags = soup.find_all("img", src=True)
-        if filenames:
-            for img in img_tags:
-                src = img.get("src", "")
-                if filenames[0] in src:
-                    idx = src.find(filenames[0])
-                    if idx > 0:
-                        cdn_base = src[:idx]
-                    break
-
-        return [cdn_base + f for f in filenames]
+        # Deduplikace při zachování pořadí
+        return list(dict.fromkeys(urls))
 
     def _extract_coordinates(self, html: str) -> Tuple[Optional[float], Optional[float]]:
         match = re.search(r"L\.marker\(\[([0-9.]+),\s*([0-9.]+)\]\)", html)

@@ -1,9 +1,12 @@
 @page "/listings"
 @implements IDisposable
 
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+
 @inject HttpClient Http
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
+@inject ProtectedSessionStorage SessionStorage
 
 <MudStack Spacing="3" Class="pa-4">
 
@@ -378,6 +381,28 @@
         ("rent", "Pronájem", null, "Rent"),
     ];
 
+    // --- Filter state persistence (obnovení po návratu z detailu) ---
+    private const string FilterStateKey = "listings_page_state";
+
+    private record ListingsPageState(
+        string?  SearchText,
+        decimal? PriceMin,
+        decimal? PriceMax,
+        double?  AreaBuiltUpMin,
+        double?  AreaBuiltUpMax,
+        double?  AreaLandMin,
+        double?  AreaLandMax,
+        string?  PropertyType,
+        string?  OfferType,
+        string?  Region,
+        string?  District,
+        string?  Municipality,
+        List<string>? SourceCodes,
+        string?  ActiveQuickFilter,
+        bool     CardView,
+        int      CardPage
+    );
+
     [SupplyParameterFromQuery(Name = "source")]
     public string? SourceQueryParam { get; set; }
 
@@ -388,16 +413,89 @@
             var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
             _availableSources = sources ?? new List<SourceDto>();
 
-            // Předvybrat zdroj z query parametru (?source=REMAX)
+            // Předvybrat zdroj z query parametru (?source=REMAX) – má přednost
             if (!string.IsNullOrEmpty(SourceQueryParam) &&
                 _availableSources.Any(s => s.Code.Equals(SourceQueryParam, StringComparison.OrdinalIgnoreCase)))
             {
                 _selectedSourceCodes = new List<string> { SourceQueryParam.ToUpperInvariant() };
+                return; // Nepřijde restore – přišli jsme s explicitním filtrem
+            }
+
+            // Pokus o obnovení filter stavu z předchozí navigace (návrat z detailu)
+            try
+            {
+                var saved = await SessionStorage.GetAsync<ListingsPageState>(FilterStateKey);
+                if (saved.Success && saved.Value is { } s)
+                {
+                    _filter = new ListingFilterDto
+                    {
+                        SearchText       = s.SearchText,
+                        PriceMin         = s.PriceMin,
+                        PriceMax         = s.PriceMax,
+                        AreaBuiltUpMin   = s.AreaBuiltUpMin,
+                        AreaBuiltUpMax   = s.AreaBuiltUpMax,
+                        AreaLandMin      = s.AreaLandMin,
+                        AreaLandMax      = s.AreaLandMax,
+                        PropertyType     = s.PropertyType,
+                        OfferType        = s.OfferType,
+                        Region           = s.Region,
+                        District         = s.District,
+                        Municipality     = s.Municipality,
+                        Page             = 1,
+                        PageSize         = 20,
+                    };
+                    _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
+                    _activeQuickFilter    = s.ActiveQuickFilter;
+                    _cardView             = s.CardView;
+                    _cardPage             = s.CardPage;
+
+                    // Vymaz po načtení – stav je jednorázový (byl použit)
+                    await SessionStorage.DeleteAsync(FilterStateKey);
+
+                    // Pro kartový pohled načteme data okamžitě (MudTable se načítá sám)
+                    if (_cardView)
+                        await LoadCardsAsync();
+                }
+            }
+            catch
+            {
+                // SessionStorage nemusí být dostupná při prvním renderu (prerendering)
             }
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Nepodařilo se načíst zdroje: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    /// <summary>Uloží aktuální stav stránky do SessionStorage před navigací na detail.</summary>
+    private async Task SaveStateAsync()
+    {
+        try
+        {
+            var state = new ListingsPageState(
+                SearchText:        _filter.SearchText,
+                PriceMin:          _filter.PriceMin,
+                PriceMax:          _filter.PriceMax,
+                AreaBuiltUpMin:    _filter.AreaBuiltUpMin,
+                AreaBuiltUpMax:    _filter.AreaBuiltUpMax,
+                AreaLandMin:       _filter.AreaLandMin,
+                AreaLandMax:       _filter.AreaLandMax,
+                PropertyType:      _filter.PropertyType,
+                OfferType:         _filter.OfferType,
+                Region:            _filter.Region,
+                District:          _filter.District,
+                Municipality:      _filter.Municipality,
+                SourceCodes:       _selectedSourceCodes?.ToList(),
+                ActiveQuickFilter: _activeQuickFilter,
+                CardView:          _cardView,
+                CardPage:          _cardPage
+            );
+            await SessionStorage.SetAsync(FilterStateKey, state);
+        }
+        catch
+        {
+            // Ignoruj – uložení stavu není kritické
         }
     }
 
@@ -543,14 +641,20 @@
             await _table.ReloadServerData();
     }
 
-    private void OnTableRowClicked(TableRowClickEventArgs<ListingSummaryDto> args)
+    private async Task OnTableRowClicked(TableRowClickEventArgs<ListingSummaryDto> args)
     {
         if (args.Item is not null)
+        {
+            await SaveStateAsync();
             Navigation.NavigateTo($"/listings/{args.Item.Id}");
+        }
     }
 
-    private void NavigateToDetailAsync(Guid id)
-        => Navigation.NavigateTo($"/listings/{id}");
+    private async Task NavigateToDetailAsync(Guid id)
+    {
+        await SaveStateAsync();
+        Navigation.NavigateTo($"/listings/{id}");
+    }
 
     private async Task CreateAnalysisAsync(Guid id)
     {

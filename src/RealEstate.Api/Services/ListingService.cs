@@ -47,17 +47,18 @@ public class ListingService : IListingService
         var totalCount = await query.CountAsync(cancellationToken);
 
         // 4) Sorting – řazení dle filtru, .ThenBy(Id) zajišťuje deterministické pořadí
+        //    Nullable sloupce: OrderBy(x == null) zajišťuje NULLS LAST (false=0 < true=1)
         query = filter.SortBy switch
         {
             "price"    => filter.SortDescending
-                            ? query.OrderByDescending(x => x.Price).ThenBy(x => x.Id)
-                            : query.OrderBy(x => x.Price).ThenBy(x => x.Id),
+                            ? query.OrderBy(x => x.Price == null).ThenByDescending(x => x.Price).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.Price == null).ThenBy(x => x.Price).ThenBy(x => x.Id),
             "area"     => filter.SortDescending
-                            ? query.OrderByDescending(x => x.AreaBuiltUp).ThenBy(x => x.Id)
-                            : query.OrderBy(x => x.AreaBuiltUp).ThenBy(x => x.Id),
+                            ? query.OrderBy(x => x.AreaBuiltUp == null).ThenByDescending(x => x.AreaBuiltUp).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.AreaBuiltUp == null).ThenBy(x => x.AreaBuiltUp).ThenBy(x => x.Id),
             "land"     => filter.SortDescending
-                            ? query.OrderByDescending(x => x.AreaLand).ThenBy(x => x.Id)
-                            : query.OrderBy(x => x.AreaLand).ThenBy(x => x.Id),
+                            ? query.OrderBy(x => x.AreaLand == null).ThenByDescending(x => x.AreaLand).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.AreaLand == null).ThenBy(x => x.AreaLand).ThenBy(x => x.Id),
             "date"     => filter.SortDescending
                             ? query.OrderByDescending(x => x.FirstSeenAt).ThenBy(x => x.Id)
                             : query.OrderBy(x => x.FirstSeenAt).ThenBy(x => x.Id),
