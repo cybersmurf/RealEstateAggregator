@@ -413,9 +413,11 @@ class SrealityScraper:
             if description:
                 normalized["description"] = description[:5000]
 
+        # 🔥 FALLBACK: Pokud detail vrátí lepší fotky, používej je. Jinak zachovej z listu
         detail_photos = self._extract_photos(detail)
         if detail_photos:
             normalized["photos"] = detail_photos[:20]
+        # Pokud detail nemá fotky, ponecháme fotky z listu (už jsou v normalized["photos"])
 
         params = self._extract_params(detail)
         if params:
@@ -431,22 +433,17 @@ class SrealityScraper:
     def _extract_photos(self, detail: Dict[str, Any]) -> List[str]:
         """
         Extrahuje URL fotek z detail API response.
-
-        Struktura _embedded.images:
-        {
-            "kind": 2,
-            "_links": {
-                "view":   {"href": "...749x562, no watermark..."},   ← POUŽIJEME
-                "self":   {"href": "...1920x1080, with watermark..."},
-                "gallery":{"href": "...221x166 thumbnail..."},
-                "dynamicDown": {"href": "...{width},{height} template..."},
-            },
-            "id": 978780943, "order": 1
-        }
+        
+        SReality detail API může vracet fotky v různých formátech:
+        1. _embedded.images[] – preferované (nejlepší kvalita)
+        2. _links.images[] – fallback z list API
+        
+        Každý formát má svou strukturu.
         """
         photos: List[str] = []
 
-        # Detail API: _embedded.images s vnořenou _links strukturou
+        # Formát 1: Detail API s vnořenou _embedded.images strukturou
+        # Struktura: _embedded.images[x]._links.view.href (749x562, bez vodoznaku)
         embedded = detail.get("_embedded") or {}
         for img in embedded.get("images") or []:
             img_links = img.get("_links") or {}
@@ -455,22 +452,24 @@ class SrealityScraper:
                 (img_links.get("view") or {}).get("href")
                 or (img_links.get("self") or {}).get("href")
                 or (img_links.get("gallery") or {}).get("href")
-                # Starší formát: přímé 'href' na image objektu (seznam)
-                or img.get("href")
-                or img.get("url")
             )
             if href and "{width}" not in href:
                 photos.append(href)
+                if len(photos) >= 20:  # Limit 20 fotek
+                    break
 
-        # Fallback: _links.images – jednoduchý formát z list API (přímé href)
+        # Formát 2: Fallback na _links.images ze list API (přímé href)
+        # Struktura: _links.images[x].href
         if not photos:
             links = detail.get("_links") or {}
             for img in links.get("images") or []:
                 href = img.get("href")
-                if href:
+                if href and "{width}" not in href:
                     photos.append(href)
+                    if len(photos) >= 20:
+                        break
 
-        return list(dict.fromkeys(photos))
+        return list(dict.fromkeys(photos))  # Deduplikace
 
     def _extract_params(self, detail: Dict[str, Any]) -> Dict[str, str]:
         params: Dict[str, str] = {}
