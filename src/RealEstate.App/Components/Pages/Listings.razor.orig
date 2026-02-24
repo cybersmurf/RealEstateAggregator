@@ -79,12 +79,11 @@
                 <!-- Dispozice -->
                 <MudItem xs="12">
                     <MudText Typo="Typo.caption" Class="mb-1">Dispozice</MudText>
-                    <MudChipSet T="string" SelectedValues="_selectedDispositiones"
-                                SelectedValuesChanged="OnDispositionChangedAsync"
+                    <MudChipSet T="string" @bind-SelectedValues="_selectedDispositiones"
                                 SelectionMode="SelectionMode.SingleSelection"
                                 CheckMark="true">
                         @foreach (var disp in _availableDispositions)
- {
+                        {
                             <MudChip T="string" Value="@disp" Size="Size.Small" Variant="Variant.Outlined">
                                 @disp
                             </MudChip>
@@ -434,9 +433,7 @@
         string?  ActiveQuickFilter,
         bool     CardView,
         int      CardPage,
-        int      TablePage,  // 1-indexed číslo stránky tabulky
-        string?  SortBy,     // Sloupec třídění ("Price", "Title", atd.)
-        bool     SortDescending // Sestupné třídění
+        int      TablePage   // 1-indexed číslo stránky tabulky
     );
 
     [SupplyParameterFromQuery(Name = "source")]
@@ -476,8 +473,6 @@
                     Municipality     = s.Municipality,
                     Page             = s.TablePage > 0 ? s.TablePage : 1,
                     PageSize         = 20,
-                    SortBy           = s.SortBy,
-                    SortDescending   = s.SortDescending,
                 };
                 _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
                 _selectedDispositiones = s.Disposition != null ? new[] { s.Disposition } : new List<string>();
@@ -545,9 +540,7 @@
                 ActiveQuickFilter: _activeQuickFilter,
                 CardView:          _cardView,
                 CardPage:          _cardPage,
-                TablePage:         _filter.Page,  // 1-indexed aktuální stránka tabulky
-                SortBy:            _filter.SortBy,
-                SortDescending:    _filter.SortDescending
+                TablePage:         _filter.Page  // 1-indexed aktuální stránka tabulky
             );
             await SessionStorage.SetAsync(FilterStateKey, state);
         }
@@ -580,14 +573,8 @@
             _filter.Disposition = (_selectedDispositiones?.Count ?? 0) > 0
                 ? _selectedDispositiones!.First()
                 : null;
-            
-            // Třídění: pokud máme uložené v _filter (ze SessionStorage), ponechejmě ho,
-            // jinak použij nový sort z UI (state.SortLabel)
-            if (string.IsNullOrEmpty(_filter.SortBy) && !string.IsNullOrEmpty(state.SortLabel))
-            {
-                _filter.SortBy = state.SortLabel;
-                _filter.SortDescending = state.SortDirection == MudBlazor.SortDirection.Descending;
-            }
+            _filter.SortBy = string.IsNullOrEmpty(state.SortLabel) ? null : state.SortLabel;
+            _filter.SortDescending = state.SortDirection == MudBlazor.SortDirection.Descending;
 
             var response = await Http.PostAsJsonAsync("api/listings/search", _filter, ct);
             response.EnsureSuccessStatusCode();
@@ -722,19 +709,6 @@
         }
         else if (_table is not null)
             await _table.ReloadServerData();
-    }
-
-    private async Task OnDispositionChangedAsync(IReadOnlyCollection<string> values)
-    {
-        _selectedDispositiones = values;
-        // Automaticky refresh tabulky
-        if (!_cardView && _table is not null)
-            await _table.ReloadServerData();
-        else if (_cardView)
-        {
-            _cardPage = 1;
-            await LoadCardsAsync();
-        }
     }
 
     private async Task OnTableRowClicked(TableRowClickEventArgs<ListingSummaryDto> args)
