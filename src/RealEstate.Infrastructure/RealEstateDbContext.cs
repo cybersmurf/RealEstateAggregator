@@ -87,7 +87,9 @@ public sealed class RealEstateDbContext : DbContext
                 .HasColumnName("offer_type")
                 .HasConversion(
                     v => v.ToString(),
-                    v => v == "Rent" ? OfferType.Rent : OfferType.Sale);
+                    v => v == "Rent" ? OfferType.Rent
+                       : v == "Auction" ? OfferType.Auction
+                       : OfferType.Sale);
             entity.Property(e => e.Price).HasColumnName("price").HasColumnType("numeric(15,2)");
             entity.Property(e => e.PriceNote).HasColumnName("price_note");
             entity.Property(e => e.AreaBuiltUp).HasColumnName("area_built_up");

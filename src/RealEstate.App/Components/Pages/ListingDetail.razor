@@ -305,8 +305,9 @@
     private static readonly IReadOnlyDictionary<string, string> OfferTypeLabels =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["Sale"] = "Prodej",
-            ["Rent"] = "Pronájem"
+            ["Sale"]    = "Prodej",
+            ["Rent"]    = "Pronájem",
+            ["Auction"] = "Dražba"
         };
 
     protected override async Task OnInitializedAsync()

@@ -166,6 +166,7 @@ class DatabaseManager:
         offer_type_map = {
             "Prodej": "Sale",
             "Pronájem": "Rent",
+            "Dražba": "Auction",
         }
         
         property_type_db = property_type_map.get(listing_data.get("property_type", "Ostatní"), "Other")
