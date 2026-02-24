@@ -12,6 +12,7 @@ public sealed class ListingSummaryDto
     public string? Municipality { get; set; }
     public string PropertyType { get; set; } = string.Empty; // "House", "Cottage", ...
     public string OfferType { get; set; } = string.Empty;    // "Sale", "Rent"
+    public string? Disposition { get; set; }                 // "1+1", "2+kk", atd.
     public decimal? Price { get; set; }
     public string? PriceNote { get; set; }
     public double? AreaBuiltUp { get; set; }

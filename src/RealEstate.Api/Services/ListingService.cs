@@ -121,6 +121,7 @@ public class ListingService : IListingService
             AreaBuiltUp = (double?)entity.AreaBuiltUp,
             AreaLand = (double?)entity.AreaLand,
             Rooms = entity.Rooms,
+            Disposition = entity.Disposition,
             HasKitchen = entity.HasKitchen,
             ConstructionType = entity.ConstructionType?.ToString(),
             Condition = entity.Condition?.ToString(),
@@ -324,6 +325,13 @@ public class ListingService : IListingService
             }
         }
 
+        // Disposition (dispozice bytu: "1+1", "2+kk", atd.)
+        if (!string.IsNullOrWhiteSpace(filter.Disposition))
+        {
+            var dispositionLower = filter.Disposition.ToLower();
+            predicate = predicate.And(x => x.Disposition != null && x.Disposition.ToLower() == dispositionLower);
+        }
+
         // Only New Since
         if (filter.OnlyNewSince is not null)
         {
@@ -382,6 +390,7 @@ public class ListingService : IListingService
             Municipality = entity.Municipality,
             PropertyType = entity.PropertyType.ToString(),
             OfferType = entity.OfferType.ToString(),
+            Disposition = entity.Disposition,
             Price = entity.Price,
             PriceNote = entity.PriceNote,
             AreaBuiltUp = (double?)entity.AreaBuiltUp,

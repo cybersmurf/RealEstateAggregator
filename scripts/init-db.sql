@@ -75,6 +75,7 @@ CREATE TABLE re_realestate.listings (
     area_built_up double precision,         -- m²
     area_land double precision,             -- m²
     rooms integer,
+    disposition text,                       -- "1+1", "1+kk", "2+1", "4+1", "4+kk", atd.
     has_kitchen boolean,
     construction_type text,                 -- Brick, Panel, Wood, Stone, etc.
     condition text,                         -- New, VeryGood, Good, ToReconstruct, Demolished

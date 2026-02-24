@@ -18,6 +18,7 @@ public sealed class ListingFilterDto
 
     public string? PropertyType { get; set; }
     public string? OfferType { get; set; }
+    public string? Disposition { get; set; }    // "1+1", "2+kk", atd.
 
     public string? UserStatus { get; set; }
     public DateTime? OnlyNewSince { get; set; }

@@ -421,6 +421,10 @@ class SrealityScraper:
         if params:
             normalized["area_built_up"] = self._parse_area(params.get("Užitná plocha"))
             normalized["area_land"] = self._parse_area(params.get("Plocha pozemku"))
+            # Extrahovat dispozici ("1+1", "2+kk", atd.)
+            disposition = params.get("Dispozice")
+            if disposition:
+                normalized["disposition"] = str(disposition).strip()
 
         return normalized
 

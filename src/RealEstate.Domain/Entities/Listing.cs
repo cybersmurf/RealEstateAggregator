@@ -28,6 +28,7 @@ public class Listing
     public double? AreaBuiltUp { get; set; }
     public double? AreaLand { get; set; }
     public int? Rooms { get; set; }
+    public string? Disposition { get; set; }     // "1+1", "1+kk", "4+1", atd.
     public bool? HasKitchen { get; set; }
     
     public string? ConstructionType { get; set; }

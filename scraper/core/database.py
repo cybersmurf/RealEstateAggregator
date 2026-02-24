@@ -181,10 +181,10 @@ class DatabaseManager:
                 INSERT INTO re_realestate.listings (
                     id, source_id, source_code, source_name, external_id, url,
                     title, description, property_type, offer_type, price,
-                    location_text, area_built_up, area_land,
+                    location_text, area_built_up, area_land, disposition,
                     first_seen_at, last_seen_at, is_active
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, true)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, true)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
                     url = EXCLUDED.url,
@@ -196,6 +196,7 @@ class DatabaseManager:
                     location_text = EXCLUDED.location_text,
                     area_built_up = EXCLUDED.area_built_up,
                     area_land = EXCLUDED.area_land,
+                    disposition = EXCLUDED.disposition,
                     last_seen_at = EXCLUDED.last_seen_at,
                     is_active = true
                 RETURNING id
@@ -214,6 +215,7 @@ class DatabaseManager:
                 listing_data.get("location_text", "")[:200],
                 listing_data.get("area_built_up"),
                 listing_data.get("area_land"),
+                listing_data.get("disposition"),
                 now,
                 now
             )
