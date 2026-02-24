@@ -76,7 +76,20 @@
                         <MudSelectItem T="string?" Value="@("Rent")">Pronájem</MudSelectItem>
                     </MudSelect>
                 </MudItem>
-
+                <!-- Dispozice -->
+                <MudItem xs="12">
+                    <MudText Typo="Typo.caption" Class="mb-1">Dispozice</MudText>
+                    <MudChipSet T="string" @bind-SelectedValues="_selectedDispositiones"
+                                SelectionMode="SelectionMode.SingleSelection"
+                                CheckMark="true">
+                        @foreach (var disp in _availableDispositions)
+                        {
+                            <MudChip T="string" Value="@disp" Size="Size.Small" Variant="Variant.Outlined">
+                                @disp
+                            </MudChip>
+                        }
+                    </MudChipSet>
+                </MudItem>
                 <!-- Cena od/do -->
                 <MudItem xs="6" md="3">
                     <MudNumericField T="decimal?" @bind-Value="_filter.PriceMin"
@@ -374,6 +387,13 @@
     private List<SourceDto> _availableSources = new();
     private CancellationTokenSource _cts = new();
 
+    // Dispozice
+    private IReadOnlyCollection<string>? _selectedDispositiones = new List<string>();
+    private static readonly List<string> _availableDispositions = new()
+    {
+        "1+1", "1+kk", "2+1", "2+kk", "3+1", "3+kk", "4+1", "4+kk", "5+1", "5+kk"
+    };
+
     // Quick filtry
     private string? _activeQuickFilter;
     private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType)> _quickFilters =
@@ -398,6 +418,7 @@
         double?  AreaLandMax,
         string?  PropertyType,
         string?  OfferType,
+        string?  Disposition,
         string?  Region,
         string?  District,
         string?  Municipality,
@@ -439,6 +460,7 @@
                     AreaLandMax      = s.AreaLandMax,
                     PropertyType     = s.PropertyType,
                     OfferType        = s.OfferType,
+                    Disposition      = s.Disposition,
                     Region           = s.Region,
                     District         = s.District,
                     Municipality     = s.Municipality,
@@ -446,6 +468,7 @@
                     PageSize         = 20,
                 };
                 _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
+                _selectedDispositiones = s.Disposition != null ? new[] { s.Disposition } : new List<string>();
                 _activeQuickFilter    = s.ActiveQuickFilter;
                 _cardView             = s.CardView;
                 _cardPage             = s.CardPage;
@@ -502,6 +525,7 @@
                 AreaLandMax:       _filter.AreaLandMax,
                 PropertyType:      _filter.PropertyType,
                 OfferType:         _filter.OfferType,
+                Disposition:       _filter.Disposition,
                 Region:            _filter.Region,
                 District:          _filter.District,
                 Municipality:      _filter.Municipality,
@@ -538,6 +562,9 @@
             _filter.PageSize = state.PageSize;
             _filter.SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0
                 ? _selectedSourceCodes!.ToList()
+                : null;
+            _filter.Disposition = (_selectedDispositiones?.Count ?? 0) > 0
+                ? _selectedDispositiones!.First()
                 : null;
             _filter.SortBy = string.IsNullOrEmpty(state.SortLabel) ? null : state.SortLabel;
             _filter.SortDescending = state.SortDirection == MudBlazor.SortDirection.Descending;
@@ -665,6 +692,7 @@
     {
         _filter = new ListingFilterDto { Page = 1, PageSize = 20 };
         _selectedSourceCodes = new List<string>(); // reset na prázdnou kolekci (ne null)
+        _selectedDispositiones = new List<string>(); // reset na prázdnou kolekci
         _activeQuickFilter = null;
 
         if (_cardView)
