@@ -412,63 +412,71 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // ⚠️ DŮLEŽITÉ POŘADÍ: SessionStorage PŘED Http.GetFromJsonAsync.
+        //
+        // Blazor Server renderuje komponent po každém await. Pokud by HTTP
+        // volání pro zdroje proběhlo jako první, MudTable by se inicializoval
+        // s _tableCurrentPage=0 (SessionStorage ještě nepřečtena) → strana 1.
+        // Čtením SessionStorage jako první zajistíme, že _tableCurrentPage je
+        // správně nastaven ještě před tím, než MudTable poprvé zavolá LoadServerData.
+
+        ListingsPageState? restoredState = null;
+        try
+        {
+            var saved = await SessionStorage.GetAsync<ListingsPageState>(FilterStateKey);
+            if (saved.Success && saved.Value is { } s)
+            {
+                restoredState = s;
+                _filter = new ListingFilterDto
+                {
+                    SearchText       = s.SearchText,
+                    PriceMin         = s.PriceMin,
+                    PriceMax         = s.PriceMax,
+                    AreaBuiltUpMin   = s.AreaBuiltUpMin,
+                    AreaBuiltUpMax   = s.AreaBuiltUpMax,
+                    AreaLandMin      = s.AreaLandMin,
+                    AreaLandMax      = s.AreaLandMax,
+                    PropertyType     = s.PropertyType,
+                    OfferType        = s.OfferType,
+                    Region           = s.Region,
+                    District         = s.District,
+                    Municipality     = s.Municipality,
+                    Page             = s.TablePage > 0 ? s.TablePage : 1,
+                    PageSize         = 20,
+                };
+                _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
+                _activeQuickFilter    = s.ActiveQuickFilter;
+                _cardView             = s.CardView;
+                _cardPage             = s.CardPage;
+                // Nastavit před prvním renderem MudTable – CurrentPage binding tak funguje správně
+                _tableCurrentPage     = Math.Max(0, s.TablePage - 1);
+
+                await SessionStorage.DeleteAsync(FilterStateKey);
+            }
+        }
+        catch
+        {
+            // SessionStorage nemusí být dostupná (prerendering, standalone WASM apod.)
+        }
+
+        // Teprve teď načíst zdroje – _tableCurrentPage je již správně nastaven,
+        // takže MudTable se inicializuje se správnou stránkou.
         try
         {
             var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
             _availableSources = sources ?? new List<SourceDto>();
 
-            // Předvybrat zdroj z query parametru (?source=REMAX) – má přednost
+            // Předvybrat zdroj z query parametru (?source=REMAX) – přepíše restore
             if (!string.IsNullOrEmpty(SourceQueryParam) &&
                 _availableSources.Any(s => s.Code.Equals(SourceQueryParam, StringComparison.OrdinalIgnoreCase)))
             {
                 _selectedSourceCodes = new List<string> { SourceQueryParam.ToUpperInvariant() };
-                return; // Nepřijde restore – přišli jsme s explicitním filtrem
+                return;
             }
 
-            // Pokus o obnovení filter stavu z předchozí navigace (návrat z detailu)
-            try
-            {
-                var saved = await SessionStorage.GetAsync<ListingsPageState>(FilterStateKey);
-                if (saved.Success && saved.Value is { } s)
-                {
-                    _filter = new ListingFilterDto
-                    {
-                        SearchText       = s.SearchText,
-                        PriceMin         = s.PriceMin,
-                        PriceMax         = s.PriceMax,
-                        AreaBuiltUpMin   = s.AreaBuiltUpMin,
-                        AreaBuiltUpMax   = s.AreaBuiltUpMax,
-                        AreaLandMin      = s.AreaLandMin,
-                        AreaLandMax      = s.AreaLandMax,
-                        PropertyType     = s.PropertyType,
-                        OfferType        = s.OfferType,
-                        Region           = s.Region,
-                        District         = s.District,
-                        Municipality     = s.Municipality,
-                        Page             = s.TablePage > 0 ? s.TablePage : 1,
-                        PageSize         = 20,
-                    };
-                    _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
-                    _activeQuickFilter    = s.ActiveQuickFilter;
-                    _cardView             = s.CardView;
-                    _cardPage             = s.CardPage;
-                    // Restore stránky tabulky (0-indexed pro MudTable, uloženo 1-indexed)
-                    // Prerendering je vypnutý → OnInitializedAsync běží jen jednou v interaktivním
-                    // módu → CurrentPage binding funguje správně.
-                    _tableCurrentPage = Math.Max(0, s.TablePage - 1);
-
-                    // Vymaz po načtení – stav je jednorázový (byl použit)
-                    await SessionStorage.DeleteAsync(FilterStateKey);
-
-                    // Pro kartový pohled načteme data okamžitě (MudTable se načítá sám)
-                    if (_cardView)
-                        await LoadCardsAsync();
-                }
-            }
-            catch
-            {
-                // SessionStorage nemusí být dostupná při prvním renderu (prerendering)
-            }
+            // Pro kartový pohled načteme data (MudTable se načítá sám přes ServerData)
+            if (restoredState?.CardView == true)
+                await LoadCardsAsync();
         }
         catch (Exception ex)
         {
