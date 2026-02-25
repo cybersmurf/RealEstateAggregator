@@ -17,7 +17,8 @@ CREATE SCHEMA IF NOT EXISTS re_realestate;
 SET search_path TO re_realestate, public;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS vector; -- pgvector for semantic search
+CREATE EXTENSION IF NOT EXISTS vector;   -- pgvector pro semantic search
+CREATE EXTENSION IF NOT EXISTS postgis;  -- PostGIS pro prostorové dotazy (ST_Buffer, ST_Intersects atd.)
 
 -- ============================================================================
 -- TABLES
@@ -86,7 +87,14 @@ CREATE TABLE re_realestate.listings (
     last_seen_at timestamptz NOT NULL DEFAULT now(),
     is_active boolean NOT NULL DEFAULT true,
     
-    -- 🔥 PGVECTOR: Embedding popisu pro semantické vyhledávání
+    -- � GPS souřadnice (vyplní scraper nebo geocoder)
+    latitude  double precision,             -- WGS84 zeměpisná šířka
+    longitude double precision,             -- WGS84 zeměpisná délka
+    location_point geometry(Point, 4326),   -- Computed z lat/lng pomocí triggeru
+    geocoded_at timestamptz,                -- Kdy bylo geokódováno
+    geocode_source text,                    -- 'scraper' | 'nominatim' | 'manual'
+    
+    -- �🔥 PGVECTOR: Embedding popisu pro semantické vyhledávání
     description_embedding vector(1536),     -- OpenAI text-embedding-3-small
     
     CONSTRAINT listings_url_unique UNIQUE (url),
@@ -125,6 +133,30 @@ CREATE INDEX idx_listings_description_embedding_hnsw
     ON re_realestate.listings
     USING hnsw (description_embedding vector_l2_ops)
     WITH (m = 16, ef_construction = 64);
+
+-- 📍 PostGIS: GIST index pro prostorové dotazy (ST_Intersects, ST_DWithin)
+CREATE INDEX idx_listings_location_point
+    ON re_realestate.listings
+    USING GIST (location_point)
+    WHERE location_point IS NOT NULL;
+
+-- Trigger: automaticky udržuje location_point synchronizovaný s lat/lng
+CREATE OR REPLACE FUNCTION re_realestate.sync_location_point()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.latitude IS NOT NULL AND NEW.longitude IS NOT NULL THEN
+        NEW.location_point := ST_SetSRID(ST_MakePoint(NEW.longitude, NEW.latitude), 4326);
+    ELSE
+        NEW.location_point := NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_listings_sync_location
+    BEFORE INSERT OR UPDATE OF latitude, longitude
+    ON re_realestate.listings
+    FOR EACH ROW EXECUTE FUNCTION re_realestate.sync_location_point();
 
 -- Full-text search index (optional, but recommended)
 -- Generovaný sloupec pro kombinovaný fulltext search
@@ -292,6 +324,38 @@ COMMENT ON TABLE re_realestate.scrape_jobs IS 'Async scraping joby - tracking si
 COMMENT ON COLUMN re_realestate.scrape_jobs.source_codes IS 'Array zdrojů pour scrapeovat (REMAX, MMR, SREALITY, atd.)';
 COMMENT ON COLUMN re_realestate.scrape_jobs.full_rescan IS 'true = full rescan všeho, false = pouze oposledy změné';
 
+-- ----------------------------------------------------------------------------
+-- Spatial Areas (Pojmenované prostorové oblasti pro filtrování)
+-- Ukládají koridory, obdélníky, polygony pojmenované uživatelem
+-- ----------------------------------------------------------------------------
+CREATE TABLE re_realestate.spatial_areas (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        text NOT NULL,                  -- "Brno–Znojmo trasa 5km"
+    description text,
+    area_type   text NOT NULL DEFAULT 'corridor', -- 'corridor' | 'bbox' | 'polygon' | 'circle'
+    
+    -- Geometrie v WGS84 (EPSG:4326)
+    geom        geometry(Geometry, 4326) NOT NULL,
+    
+    -- Metadata koridoru (pro corridor type)
+    start_city  text,   -- "Brno"
+    end_city    text,   -- "Znojmo"
+    buffer_m    integer, -- Buffer v metrech (default 5000 = 5km)
+    
+    is_active   boolean NOT NULL DEFAULT true,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_spatial_areas_geom
+    ON re_realestate.spatial_areas
+    USING GIST (geom);
+
+CREATE INDEX idx_spatial_areas_is_active
+    ON re_realestate.spatial_areas (is_active);
+
+COMMENT ON TABLE re_realestate.spatial_areas IS 'Uložené prostorové oblasti pro filtrování inzerátů (koridory, polygony)';
+
 -- ============================================================================
 -- FUNCTIONS & TRIGGERS
 -- ============================================================================
@@ -308,6 +372,12 @@ $$ LANGUAGE plpgsql;
 -- Apply trigger to sources
 CREATE TRIGGER update_sources_updated_at
     BEFORE UPDATE ON re_realestate.sources
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Apply trigger to spatial_areas
+CREATE TRIGGER update_spatial_areas_updated_at
+    BEFORE UPDATE ON re_realestate.spatial_areas
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 

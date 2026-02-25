@@ -14,6 +14,8 @@ import logging
 from .schemas import ScrapeTriggerRequest, ScrapeTriggerResponse, ScrapeJob
 from core.runner import run_scrape_job
 from core.database import init_db_manager, get_db_manager
+from core.geocoding import bulk_geocode, geocode_address
+from core.ruian_service import lookup_ruian_address, bulk_ruian_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -214,3 +216,133 @@ async def list_scrape_jobs(limit: int = 50, status: str = None) -> list[ScrapeJo
         )
         for job in jobs_data
     ]
+
+
+# ============================================================================
+# GEOCODING ENDPOINTS
+# ============================================================================
+
+@app.post("/v1/geocode/bulk")
+async def trigger_bulk_geocode(background_tasks: BackgroundTasks, batch_size: int = 50):
+    """Spustí dávkové geokódování inzerátů bez GPS souřadnic pomocí Nominatim."""
+    batch_size = min(max(1, batch_size), 200)
+    db_manager = get_db_manager()
+
+    async def _run_geocode():
+        count = await bulk_geocode(db_manager, batch_size=batch_size)
+        logger.info(f"Bulk geocoding dokončen: {count} inzerátů geokódováno")
+
+    background_tasks.add_task(_run_geocode)
+    return {"status": "started", "batch_size": batch_size, "message": "Geocoding běží na pozadí"}
+
+
+@app.get("/v1/geocode/single")
+async def geocode_single(address: str, country: str = "CZ"):
+    """Geokóduje jedinou adresu pomocí Nominatim – pro testování."""
+    result = await geocode_address(address, country=country)
+    if result:
+        lat, lon = result
+        return {"latitude": lat, "longitude": lon, "address": address}
+    raise HTTPException(status_code=404, detail=f"Adresa nenalezena: '{address}'")
+
+
+@app.get("/v1/geocode/stats")
+async def geocode_stats():
+    """Statistika geokódování – kolik inzerátů má / nemá GPS souřadnice."""
+    db_manager = get_db_manager()
+    async with db_manager.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE latitude IS NOT NULL) AS with_coords,
+                COUNT(*) FILTER (WHERE latitude IS NULL AND is_active = true) AS active_without_coords,
+                COUNT(*) FILTER (WHERE geocode_source = 'scraper') AS from_scraper,
+                COUNT(*) FILTER (WHERE geocode_source = 'nominatim') AS from_nominatim
+            FROM re_realestate.listings
+            """
+        )
+    return {
+        "total": row["total"],
+        "with_coords": row["with_coords"],
+        "active_without_coords": row["active_without_coords"],
+        "from_scraper": row["from_scraper"],
+        "from_nominatim": row["from_nominatim"],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ČÚZK / RUIAN – Katastr nemovitostí
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/v1/ruian/single")
+async def ruian_single(address: str, municipality: str = ""):
+    """
+    Vyhledá adresu v RUIAN a vrátí kód adresního místa + odkaz na nahlížení do KN.
+    Parametry:
+      address    – adresa (nebo jen název obce)
+      municipality – název obce (preferovaný vstup, přesnější výsledky)
+    """
+    result = await lookup_ruian_address(address, municipality=municipality or None)
+    return result
+
+
+@app.post("/v1/ruian/bulk")
+async def ruian_bulk(
+    background_tasks: BackgroundTasks,
+    batch_size: int = 50,
+    overwrite_not_found: bool = False,
+):
+    """
+    Hromadné vyhledávání RUIAN pro inzeráty bez katastrálních dat.
+    Výsledky se ukládají do tabulky listing_cadastre_data.
+    ⚠️ Pomalé kvůli rate limitingu (1 req/s). Běží na pozadí.
+    """
+    db_manager = get_db_manager()
+    batch_size = min(max(batch_size, 1), 200)
+
+    async def _run():
+        stats = await bulk_ruian_lookup(
+            db_manager,
+            batch_size=batch_size,
+            overwrite_not_found=overwrite_not_found,
+        )
+        logger.info(f"RUIAN bulk hotovo: {stats}")
+
+    background_tasks.add_task(_run)
+    return {
+        "status": "started",
+        "batch_size": batch_size,
+        "overwrite_not_found": overwrite_not_found,
+        "message": "RUIAN bulk lookup běží na pozadí",
+    }
+
+
+@app.get("/v1/ruian/stats")
+async def ruian_stats():
+    """Statistika RUIAN / katastrálních dat v DB."""
+    db_manager = get_db_manager()
+    async with db_manager.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                COUNT(*) AS total_listings,
+                COUNT(lcd.id) AS with_cadastre_data,
+                COUNT(lcd.id) FILTER (WHERE lcd.fetch_status = 'found') AS ruian_found,
+                COUNT(lcd.id) FILTER (WHERE lcd.fetch_status = 'not_found') AS ruian_not_found,
+                COUNT(lcd.id) FILTER (WHERE lcd.fetch_status = 'error') AS ruian_error,
+                COUNT(lcd.id) FILTER (WHERE lcd.fetch_status = 'manual') AS manual
+            FROM re_realestate.listings l
+            LEFT JOIN re_realestate.listing_cadastre_data lcd ON lcd.listing_id = l.id
+            WHERE l.is_active = true
+            """
+        )
+
+    return {
+        "total_active_listings": row["total_listings"],
+        "with_cadastre_data": row["with_cadastre_data"],
+        "ruian_found": row["ruian_found"],
+        "ruian_not_found": row["ruian_not_found"],
+        "ruian_error": row["ruian_error"],
+        "manual": row["manual"],
+    }

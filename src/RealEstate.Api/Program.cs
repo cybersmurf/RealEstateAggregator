@@ -103,6 +103,8 @@ app.MapExportEndpoints();
 app.MapDriveAuthEndpoints();
 app.MapOneDriveAuthEndpoints();
 app.MapRagEndpoints();
+app.MapSpatialEndpoints();
+app.MapCadastreEndpoints();
 
 // ─── Scraping endpoints – chráněno API klíčem ─────────────────────────────────
 app.MapScrapingEndpoints()

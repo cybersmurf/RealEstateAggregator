@@ -23,6 +23,8 @@
     <Compile Include="Contracts/Rag/*.cs" />
     <Compile Include="Contracts/Scraping/*.cs" />
     <Compile Include="Contracts/Sources/*.cs" />
+    <Compile Include="Contracts/Spatial/*.cs" />
+    <Compile Include="Contracts/Cadastre/*.cs" />
     <Compile Include="Contracts/UserPhotos/*.cs" />
     <Compile Include="Endpoints/*.cs" />
     <Compile Include="Services/*.cs" />

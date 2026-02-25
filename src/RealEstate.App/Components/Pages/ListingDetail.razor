@@ -165,6 +165,91 @@
                 <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">@_listing.Description</MudText>
             </MudPaper>
 
+            <!-- Katastr nemovitosti -->
+            <MudPaper Class="pa-4">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountBalance" Color="Color.Info" />
+                    <MudText Typo="Typo.h6">Katastr nemovitosti</MudText>
+                    @if (_cadastreData?.FetchStatus == "found")
+                    {
+                        <MudChip T="string" Color="Color.Success" Size="Size.Small"
+                                 Icon="@Icons.Material.Filled.CheckCircle">
+                            RUIAN @_cadastreData.RuianKod
+                        </MudChip>
+                    }
+                </MudStack>
+
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                    Adresa pro vyhledavani: <strong>@_listing.LocationText</strong>
+                </MudText>
+
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Co zkontrolovat v KN:</MudText>
+                <MudSimpleTable Dense="true" Class="mb-3" Style="font-size:0.85em">
+                    <tbody>
+                        <tr>
+                            <td>&#x1F534;</td>
+                            <td><strong>Zastavni prava</strong></td>
+                            <td>Hypoteky a exekuce na listu vlastnictvi (LV)</td>
+                        </tr>
+                        <tr>
+                            <td>&#x1F7E1;</td>
+                            <td><strong>Vecna bremena</strong></td>
+                            <td>Pravo pruchodu, vedeni siti, uzivani treti osobou</td>
+                        </tr>
+                        <tr>
+                            <td>&#x26A0;&#xFE0F;</td>
+                            <td><strong>Vymera pozemku</strong></td>
+                            <td>Overit vs. @(_listing.AreaLand.HasValue ? _listing.AreaLand.Value.ToString("N0") + " m²" : "?") z inzeratu</td>
+                        </tr>
+                        <tr>
+                            <td>&#x26A0;&#xFE0F;</td>
+                            <td><strong>Druh pozemku</strong></td>
+                            <td>Zastavena plocha / zahrada / orna puda</td>
+                        </tr>
+                        <tr>
+                            <td>&#x26A0;&#xFE0F;</td>
+                            <td><strong>Pristupova cesta</strong></td>
+                            <td>Na cizim pozemku nebo vecne bremeno?</td>
+                        </tr>
+                    </tbody>
+                </MudSimpleTable>
+
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Info"
+                               StartIcon="@Icons.Material.Filled.OpenInNew"
+                               Href="@GetCadastreUrl()"
+                               Target="_blank">
+                        Otevrit v KN
+                    </MudButton>
+                    @if (_cadastreData?.FetchStatus != "found")
+                    {
+                        <MudTooltip Text="Nacte primy odkaz na nahlizenidokn.cuzk.cz">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.LocationOn"
+                                       OnClick="FetchRuianAsync"
+                                       Disabled="_cadastreLoading">
+                                @if (_cadastreLoading)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-1" />
+                                    <span>Hledam...</span>
+                                }
+                                else
+                                {
+                                    <span>Najit primy odkaz (RUIAN)</span>
+                                }
+                            </MudButton>
+                        </MudTooltip>
+                    }
+                    @if (_cadastreData?.FetchStatus == "not_found")
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Warning">Adresa v RUIAN nenalezena</MudText>
+                    }
+                </MudStack>
+            </MudPaper>
+
             <!-- User State -->
             <MudPaper Class="pa-4">
                 <MudText Typo="Typo.h6" Class="mb-3">Můj stav</MudText>
@@ -642,6 +727,11 @@
     private string? OneDriveInspectionId => _oneDriveResult?.InspectionFolderId ?? _exportState?.OneDriveInspectionFolderId;
     private bool OneDriveExportedButNoSession => _oneDriveResult is null && _exportState?.OneDriveFolderId is not null;
 
+    // Katastr nemovitosti (RUIAN)
+    private CadastreDataDto? _cadastreData;
+    private bool _cadastreLoading;
+    private record CadastreDataDto(Guid Id, Guid ListingId, long? RuianKod, string? CadastreUrl, string FetchStatus, DateTime FetchedAt);
+
     // RAG Chat
     private string _ragQuestion = string.Empty;
     private string? _ragAnswer;
@@ -680,6 +770,49 @@
         await LoadListingAsync();
         await LoadExportStateAsync();
         await LoadRagAnalysesAsync();
+        await LoadCadastreDataAsync();
+    }
+
+    private async Task LoadCadastreDataAsync()
+    {
+        try
+        {
+            _cadastreData = await Http.GetFromJsonAsync<CadastreDataDto>(
+                $"api/cadastre/listings/{Id}", _cts.Token);
+        }
+        catch { /* katastralni data jsou optional */ }
+    }
+
+    private string GetCadastreUrl()
+    {
+        if (_cadastreData?.FetchStatus == "found" && !string.IsNullOrWhiteSpace(_cadastreData.CadastreUrl))
+            return _cadastreData.CadastreUrl;
+        return "https://nahlizenidokn.cuzk.cz/";
+    }
+
+    private async Task FetchRuianAsync()
+    {
+        _cadastreLoading = true;
+        try
+        {
+            var response = await Http.PostAsync($"api/cadastre/listings/{Id}/fetch", null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _cadastreData = await response.Content.ReadFromJsonAsync<CadastreDataDto>();
+                if (_cadastreData?.FetchStatus == "found")
+                    Snackbar.Add("Primy odkaz na KN nalezen", Severity.Success);
+                else
+                    Snackbar.Add("Adresa v RUIAN nenalezena - otevri KN rucne", Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"RUIAN chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cadastreLoading = false;
+        }
     }
 
     private async Task LoadExportStateAsync()

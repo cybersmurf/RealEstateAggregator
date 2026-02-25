@@ -138,6 +138,18 @@ Na začátek dej hlavičku:
 **🟢 Nízká rizika**:
 - {např. právní spory — standardní ověření KN, povodňové riziko nízké}
 
+**📋 Co ověřit v katastru nemovitostí (KN):**
+
+| Co ověřit | Proč | Závažnost |
+|---|---|---|
+| Zástavní práva (hypotéky, exekuce) na LV | Kupující může přebrat dluh prodávajícího | 🔴 Kritické |
+| Věcná břemena (průchod, vedení sítí, nájemní právo) | Omezuje užívání nemovitosti | 🟡 Střední |
+| Skutečná výměra pozemku vs. inzerát | Rozdíl = argument pro slevu nebo problém při kolaudaci | ⚠️ Ověřit |
+| Druh pozemku (zahrada / zastavěná plocha / orná půda) | Orná půda má omezení stavby a jiný převod | ⚠️ Ověřit |
+| Přístupová cesta – vlastní, nebo cizí pozemek? | Bez přístupu nelze nemovitost užívat ani prodat | 🔴 Kritické |
+
+*Link na nahlížení.cuzk.cz je dostupný na detailu inzerátu (tlačítko „Otevřít v KN").*
+
 ---
 
 ### 7. INVESTIČNÍ ANALÝZA

@@ -198,9 +198,10 @@ class DatabaseManager:
                     id, source_id, source_code, source_name, external_id, url,
                     title, description, property_type, offer_type, price,
                     location_text, area_built_up, area_land, disposition,
+                    latitude, longitude, geocoded_at, geocode_source,
                     first_seen_at, last_seen_at, is_active
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, true)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, true)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
                     url = EXCLUDED.url,
@@ -213,6 +214,16 @@ class DatabaseManager:
                     area_built_up = EXCLUDED.area_built_up,
                     area_land = EXCLUDED.area_land,
                     disposition = EXCLUDED.disposition,
+                    latitude = COALESCE(EXCLUDED.latitude, re_realestate.listings.latitude),
+                    longitude = COALESCE(EXCLUDED.longitude, re_realestate.listings.longitude),
+                    geocoded_at = CASE
+                        WHEN EXCLUDED.latitude IS NOT NULL THEN EXCLUDED.geocoded_at
+                        ELSE re_realestate.listings.geocoded_at
+                    END,
+                    geocode_source = CASE
+                        WHEN EXCLUDED.latitude IS NOT NULL THEN EXCLUDED.geocode_source
+                        ELSE re_realestate.listings.geocode_source
+                    END,
                     last_seen_at = EXCLUDED.last_seen_at,
                     is_active = true
                 RETURNING id
@@ -232,6 +243,10 @@ class DatabaseManager:
                 listing_data.get("area_built_up"),
                 listing_data.get("area_land"),
                 listing_data.get("disposition"),
+                listing_data.get("latitude"),
+                listing_data.get("longitude"),
+                now if listing_data.get("latitude") is not None else None,
+                listing_data.get("geocode_source", "scraper") if listing_data.get("latitude") is not None else None,
                 now,
                 now
             )

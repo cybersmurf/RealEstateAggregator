@@ -1,8 +1,8 @@
 # GitHub Copilot Instructions – RealEstateAggregator
 
 **Project:** Real Estate Aggregator with Semantic Search & AI Analysis  
-**Stack:** .NET 10, Blazor Server, PostgreSQL 15 + pgvector, Python FastAPI scrapers  
-**Last Updated:** 23. února 2026 (Session 4)
+**Stack:** .NET 10, Blazor Server, PostgreSQL 15 + **PostGIS 3.4** + pgvector, Python FastAPI scrapers  
+**Last Updated:** 26. února 2026 (Session 7)
 
 ---
 
@@ -462,10 +462,20 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **ai_instrukce_newbuild.md** – kompletní přepis: sekce „Klíčové technologie a vybavení" místo renovace, tabulka technologií (TČ, rekuperace, smart home), NEPIŠ o rekonstrukci
 - [x] **Unit testy 39 → 111** (+72 testů): `ExportBuilderTests.cs` (IsNewBuild 14 variant, SanitizeName, BuildDataJson, PhotoLinks, PageGuard), `RagServiceTests.cs` (CosineSimilarity 8 variant, BuildListingText 11 variant), `UnitTest1.cs` (+Auction enum, +Auction jako invalid user status)
 
+### ✅ Dokončeno v Session 7 (2026-02-26)
+- [x] **PostGIS 3.4 + pgvector ARM64** – nativní Docker image `postgis/postgis:15-3.4` s `platform: linux/arm64/v8` (bez Rosetta emulace); migrace `scripts/migrate_postgis.sql` přidává geometrické sloupce + spatial_areas tabulku
+- [x] **ČÚZK/RUIAN integrace** – `listing_cadastre_data` tabulka (`scripts/migrate_cadastre.sql`), `ruian_service.py`, 3 RUIAN endpointy na scraper API (`/v1/ruian/single`, `/v1/ruian/bulk`, `/v1/ruian/stats`), `CadastreService.cs` + `ICadastreService` (.NET), 4 endpointy `/api/cadastre/...`
+- [x] **KN v detailu inzerátu** – `ListingDetail.razor`: sekce „Katastr nemovitostí", tlačítko „Otevřít v KN" (nahlížení.cuzk.cz deep link `?typeCode=adresniMisto&id={ruianKod}`), tlačítko „Najít přímý odkaz (RUIAN)"
+- [x] **KN checklist v AI šablonách** – tabulka „Co ověřit v katastru nemovitostí" (zástavní práva, věcná břemena, výměra, druh pozemku, přístupová cesta) v `ai_instrukce_existing.md` i `ai_instrukce_newbuild.md`
+- [x] **Bug fix: DatabaseManager.acquire()** – opraveno neexistující `get_connection()` → `async with db_manager.acquire() as conn:` v `ruian_service.py` a `main.py`
+- [x] **Bug fix: spatial_areas trigger** – `CREATE OR REPLACE FUNCTION update_updated_at_column()` přidáno do `migrate_postgis.sql` (funkce chyběla při prvním běhu mimo init-db.sql)
+- [x] **ARM64 collation fix** – `ALTER DATABASE realestate_dev REFRESH COLLATION VERSION` po přechodu na ARM64 postgres image
+- [x] **Unit testy 111 → 141** (+30 testů): `CadastreTests.cs` – `PreferMunicipality` (10 variant přes reflection), `ListingCadastreData` defaults, `ListingCadastreDto` record equality, `BulkRuianResultDto`, `SaveCadastreDataRequest`, RUIAN URL formát (3 InlineData), `RuianFindUrl` konstanta přes reflection
+
 ### High Priority (zbývá)
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
-- [ ] CENTURY21 logo – placeholder SVG (274B), reálné logo za WP loginem
 - [ ] Kontejnerizace Blazor App – přidat do docker-compose nebo přejít na .NET Aspire
+- [ ] Prostorové filtrování – `ST_Buffer` koridor (PostGIS), `/api/spatial/corridor` endpoint, Leaflet mapa v Blazor
 
 ### Scraper kvalita (zdroje s málo výsledky)
 - [ ] ZNOJMOREALITY (5 inz.), DELUXREALITY (5), PRODEJMETO (4), LEXAMO (4) – ověřit selektory
@@ -556,6 +566,18 @@ A explicitně vyjmenovat `<Compile Include="Subdir/*.cs" />` bez `**` rekurze. H
 **Problem:** AI instrukce šablona se nezměnila i po editaci `.md` souboru v kontejneru  
 **Solution:** Soubory v `/app/Templates/` jsou součástí image – `docker cp` funguje jen do restartu. Trvalá změna: `docker compose build --no-cache api && docker compose up -d --no-deps api`.
 
+**Problem:** Python scraper volá `db_manager.get_connection()` → `AttributeError`  
+**Solution:** DatabaseManager nemá metodu `get_connection()`. Správný pattern: `async with db_manager.acquire() as conn:`. Pro READ a WRITE operace v jedné funkci použij dvě oddělené `acquire()` volání.
+
+**Problem:** `CREATE TRIGGER` selže s `function update_updated_at_column() does not exist`  
+**Solution:** Funkce je definována v `init-db.sql` (běží jen na čistém DB). Pro migrace existující DB musí `migrate_postgis.sql` obsahovat `CREATE OR REPLACE FUNCTION update_updated_at_column()` před triggerem.
+
+**Problem:** Postgres Docker image hlásí collation version mismatch po přechodu na ARM64 image  
+**Solution:** `docker exec -it realestate-db psql -U postgres -d realestate_dev -c "ALTER DATABASE realestate_dev REFRESH COLLATION VERSION;"`
+
+**Problem:** `platform: linux/arm64/v8` chybí v docker-compose.yml – Rosetta AMD64 emulace  
+**Solution:** `postgis/postgis:15-3.4` bez platform spec stáhne AMD64 variantu a běží přes Rosetta 2. Přidej `platform: linux/arm64/v8` do postgres service v docker-compose.yml + `docker compose pull postgres && docker compose up -d --no-deps postgres`.
+
 ---
 
 ## Resources
@@ -566,7 +588,9 @@ A explicitně vyjmenovat `<Compile Include="Subdir/*.cs" />` bez `**` rekurze. H
 - **API Contracts:** /docs/API_CONTRACTS.md
 - **Backlog:** /docs/BACKLOG.md
 - **Database Schema:** /scripts/init-db.sql
-- **Loga zdrojů:** /src/RealEstate.App/wwwroot/images/logos/ (11 souborů SVG/PNG)
+- **PostGIS migrace:** /scripts/migrate_postgis.sql
+- **Katastr migrace:** /scripts/migrate_cadastre.sql
+- **Loga zdrojů:** /src/RealEstate.App/wwwroot/images/logos/ (12 souborů SVG/PNG)
 
 ---
 
@@ -592,8 +616,8 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 25. února 2026 (Session 6)  
-**Current Commit:** session 6 – AI šablony refactor, +72 unit testů
-**DB stav:** ~1 378 aktivních inzerátů, 12 zdrojů (SREALITY=880, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
-**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432, MCP :8002  
-**Unit testy:** 111 testů zelených (`dotnet test tests/RealEstate.Tests`)
+**Last Updated:** 26. února 2026 (Session 7)  
+**Current Commit:** session 7 – PostGIS spatial + RUIAN/cadastre integrace, +30 unit testů
+**DB stav:** ~1 383 aktivních inzerátů, 12 zdrojů (SREALITY=880, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
+**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
+**Unit testy:** 141 testů zelených (`dotnet test tests/RealEstate.Tests`)

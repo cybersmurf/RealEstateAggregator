@@ -70,6 +70,28 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
         });
 
+        // 📍 PostGIS Spatial service
+        services.AddScoped<ISpatialService, SpatialService>();
+
+        // 🏛️ ČÚZK/RUIAN Katastr service
+        services.AddScoped<ICadastreService, CadastreService>();
+        services.AddHttpClient("Ruian", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "RealEstateAggregator/1.0 (https://github.com/cybersmurf/RealEstateAggregator)");
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddHttpClient("Nominatim", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "RealEstateAggregator/1.0 (https://github.com/cybersmurf/RealEstateAggregator)");
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddHttpClient("Osrm", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+
         return services;
     }
 

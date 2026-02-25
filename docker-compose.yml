@@ -1,6 +1,10 @@
 services:
   postgres:
-    image: pgvector/pgvector:pg15
+    build:
+      context: .
+      dockerfile: docker/postgres.Dockerfile
+    platform: linux/arm64/v8
+    image: realestate-postgres:postgis-pgvector
     container_name: realestate-db
     environment:
       POSTGRES_DB: realestate_dev

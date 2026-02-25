@@ -141,6 +141,18 @@ _Poznámka: odhad oprav = 0 (novostavba, záruční lhůta min. 3 roky)._
 **🟢 Nízká rizika**:
 - {např. standardní developerský projekt, záruky dle NOZ min. 3 roky, notářská úschova sjednána}
 
+**📋 Co ověřit v katastru nemovitostí (KN) – novostavba:**
+
+| Co ověřit | Proč | Závažnost |
+|---|---|---|
+| Zástavní práva developera na pozemku / budově | Developer si mohl vzít hypotéku na výstavbu – musí být smazána při prodeji | 🔴 Kritické |
+| Druh a výměra pozemku – stavební parcela vs. orná půda | Ovlivňuje stavební povolení a kolaudaci | 🔴 Kritické |
+| Věcná břemena a přístupová cesta | Soukromá komunikace = plat správci, průchod třetí osoby | 🟡 Střední |
+| Kdo je vlastník pozemku (developer / SPV / třetí strana) | Novostavba na cizím pozemku = komplikace při prodeji | ⚠️ Ověřit |
+| Datum zápisu vlastnictví developera | Dlouhý holding = spekulace vs. reálný projekt | ⚠️ Ověřit |
+
+*Link na nahlížení.cuzk.cz je dostupný na detailu inzerátu (tlačítko „Otevřít v KN").*
+
 ---
 
 ### 7. INVESTIČNÍ ANALÝZA

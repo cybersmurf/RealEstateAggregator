@@ -21,7 +21,9 @@ public sealed class RealEstateDbContext : DbContext
     public DbSet<AnalysisJob> AnalysisJobs => Set<AnalysisJob>();
     public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();
     public DbSet<UserListingPhoto> UserListingPhotos => Set<UserListingPhoto>();
+    public DbSet<SpatialArea> SpatialAreas => Set<SpatialArea>();
     public DbSet<ListingAnalysis> ListingAnalyses => Set<ListingAnalysis>();
+    public DbSet<ListingCadastreData> ListingCadastreData => Set<ListingCadastreData>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -105,6 +107,15 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.LastSeenAt).HasColumnName("last_seen_at").HasColumnType("timestamptz");
             entity.Property(e => e.IsActive).HasColumnName("is_active");
             entity.Property(e => e.DescriptionEmbedding).HasColumnName("description_embedding").HasColumnType("vector(1536)");
+
+            // 📍 GPS souřadnice
+            entity.Property(e => e.Latitude).HasColumnName("latitude");
+            entity.Property(e => e.Longitude).HasColumnName("longitude");
+            entity.Property(e => e.GeocodedAt).HasColumnName("geocoded_at").HasColumnType("timestamptz");
+            entity.Property(e => e.GeocodeSource).HasColumnName("geocode_source").HasMaxLength(20);
+
+            // location_point je spravován PostGIS triggerem – ignorujeme přímým EF
+            entity.Ignore("LocationPoint");
 
             entity.Property(e => e.DriveFolderId).HasColumnName("drive_folder_id");
             entity.Property(e => e.DriveInspectionFolderId).HasColumnName("drive_inspection_folder_id");
@@ -294,6 +305,66 @@ public sealed class RealEstateDbContext : DbContext
 
             entity.HasIndex(e => e.ListingId);
             entity.HasIndex(e => e.CreatedAt);
+        });
+
+        // =====================================================================
+        // ListingCadastreData – ČÚZK/RUIAN katastrální data
+        // =====================================================================
+        modelBuilder.Entity<ListingCadastreData>(entity =>
+        {
+            entity.ToTable("listing_cadastre_data", "re_realestate");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.RuianKod).HasColumnName("ruian_kod");
+            entity.Property(e => e.ParcelNumber).HasColumnName("parcel_number").HasMaxLength(50);
+            entity.Property(e => e.LvNumber).HasColumnName("lv_number").HasMaxLength(50);
+            entity.Property(e => e.LandAreaM2).HasColumnName("land_area_m2");
+            entity.Property(e => e.LandType).HasColumnName("land_type").HasMaxLength(100);
+            entity.Property(e => e.OwnerType).HasColumnName("owner_type").HasMaxLength(50);
+            entity.Property(e => e.EncumbrancesJson).HasColumnName("encumbrances").HasColumnType("jsonb");
+            entity.Property(e => e.AddressSearched).HasColumnName("address_searched").IsRequired();
+            entity.Property(e => e.CadastreUrl).HasColumnName("cadastre_url").HasMaxLength(500);
+            entity.Property(e => e.FetchStatus).HasColumnName("fetch_status").HasMaxLength(20)
+                .HasDefaultValue("pending");
+            entity.Property(e => e.FetchError).HasColumnName("fetch_error");
+            entity.Property(e => e.FetchedAt).HasColumnName("fetched_at").HasColumnType("timestamptz");
+            entity.Property(e => e.RawRuianJson).HasColumnName("raw_ruian").HasColumnType("jsonb");
+
+            entity.HasOne(e => e.Listing)
+                .WithMany()
+                .HasForeignKey(e => e.ListingId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.ListingId).IsUnique();
+            entity.HasIndex(e => e.FetchStatus);
+        });
+
+        // =====================================================================
+        // SpatialArea – pojmenované prostorové oblasti (koridory, polygony)
+        // =====================================================================
+        modelBuilder.Entity<SpatialArea>(entity =>
+        {
+            entity.ToTable("spatial_areas", "re_realestate");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.AreaType).HasColumnName("area_type").HasMaxLength(30);
+
+            // geom je PostGIS geometrie – čteme jako WKT text přes raw SQL, EF mapuje na string
+            entity.Property(e => e.GeomWkt).HasColumnName("geom").HasColumnType("geometry");
+
+            entity.Property(e => e.StartCity).HasColumnName("start_city").HasMaxLength(100);
+            entity.Property(e => e.EndCity).HasColumnName("end_city").HasMaxLength(100);
+            entity.Property(e => e.BufferMeters).HasColumnName("buffer_m");
+            entity.Property(e => e.IsActive).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamptz");
+
+            entity.HasIndex(e => e.IsActive);
         });
     }
 }

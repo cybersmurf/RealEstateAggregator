@@ -40,7 +40,13 @@ public class Listing
     public DateTime? LastSeenAt { get; set; }
     public bool IsActive { get; set; } = true;
     
-    // 🔥 pgvector: OpenAI embedding (1536 dimensions) for semantic search
+    // � GPS souřadnice (z scraperu nebo Nominatim geocoderu)
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public DateTime? GeocodedAt { get; set; }
+    public string? GeocodeSource { get; set; }   // "scraper" | "nominatim" | "manual"
+
+    // �🔥 pgvector: OpenAI embedding (1536 dimensions) for semantic search
     public Vector? DescriptionEmbedding { get; set; }
 
     // Export folder IDs – ukládámy po úspěšném exportu, aby byl export idempotentní
