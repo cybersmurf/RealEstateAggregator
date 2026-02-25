@@ -1,51 +1,59 @@
 # Real Estate Aggregator
 
-> **Komplexní agregátor realitních inzerátů s pokročilým filtrováním a AI analýzou**  
-> *.NET 10 • MudBlazor 9 • Playwright .NET + Python Scraping • PostgreSQL*
+> **Komplexní agregátor realitních inzerátů s pokročilým filtrováním, AI analýzou a lokálním RAG**  
+> *.NET 10 • MudBlazor 9 • pgvector • Ollama • Python Scraping • MCP*
 
 ---
 
 ## 📋 Přehled projektu
 
-Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu realitních inzerátů z různých zdrojů (realitních kanceláří). Umožňuje centralizované vyhledávání, filtrování, označování a analýzu nemovitostí bez nutnosti procházet jednotlivé weby realitek.
+Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu realitních inzerátů z 12 českých zdrojů. Podporuje centralizované vyhledávání, filtrování, AI chat nad inzeráty (RAG), export do cloudu a integraci s Claude Desktop přes MCP.
+
+**Aktuální stav:** ~1 230 aktivních inzerátů, 12 zdrojů, Docker stack plně funkční
 
 ### Klíčové funkce
 
-✅ **Automatický scraping** – pravidelný sběr inzerátů z vybraných RK  
-✅ **Jednotný datový model** – normalizace různorodých formátů  
-✅ **Pokročilé filtrování** – lokalita, cena, plocha, typ, stav  
-✅ **User management** – označování (líbí/nelíbí), poznámky, favority  
-✅ **AI analýza** – export inzerátu + fotek do cloudu pro zpracování AI  
-✅ **Moderní UI** – Blazor + MudBlazor s responsivním designem  
+✅ **Automatický scraping** – 12 zdrojů (SReality, IDNES, REMAX, Century21, MMR, Premiera Reality aj.)  
+✅ **Jednotný datový model** – normalizace PropertyType/OfferType včetně dražeb (Auction)  
+✅ **Pokročilé filtrování** – typ, nabídka, cena, lokalita, fulltextový GIN index  
+✅ **RAG + AI chat** – lokální Ollama (nomic-embed-text + qwen2.5:14b), pgvector 768 dim  
+✅ **MCP server** – 9 nástrojů pro Claude Desktop / AI asistenty  
+✅ **Cloud export s retry** – Google Drive + OneDrive, retry 3×, foto stats v UI  
+✅ **User management** – označování (líbí/nelíbí/navštívit), poznámky, favority  
+✅ **Moderní UI** – Blazor + MudBlazor 9, responzivní, filter state persistence  
 
 ---
 
 ## 🏗️ Architektura
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Frontend (Blazor + MudBlazor)             │
-│  • Listingy s filtry  • Detail inzerátu  • AI analýzy       │
-└──────────────────────┬──────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                  Frontend (Blazor + MudBlazor)                │
+│  • Listingy s filtry  • Detail + RAG chat  • Cloud export    │
+└──────────────────────┬───────────────────────────────────────┘
                        │ REST API
-┌──────────────────────▼──────────────────────────────────────┐
-│              Backend (.NET 10 - ASP.NET Core)                │
-│  • Business logika  • EF Core  • Background služby          │
-└──────────────────────┬──────────────────────────────────────┘
+┌──────────────────────▼───────────────────────────────────────┐
+│            Backend (.NET 10 - ASP.NET Core Minimal APIs)      │
+│  • ListingService  • RagService  • ExportService (GD/OD)     │
+└──────────────────────┬───────────────────────────────────────┘
                        │
-          ┌────────────┴────────────┐
-          │                         │
-┌─────────▼─────────┐    ┌─────────▼──────────┐
-│  PostgreSQL DB     │    │  Cloud Storage     │
-│  • Inzeráty        │    │  • Google Drive    │
-│  • Fotky           │    │  • OneDrive        │
-│  • User stavy      │    │  • Analytické docs │
-└────────────────────┘    └────────────────────┘
+     ┌─────────────────┼────────────────────┐
+     │                 │                    │
+┌────▼──────┐  ┌───────▼──────┐  ┌─────────▼──────────┐
+│ PostgreSQL│  │ Cloud Storage│  │ Ollama :11434       │
+│ +pgvector │  │ Google Drive │  │ nomic-embed-text    │
+│ 12 zdrojů │  │ OneDrive     │  │ qwen2.5:14b         │
+│ ~1 230 inz│  │ (retry 3x)   │  │ (lokální, offline)  │
+└───────────┘  └──────────────┘  └────────────────────-┘
+     ▲
+┌────┴──────────────────────────────────────────────────────┐
+│    Scraping (Playwright .NET + Python FastAPI :8001)       │
+│  12 zdrojů: SReality, IDNES, REMAX, C21, MMR, Premiera..  │
+└────────────────────────────────────────────────────────────┘
           ▲
-          │ DB write
-┌─────────┴──────────────────────────────────────────────────┐
-│        Scraping služby (Playwright .NET + Python)           │
-│  • REMAX (Playwright) • MMR • Prodejme.to • další zdroje   │
+┌─────────┴─────────────────────────────────────────────────┐
+│              MCP Server (Python FastMCP :8002)             │
+│  9 nástrojů – stdio (Claude Desktop) + SSE (Docker)       │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,27 +62,33 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 ## 🛠️ Technologický stack
 
 ### Backend (.NET 10)
-- **Framework**: ASP.NET Core 10.0
+- **Framework**: ASP.NET Core 10.0 Minimal APIs
 - **UI**: Blazor Web App + MudBlazor 9.x
-- **ORM**: Entity Framework Core 10
-- **Databáze**: PostgreSQL (primární) / MSSQL
-- **API integrace**: 
-  - Google Drive API (.NET Client)
-  - Microsoft Graph API (OneDrive)
+- **ORM**: Entity Framework Core 10 + EFCore.NamingConventions
+- **Databáze**: PostgreSQL 15 + pgvector (768-dim embeddingy)
+- **AI**: Ollama (nomic-embed-text + qwen2.5:14b) / OpenAI (fallback)
+- **API integrace**: Google Drive API, Microsoft Graph API (OneDrive)
+- **Security**: API key middleware, CORS, CancellationToken pattern
 
 ### Scraping (.NET + Python)
-- **Primary**: Playwright .NET (REMAX list/detail scraping)
-- **Jazyk**: Python 3.12+
-- **HTTP**: `httpx` / `requests`
-- **Parsing**: `BeautifulSoup4` / `parsel`
-- **Headless browser**: `Playwright` (pro JS-heavy weby)
-- **DB**: `asyncpg` / `psycopg` / `SQLAlchemy`
-- **Scheduler**: `APScheduler` / cron
+- **Primary**: Python FastAPI :8001 (12 scraperů s retry logic)
+- **Playwright**: .NET scraper pro REMAX
+- **HTTP**: `httpx` + tenacity retry decorator
+- **Parsing**: `BeautifulSoup4` + regex selektory
+- **DB**: `asyncpg` pool, upsert pattern, max 20 fotek
+- **Deaktivace**: `deactivate_unseen_listings()` po `full_rescan`
+
+### AI & MCP
+- **Embeddingy**: Ollama `nomic-embed-text` (768 dim, lokální, offline)
+- **Chat**: Ollama `qwen2.5:14b` (lokální, ~9 GB, M2 Ultra)
+- **Vektorová DB**: pgvector IVFFlat index (cosine distance)
+- **MCP Server**: FastMCP 3.x, 9 nástrojů, stdio + SSE transport
 
 ### Infrastruktura
-- **Hosting**: Docker / Azure / AWS / on-premise
-- **Storage**: Google Drive / OneDrive / Azure Blob
-- **CI/CD**: GitHub Actions
+- **Hosting**: Docker Compose (5 služeb: postgres, api, app, scraper, mcp)
+- **Restart policy**: `unless-stopped` na všech službách
+- **Storage**: Google Drive / OneDrive (export s retry 3×)
+- **CI/CD**: GitHub Actions (planned)
 
 ---
 
@@ -197,22 +211,38 @@ AI analýza inzerátu
 ## 🎯 API Endpoints (přehled)
 
 ### Listings
-- `GET /api/listings` – seznam s filtrací a paginací
+- `POST /api/listings/search` – seznam s filtrací a paginací
 - `GET /api/listings/{id}` – detail inzerátu
 - `POST /api/listings/{id}/state` – uložit user stav
 
 ### Sources
 - `GET /api/sources` – seznam realitních kanceláří
 
-### Analysis
-- `POST /api/listings/{id}/analysis` – spustit AI analýzu
+### Analysis / Export
+- `POST /api/listings/{id}/analysis` – spustit AI analýzu (export GD/OD)
+- `POST /api/listings/{id}/export/drive` – export na Google Drive
+- `POST /api/listings/{id}/export/onedrive` – export na OneDrive
+
+### RAG (Retrieval-Augmented Generation)
+- `POST /api/listings/{id}/analyses` – uložit analýzu + vytvořit embedding
+- `GET /api/listings/{id}/analyses` – seznam analýz inzerátu
+- `DELETE /api/listings/{id}/analyses/{aId}` – smazat analýzu
+- `POST /api/listings/{id}/ask` – AI chat pro jeden inzerát
+- `POST /api/rag/ask` – AI chat napříč všemi inzeráty
+- `GET /api/rag/status` – stav RAG (provider, počty)
+- `POST /api/listings/{id}/embed-description` – auto-embed popisu (idempotentní)
+- `POST /api/rag/embed-descriptions` – batch embed všech inzerátů
+
+### Scraping (chráněno API klíčem `X-Api-Key`)
+- `POST /api/scraping/trigger` – spustit scraping (přes Python API)
 
 ---
 
 ## 📚 Dokumentace
-- [docs/REMAX_SCRAPING_GUIDE.md](docs/REMAX_SCRAPING_GUIDE.md) – REMAX scraping architektura a profily
-- [docs/TECHNICAL_DESIGN.md](docs/TECHNICAL_DESIGN.md) – technický návrh
+- [docs/TECHNICAL_DESIGN.md](docs/TECHNICAL_DESIGN.md) – technický návrh + RAG architektura
 - [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) – API dokumentace
+- [docs/RAG_MCP_DESIGN.md](docs/RAG_MCP_DESIGN.md) – detailní design RAG + MCP serveru
+- [docs/AI_SESSION_SUMMARY.md](docs/AI_SESSION_SUMMARY.md) – historie sessions + changelog
 - [docs/BACKLOG.md](docs/BACKLOG.md) – backlog a known issues
 
 ---
@@ -252,24 +282,32 @@ Vytvoří balíček pro AI zpracování:
 
 ## 📈 Roadmap
 
-### MVP (v1.0)
-- [x] Základní scraping (3 zdroje: Remax, MM Reality, Prodejme.to)
-- [x] .NET backend s EF Core
-- [x] Blazor frontend s MudBlazor
-- [x] Filtrování a user stavy
-- [x] AI analýza s Google Drive exportem
+### ✅ v1.0 (Sessions 1–5, únor 2026)
+- [x] 12 scraperů (SReality, IDNES, REMAX, Century21, MMR, Premiera Reality aj.)
+- [x] .NET 10 backend s EF Core + pgvector
+- [x] Blazor frontend s MudBlazor 9
+- [x] Filtrování, user stavy, filter state persistence
+- [x] Cloud export (Google Drive + OneDrive)
+- [x] Docker stack (5 služeb, restart: unless-stopped)
+- [x] OfferType.Auction + SReality dražby
+- [x] Fulltext GIN index, tiebreaker, CORS, API key security
+- [x] 39 unit testů
 
-### v1.1
+### ✅ v1.1 (Session 6, 25. února 2026)
+- [x] RAG lokální AI (pgvector + Ollama, 768 dim)
+- [x] AI chat nad inzerátem (ListingDetail.razor)
+- [x] Batch embedding (auto-embed popisu inzerátu)
+- [x] MCP server (9 nástrojů, Claude Desktop integrace)
+- [x] Cloud export retry 3× + foto stats badge v UI
+
+### Plánováno
+- [ ] Photo download pipeline (original_url → stored_url, S3/lokální)
+- [ ] HNSW index (pro > 10k vektorů)
+- [ ] Hybrid search (BM25 tsvector + cosine similarity)
+- [ ] Mapové zobrazení inzerátů (PostGIS / Leaflet)
+- [ ] Prostorové filtrování – koridor kolem trasy (ST_Buffer, RÚIAN)
 - [ ] Autentizace/autorizace (ASP.NET Identity)
-- [ ] Push notifikace o nových inzerátech
-- [ ] Export do PDF
-- [ ] Pokročilý fulltext search
-
-### v1.2
-- [ ] Mapové zobrazení inzerátů
-- [ ] Porovnání inzerátů vedle sebe
-- [ ] Integrace s AI pro automatické hodnocení
-- [ ] Mobile app (MAUI)
+- [ ] Background scheduled scraping (APScheduler / Hangfire)
 
 ---
 
@@ -284,4 +322,4 @@ Tento projekt je privátní. Všechna práva vyhrazena.
 Pro otázky a podporu kontaktujte vlastníka projektu.
 
 **Vytvořeno**: Únor 2026  
-**Verze**: 1.0.0-alpha
+**Verze**: 1.1.0 (25. února 2026 – RAG + MCP + Export retry)

@@ -1,8 +1,146 @@
 # AI Session Summary – RealEstateAggregator
-**Datum:** 23. února 2026  
-**Celková doba:** ~12 hodin (4 sessions)  
+**Datum:** 25. února 2026  
+**Celková doba:** ~16 hodin (6 sessions)  
 **Celkové commity:** 30+  
-**Status:** ✅ Production-ready full-stack aplikace, 12 scraperů, 1 236 aktivních inzerátů, Docker stack + health/CORS/retry/tsvector, 39 unit testů
+**Status:** ✅ Production-ready full-stack aplikace, 12 scraperů, ~1 230 aktivních inzerátů, RAG+pgvector+Ollama, MCP server (9 nástrojů), GD/OD export s retry, Docker stack
+
+---
+
+## ✅ Latest Updates (Session 6 – 25. února 2026)
+
+### Sub-session A: Photo Export QA & Fixes
+
+**Analýza exportních služeb** – revize `GoogleDriveExportService.cs` a `OneDriveExportService.cs`:
+
+**Nalezené problémy:**
+1. **Silent skipping bez retry** – fotka se nepodaří stáhnout, přeskočí se beze slova
+2. **Missing HTTP timeout na OneDrive** – stahování fotek mohlo viset neomezeně
+3. **Žádná photo stats v DTO** – uživatel neviděl kolik fotek bylo nahráno
+4. **UI bez zpětné vazby** – detail stránka po exportu neukazovala počty fotek
+
+**Implementované opravy:**
+
+`src/RealEstate.Api/Contracts/Export/DriveExportResultDto.cs` – přidány nová pole:
+```csharp
+public record DriveExportResultDto(
+    string FolderUrl, string FolderName, string FolderId,
+    string? InspectionFolderId = null,
+    int PhotosUploaded = 0, int PhotosTotal = 0
+) {
+    public bool AllPhotosUploaded => PhotosTotal == 0 || PhotosUploaded == PhotosTotal;
+}
+```
+
+`GoogleDriveExportService.cs` + `OneDriveExportService.cs`:
+- Retry smyčka 3× s exponenciálním backoff (`await Task.Delay(attempt * 2 seconds)`)
+- `dl.Timeout = TimeSpan.FromSeconds(30)` (OneDrive)
+- Warning log pro každou přeskočenou fotku
+- Vrací `PhotosUploaded` + `PhotosTotal` v DTO
+
+`ListingDetail.razor` – foto stats badge:
+```razor
+<MudChip Color="@(_driveResult.AllPhotosUploaded ? Color.Success : Color.Warning)">
+    📷 Fotky: @_driveResult.PhotosUploaded/@_driveResult.PhotosTotal nahráno
+</MudChip>
+```
+
+---
+
+### Sub-session B: RAG Architektura – Batch Embedding + UI Chat + Ingestor Pattern
+
+**Implementace na základě architekturního návrhu:**
+
+#### Batch Embedding (idempotentní ingestor)
+
+`IRagService.cs` – 2 nové metody:
+```csharp
+Task<ListingAnalysisDto> EmbedListingDescriptionAsync(Guid listingId, CancellationToken ct);
+Task<int> BulkEmbedDescriptionsAsync(int limit, CancellationToken ct);
+```
+
+`RagService.cs` – implementace:
+- `EmbedListingDescriptionAsync` – idempotentní, zkontroluje existenci `source="auto"`, sestaví strukturovaný text z polí inzerátu, embeduje přes Ollama
+- `BulkEmbedDescriptionsAsync` – najde všechny inzeráty bez `source="auto"` analýzy, embeduje je dávkově
+
+`RagEndpoints.cs` – 2 nové endpointy:
+```
+POST /api/listings/{id}/embed-description   → idempotentní embed popisu
+POST /api/rag/embed-descriptions            → batch embed (body: {"limit": 200})
+```
+
+#### RAG Chat UI v ListingDetail.razor
+
+Přidána kompletní sekce RAG chatu:
+- Tlačítko "Embedovat popis inzerátu" (idempotentní, zobrazí ✓ po úspěchu)
+- Textové pole pro otázku s Enter shortcutem
+- Zobrazení odpovědi AI + zdroje s cosine similarity badge
+- Warning pokud inzerát nemá žádné embeddingy
+
+Nové metody v `@code`:
+```csharp
+private async Task LoadRagStateAsync()  // načte stav embeddingu při init
+private async Task EmbedDescriptionAsync()  // POST /embed-description
+private async Task AskRagAsync()  // POST /ask, zobrazí odpověď
+```
+
+#### MCP Server – 2 nové nástroje (celkem 9)
+
+`mcp/server.py`:
+```python
+@mcp.tool()
+async def embed_description(listing_id: str) -> str: ...
+
+@mcp.tool()
+async def bulk_embed_descriptions(limit: int = 200) -> str: ...
+```
+
+#### Ingestor pattern zdokumentován
+
+`docs/RAG_MCP_DESIGN.md` – přidána sekce **Ingestor pattern**:
+- Každý zdroj (popis, PDF, e-mail, Drive) = jeden záznam v `listing_analyses` s jiným `source`
+- Aktuální source typy: `manual`, `claude`, `mcp`, `auto`
+- Příklad Python ingestoru pro PDF
+- Bulk embed příkaz
+
+---
+
+### Sub-session C: Dokumentace (Session 6)
+
+- `docs/RAG_MCP_DESIGN.md` – vytvořen + doplněn ingestor pattern + priority tabulka aktualizována
+- `docs/API_CONTRACTS.md` – doplněny RAG endpointy + embed-description sekce
+- **Build stav:** oba projekty 0 chyb po všech změnách ✅
+
+---
+
+**DB stav:** ~1 230 aktivních inzerátů (5 expired deaktivováno), 12 zdrojů  
+**MCP nástroje (celkem 9):** search_listings, get_listing, get_analyses, save_analysis, ask_listing, ask_general, list_sources, get_rag_status, **embed_description**, **bulk_embed_descriptions**
+
+---
+
+## ✅ Latest Updates (Session 5 – 24. února 2026)
+
+### Fáze: Docker restart policy + OfferType.Auction + SReality dražby + Filter persistence + MSBuild fix
+
+**Docker restart policy** – všechny 4 služby mají `restart: unless-stopped` v `docker-compose.yml`
+
+**OfferType.Auction:**
+- Přidán do `OfferType.cs` enum
+- `RealEstateDbContext.cs` HasConversion aktualizováno: `v == "Auction" ? OfferType.Auction : ...`
+- `Listings.razor` + `ListingDetail.razor` filtr support
+- `database.py` offer_type_map: `"Dražba": "Auction"`
+
+**SReality dražby:**
+- `_build_detail_url()` v `sreality_scraper.py`: `cat_type=3` → slug `drazba`
+- `deactivate_unseen_listings()` v `runner.py` – automatická deaktivace expired inzerátů po `full_rescan`
+- 5 expired inzerátů deaktivováno, 5 dražeb retroaktivně opraveno na `offer_type='Auction'`
+
+**Filter state persistence:**
+- `ListingsPageState` + `ProtectedSessionStorage` – stav filtrů přežije navigaci
+
+**MSBuild CS2021 glob fix:**
+- SDK 10.0 bug na Colima (overlay2 fs): `EnableDefaultCompileItems=false` + explicitní `<Compile Include=...>` bez `**` v `Infrastructure.csproj`, `Api.csproj`, `Background.csproj`
+
+**Commit:** `e382515` – Docker SDK 10.0 CS2021 glob fix + Session 5 docs
 
 ---
 

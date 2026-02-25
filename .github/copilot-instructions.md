@@ -101,8 +101,8 @@ modelBuilder.Entity<Listing>()
            : PropertyType.Other);
 
 // OfferType analogicky:
-//   v => v.ToString()  →  "Sale", "Rent"
-//   v => v == "Rent" ? OfferType.Rent : OfferType.Sale
+//   v => v.ToString()  →  "Sale", "Rent", "Auction"
+//   v == "Rent" ? OfferType.Rent : v == "Auction" ? OfferType.Auction : OfferType.Sale
 
 // Table: re_realestate.listings
 // Columns: id, source_id, source_code, external_id, title, property_type, offer_type, price...
@@ -295,6 +295,33 @@ async def upsert_listing(self, listing_data: Dict[str, Any]) -> UUID:
         await conn.execute("INSERT INTO re_realestate.listings (...) VALUES (...)")
 ```
 
+### AI Analýza – template systém
+
+Šablony pro AI instrukce jsou **runtime `.md` soubory** – editovatelné bez recompilace:
+
+```
+src/RealEstate.Api/Templates/
+  ai_instrukce_existing.md   ← existující nemovitosti
+  ai_instrukce_newbuild.md   ← novostavby
+```
+
+`ListingExportContentBuilder.BuildAiInstructions()` načte správnou šablonu dle `IsNewBuild()` a interpoluje `{{PLACEHOLDERS}}`:
+- `{{LOCATION}}`, `{{PROPERTY_TYPE}}`, `{{OFFER_TYPE}}`, `{{PRICE}}`, `{{PRICE_NOTE}}`
+- `{{AREA}}`, `{{ROOMS_LINE}}`, `{{CONSTRUCTION_TYPE_LINE}}`, `{{CONDITION_LINE}}`
+- `{{SOURCE_NAME}}`, `{{SOURCE_CODE}}`, `{{URL}}`
+- `{{PHOTO_LINKS_SECTION}}` – inline fotky pro AI chat
+- `{{DRIVE_FOLDER_SECTION}}` – odkaz na cloud složku
+
+`IsNewBuild()` – keywords: `novostavb`, `ve výstavb`, `pod klíč`, `developerský projekt`, `dokončení 202x`, `condition=Nový/Nová`
+
+⚠️ Po změně šablony v Docker – `docker cp` stačí pro jednorázovou změnu, rebuild api pro trvalou:
+```bash
+# Jednorázová změna (do restartu):
+docker cp src/RealEstate.Api/Templates/ai_instrukce_existing.md realestate-api:/app/Templates/
+# Trvalá změna:
+docker compose build --no-cache api && docker compose up -d --no-deps api
+```
+
 ### Photo Synchronization
 
 ```python
@@ -428,6 +455,13 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **5 expired SReality inzerátů** deaktivováno přímo v DB; 5 dražeb retroaktivně opraveno na `offer_type='Auction'`
 - [x] **MSBuild CS2021 glob fix** – `EnableDefaultCompileItems=false` + explicitní Compile items v `Infrastructure.csproj`, `Api.csproj`, `Background.csproj`; Docker image api/scraper/app úspěšně rebuild
 
+### ✅ Dokončeno v Session 6 (2026-02-25)
+- [x] **AI šablony externalizovány** – `BuildAiInstructions()` načítá `.md` soubory z `src/RealEstate.Api/Templates/` místo hardcoded stringů; editovatelné bez recompilace
+- [x] **GoogleDriveExportService.cs** – odstraněno ~400 řádků dead code (privátní kopie BuildAiInstructions, BuildInfoMarkdown, BuildDataJson, IsNewBuild, SanitizeName); vše přesunuto do sdíleného `ListingExportContentBuilder`
+- [x] **ai_instrukce_existing.md** – kompletní přepis: tabulky (💰 finanční kalkulace, 🔧 technický stav, 📊 yield), emoji hierarchie (🔴🟡🟢✅⚠️), sekce „Co bylo renovováno", emoji VERDIKT, prohlídka TABLE
+- [x] **ai_instrukce_newbuild.md** – kompletní přepis: sekce „Klíčové technologie a vybavení" místo renovace, tabulka technologií (TČ, rekuperace, smart home), NEPIŠ o rekonstrukci
+- [x] **Unit testy 39 → 111** (+72 testů): `ExportBuilderTests.cs` (IsNewBuild 14 variant, SanitizeName, BuildDataJson, PhotoLinks, PageGuard), `RagServiceTests.cs` (CosineSimilarity 8 variant, BuildListingText 11 variant), `UnitTest1.cs` (+Auction enum, +Auction jako invalid user status)
+
 ### High Priority (zbývá)
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
 - [ ] CENTURY21 logo – placeholder SVG (274B), reálné logo za WP loginem
@@ -438,15 +472,16 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [ ] Playwright fallback – pro JS-heavy weby
 
 ### Medium Priority
-- [ ] Semantic search – pgvector s OpenAI embeddings
-- [ ] Analysis jobs – AI analýza inzerátů
-- [ ] User listing states – uložit/archivovat/kontakt tracking
+- [x] Semantic search – RAG service s pgvector (Ollama `nomic-embed-text` 768D, OpenAI 1536D), `FindSimilarAsync` přes `embedding <->` L2 distance ✅
+- [x] Analysis jobs – `AnalysisService` + `RagService.SaveAnalysisAsync` + `BulkEmbedDescriptionsAsync` ✅
+- [ ] User listing states – uložit/archivovat/kontakt tracking (základ hotov, rozšíření zbývá)
 - [ ] Background scheduled scraping – pravidelný re-run (APScheduler/Hangfire)
 
 ### Low Priority
 - [ ] Unit testy – scraper parsing s mock HTML
 - [ ] Monitoring – Prometheus/Serilog metrics
 - [ ] Export funkce (CSV/Excel) – projekt RealEstate.Export existuje
+- [ ] AI šablony – úprava sekcí dle uživatelského feedbacku z reálných analýz
 
 ---
 
@@ -479,7 +514,10 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 **Problem:** Scraper can't connect to database  
 **Solution:** Zkontroluj `scraper/config/settings.yaml` – host=localhost (local) nebo host=postgres (Docker)
 
-**Problem:** PropertyType/OfferType filtry vracejí 0 výsledků  
+**Problem:** Filter vrací špatná data i po rebuildu Docker image — `docker logs` neukazuje žádné search SQL  
+**Solution:** `lsof -i :5001 -P -n` — pokud tam je lokálně běžící `RealEstate.Api` proces, `kill <PID>`. Lokální dotnet proces má prioritu před Colima/Docker SSH port forwardingem. Curl pak jde na starý lokální binary místo na Docker kontejner.
+
+**Problem:** EF Core filtry (PropertyType/OfferType) vracejí 0 výsledků  
 **Solution:** Zkontroluj HasConversion v RealEstateDbContext.cs – zápis musí být `v.ToString()` ("House"), NE české hodnoty ("Dům"). DB ukládá vždy anglicky.
 
 **Problem:** EF Core CS8198 – `out` parameter in expression tree  
@@ -514,6 +552,9 @@ A explicitně vyjmenovat `<Compile Include="Subdir/*.cs" />` bez `**` rekurze. H
 
 **Problem:** Po změně C# kódu je nutné použít `--no-cache`  
 **Solution:** Použij `docker compose build --no-cache app api` (bez cache).
+
+**Problem:** AI instrukce šablona se nezměnila i po editaci `.md` souboru v kontejneru  
+**Solution:** Soubory v `/app/Templates/` jsou součástí image – `docker cp` funguje jen do restartu. Trvalá změna: `docker compose build --no-cache api && docker compose up -d --no-deps api`.
 
 ---
 
@@ -551,8 +592,8 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 24. února 2026 (Session 5)  
-**Current Commit:** `e382515` – Docker SDK 10.0 CS2021 glob fix + Session 5 docs
-**DB stav:** ~1 230 aktivních inzerátů (5 expired deaktivováno), 12 zdrojů (SREALITY=846, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
-**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432  
-**Unit testy:** 39 testů zelených (`dotnet test tests/RealEstate.Tests`)
+**Last Updated:** 25. února 2026 (Session 6)  
+**Current Commit:** session 6 – AI šablony refactor, +72 unit testů
+**DB stav:** ~1 378 aktivních inzerátů, 12 zdrojů (SREALITY=880, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
+**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432, MCP :8002  
+**Unit testy:** 111 testů zelených (`dotnet test tests/RealEstate.Tests`)

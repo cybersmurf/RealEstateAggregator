@@ -225,6 +225,21 @@
                                OnClick="CreateAnalysisAsync">
                         Vytvořit analýzu
                     </MudButton>
+                    <MudButton Color="Color.Warning"
+                               Variant="Variant.Filled"
+                               OnClick="CopyAiBriefAsync"
+                               Disabled="_aiBriefLoading"
+                               StartIcon="@Icons.Material.Filled.ContentCopy">
+                        @if (_aiBriefLoading)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <span>Připravuji…</span>
+                        }
+                        else
+                        {
+                            <span>Zkopírovat pro AI</span>
+                        }
+                    </MudButton>
                     <MudButton Color="Color.Success"
                                Variant="Variant.Filled"
                                OnClick="ExportToDriveAsync"
@@ -238,6 +253,21 @@
                         else
                         {
                             <span>Export na Google Drive</span>
+                        }
+                    </MudButton>
+                    <MudButton Color="Color.Info"
+                               Variant="Variant.Filled"
+                               OnClick="ExportToOneDriveAsync"
+                               Disabled="_oneDriveExporting"
+                               StartIcon="@Icons.Material.Filled.CloudUpload">
+                        @if (_oneDriveExporting)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <span>Nahrávám na OneDrive…</span>
+                        }
+                        else
+                        {
+                            <span>Export na OneDrive</span>
                         }
                     </MudButton>
                 </MudStack>
@@ -268,10 +298,304 @@
                                 Složka obsahuje INFO.md, DATA.json, AI_INSTRUKCE.md a fotky ze scrapu.
                                 Nahraj vlastní fotky z prohlídky do podsložky <strong>Moje_fotky_z_prohlidky</strong>.
                             </MudText>
+                            @if (_driveResult.PhotosTotal > 0)
+                            {
+                                <MudText Typo="Typo.caption"
+                                         Color="@(_driveResult.PhotosUploaded == _driveResult.PhotosTotal ? Color.Success : Color.Warning)">
+                                    📷 Fotky: @_driveResult.PhotosUploaded / @_driveResult.PhotosTotal nahráno
+                                    @if (_driveResult.PhotosUploaded < _driveResult.PhotosTotal)
+                                    {
+                                        <span> – @(_driveResult.PhotosTotal - _driveResult.PhotosUploaded) fotek se nepodařilo stáhnout (CDN vypršel)</span>
+                                    }
+                                </MudText>
+                            }
+                            @if (DriveInspectionId is not null)
+                            {
+                                <MudDivider />
+                                <MudText Typo="Typo.body2"><strong>📸 Nahrát fotky z prohlídky</strong></MudText>
+                                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                                    <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                                                   FilesChanged="@(files => _driveInspectionFiles = files ?? [])"
+                                                   Accept=".jpg,.jpeg,.png,.heic,.heif,.webp"
+                                                   MaximumFileCount="50">
+                                        <ActivatorContent>
+                                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Success"
+                                                       StartIcon="@Icons.Material.Filled.PhotoCamera">
+                                                @if (_driveInspectionFiles.Count > 0)
+                                                {
+                                                    <span>Vybráno @_driveInspectionFiles.Count fotek – změnit</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Vybrat fotky z prohlídky</span>
+                                                }
+                                            </MudButton>
+                                        </ActivatorContent>
+                                    </MudFileUpload>
+                                    @if (_driveInspectionFiles.Count > 0)
+                                    {
+                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Success"
+                                                   StartIcon="@Icons.Material.Filled.CloudUpload"
+                                                   Disabled="@_uploadingDrivePhotos"
+                                                   OnClick="UploadDriveInspectionPhotosAsync">
+                                            @if (_uploadingDrivePhotos)
+                                            {
+                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                                <span>Nahrávám…</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Nahrát @_driveInspectionFiles.Count fotek na Drive</span>
+                                            }
+                                        </MudButton>
+                                    }
+                                </MudStack>
+                            }
+                        </MudStack>
+                    </MudAlert>
+                }
+
+                @if (_oneDriveResult is not null)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="false">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.body1">
+                                <strong>OneDrive složka:</strong> @_oneDriveResult.FolderName
+                            </MudText>
+                            <MudText Typo="Typo.caption" Style="word-break:break-all">
+                                @_oneDriveResult.FolderUrl
+                            </MudText>
+                            <MudStack Row="true" Spacing="2">
+                                <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Info"
+                                           StartIcon="@Icons.Material.Filled.OpenInNew"
+                                           Href="@_oneDriveResult.FolderUrl" Target="_blank">
+                                    Otevřít v OneDrive
+                                </MudButton>
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Default"
+                                           StartIcon="@Icons.Material.Filled.ContentCopy"
+                                           OnClick="CopyOneDriveUrlAsync">
+                                    Kopírovat URL
+                                </MudButton>
+                            </MudStack>
+                            @if (_oneDriveResult.PhotosTotal > 0)
+                            {
+                                <MudText Typo="Typo.caption"
+                                         Color="@(_oneDriveResult.PhotosUploaded == _oneDriveResult.PhotosTotal ? Color.Info : Color.Warning)">
+                                    📷 Fotky: @_oneDriveResult.PhotosUploaded / @_oneDriveResult.PhotosTotal nahráno
+                                    @if (_oneDriveResult.PhotosUploaded < _oneDriveResult.PhotosTotal)
+                                    {
+                                        <span> – @(_oneDriveResult.PhotosTotal - _oneDriveResult.PhotosUploaded) fotek se nepodařilo stáhnout (CDN vypršel)</span>
+                                    }
+                                </MudText>
+                            }
+                            <MudDivider />
+                            <MudText Typo="Typo.body2"><strong>🧠 Uložit analýzu z Clauda</strong></MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Info">
+                                Zkopíruj výsledek analýzy z Clauda/Perplexity a vlož ho níže. Tlačítko ho uloží přímo do OneDrive složky jako ANALYZA_datum.md.
+                            </MudText>
+                            <MudTextField @bind-Value="_analysisText"
+                                          T="string"
+                                          Label="Výsledek analýzy z AI"
+                                          Placeholder="Sem vlož text analýzy od Clauda…"
+                                          Lines="8"
+                                          Variant="Variant.Outlined"
+                                          FullWidth="true" />
+                            <MudButton Variant="Variant.Filled" Color="Color.Warning"
+                                       StartIcon="@Icons.Material.Filled.Save"
+                                       Disabled="@(string.IsNullOrWhiteSpace(_analysisText) || _savingAnalysis)"
+                                       OnClick="SaveAnalysisToOneDriveAsync">
+                                @if (_savingAnalysis)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                    <span>Ukládám…</span>
+                                }
+                                else
+                                {
+                                    <span>Uložit analýzu do OneDrive</span>
+                                }
+                            </MudButton>
+                            @if (OneDriveInspectionId is not null)
+                            {
+                                <MudDivider />
+                                <MudText Typo="Typo.body2"><strong>📸 Nahrát fotky z prohlídky</strong></MudText>
+                                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                                    <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                                                   FilesChanged="@(files => _oneDriveInspectionFiles = files ?? [])"
+                                                   Accept=".jpg,.jpeg,.png,.heic,.heif,.webp"
+                                                   MaximumFileCount="50">
+                                        <ActivatorContent>
+                                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Info"
+                                                       StartIcon="@Icons.Material.Filled.PhotoCamera">
+                                                @if (_oneDriveInspectionFiles.Count > 0)
+                                                {
+                                                    <span>Vybráno @_oneDriveInspectionFiles.Count fotek – změnit</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Vybrat fotky z prohlídky</span>
+                                                }
+                                            </MudButton>
+                                        </ActivatorContent>
+                                    </MudFileUpload>
+                                    @if (_oneDriveInspectionFiles.Count > 0)
+                                    {
+                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Info"
+                                                   StartIcon="@Icons.Material.Filled.CloudUpload"
+                                                   Disabled="@_uploadingOneDrivePhotos"
+                                                   OnClick="UploadOneDriveInspectionPhotosAsync">
+                                            @if (_uploadingOneDrivePhotos)
+                                            {
+                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                                <span>Nahrávám…</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Nahrát @_oneDriveInspectionFiles.Count fotek na OneDrive</span>
+                                            }
+                                        </MudButton>
+                                    }
+                                </MudStack>
+                            }
+                        </MudStack>
+                    </MudAlert>
+                }
+                @if (OneDriveExportedButNoSession)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="false">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.body1">
+                                <strong>OneDrive:</strong> Složka existuje (exportováno dříve)
+                            </MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Info">
+                                Stránka byla obnovena – odkaz na složku není v session. Klikni „Export na OneDrive" pro opětovné zobrazení odkazu.
+                            </MudText>
+                            @if (OneDriveInspectionId is not null)
+                            {
+                                <MudDivider />
+                                <MudText Typo="Typo.body2"><strong>📸 Nahrát fotky z prohlídky</strong></MudText>
+                                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                                    <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                                                   FilesChanged="@(files => _oneDriveInspectionFiles = files ?? [])"
+                                                   Accept=".jpg,.jpeg,.png,.heic,.heif,.webp"
+                                                   MaximumFileCount="50">
+                                        <ActivatorContent>
+                                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Info"
+                                                       StartIcon="@Icons.Material.Filled.PhotoCamera">
+                                                @if (_oneDriveInspectionFiles.Count > 0)
+                                                {
+                                                    <span>Vybráno @_oneDriveInspectionFiles.Count fotek – změnit</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Vybrat fotky z prohlídky</span>
+                                                }
+                                            </MudButton>
+                                        </ActivatorContent>
+                                    </MudFileUpload>
+                                    @if (_oneDriveInspectionFiles.Count > 0)
+                                    {
+                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Info"
+                                                   StartIcon="@Icons.Material.Filled.CloudUpload"
+                                                   Disabled="@_uploadingOneDrivePhotos"
+                                                   OnClick="UploadOneDriveInspectionPhotosAsync">
+                                            @if (_uploadingOneDrivePhotos)
+                                            {
+                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                                <span>Nahrávám…</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Nahrát @_oneDriveInspectionFiles.Count fotek na OneDrive</span>
+                                            }
+                                        </MudButton>
+                                    }
+                                </MudStack>
+                            }
                         </MudStack>
                     </MudAlert>
                 }
             </MudStack>
+
+            <!-- RAG Chat -->
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-1">🤖 AI Chat</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3">
+                    Ptej se na základě uložených analýz. Klikni „Embedovat popis" pro
+                    inicializaci (stačí jednou – popis inzerátu se uloží jako znalostní záznam).
+                </MudText>
+                <MudStack Spacing="2">
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   Color="@(_ragDescriptionEmbedded ? Color.Success : Color.Warning)"
+                                   StartIcon="@(_ragDescriptionEmbedded ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.AutoFixHigh)"
+                                   Disabled="@(_ragEmbedding || _ragDescriptionEmbedded)"
+                                   OnClick="EmbedDescriptionAsync">
+                            @if (_ragEmbedding)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-1" />
+                                <span>Embeduji popis…</span>
+                            }
+                            else if (_ragDescriptionEmbedded)
+                            {
+                                <span>Popis embedován ✓</span>
+                            }
+                            else
+                            {
+                                <span>Embedovat popis inzerátu</span>
+                            }
+                        </MudButton>
+                        @if (_ragAnalysisCount > 0)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @_ragAnalysisCount záznamy v knowledge base
+                            </MudText>
+                        }
+                    </MudStack>
+
+                    <MudTextField @bind-Value="_ragQuestion"
+                                  T="string"
+                                  Label="Otázka k inzerátu"
+                                  Placeholder="Např. Jaké jsou nevýhody? Je cena přiměřená? Vhodné pro rodinu?"
+                                  Lines="2"
+                                  Variant="Variant.Outlined"
+                                  FullWidth="true"
+                                  OnKeyDown="@(async (e) => { if (e.Key == "Enter" && !e.ShiftKey) await AskRagAsync(); })" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.QuestionAnswer"
+                               Disabled="@(string.IsNullOrWhiteSpace(_ragQuestion) || _ragLoading)"
+                               OnClick="AskRagAsync">
+                        @if (_ragLoading)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <span>Přemýšlím…</span>
+                        }
+                        else
+                        {
+                            <span>Zeptat se</span>
+                        }
+                    </MudButton>
+
+                    @if (_ragAnswer is not null)
+                    {
+                        <MudDivider />
+                        <MudAlert Severity="@(_ragHasEmbeddings ? Severity.Info : Severity.Warning)"
+                                  Dense="false" NoIcon="false">
+                            <MudText Typo="Typo.body2" Style="white-space: pre-wrap;">@_ragAnswer</MudText>
+                        </MudAlert>
+                        @if (_ragSources.Count > 0)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Využité záznamy:
+                                @foreach (var s in _ragSources)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                                             Class="ml-1">@(s.Title ?? s.Source) · @s.Similarity.ToString("P0")</MudChip>
+                                }
+                            </MudText>
+                        }
+                    }
+                </MudStack>
+            </MudPaper>
         </MudStack>
     }
 </MudContainer>
@@ -288,7 +612,48 @@
     // Google Drive export
     private bool _driveExporting = false;
     private DriveExportResult? _driveResult;
-    private record DriveExportResult(string FolderUrl, string FolderName, string FolderId);
+    private record DriveExportResult(string FolderUrl, string FolderName, string FolderId, string? InspectionFolderId = null,
+        int PhotosUploaded = 0, int PhotosTotal = 0);
+
+    // OneDrive export
+    private bool _oneDriveExporting = false;
+    private DriveExportResult? _oneDriveResult;
+
+    // AI brief
+    private bool _aiBriefLoading = false;
+
+    // Uložení analýzy
+    private string _analysisText = string.Empty;
+    private bool _savingAnalysis = false;
+
+    // Upload fotek z prohlídky
+    private IReadOnlyList<IBrowserFile> _driveInspectionFiles = [];
+    private IReadOnlyList<IBrowserFile> _oneDriveInspectionFiles = [];
+    private bool _uploadingDrivePhotos = false;
+    private bool _uploadingOneDrivePhotos = false;
+
+    // Export state z DB (trvalý, přežívá refresh stránky)
+    private record ExportState(string? DriveFolderId, string? DriveFolderUrl, string? DriveInspectionFolderId,
+        string? OneDriveFolderId, string? OneDriveInspectionFolderId);
+    private ExportState? _exportState;
+
+    // Computed helpers – true i když _driveResult/oneDriveResult jsou null (stav načten z DB)
+    private string? DriveInspectionId => _driveResult?.InspectionFolderId ?? _exportState?.DriveInspectionFolderId;
+    private string? OneDriveInspectionId => _oneDriveResult?.InspectionFolderId ?? _exportState?.OneDriveInspectionFolderId;
+    private bool OneDriveExportedButNoSession => _oneDriveResult is null && _exportState?.OneDriveFolderId is not null;
+
+    // RAG Chat
+    private string _ragQuestion = string.Empty;
+    private string? _ragAnswer;
+    private bool _ragHasEmbeddings;
+    private List<RagChunkInfo> _ragSources = [];
+    private bool _ragLoading;
+    private bool _ragEmbedding;
+    private bool _ragDescriptionEmbedded;
+    private int _ragAnalysisCount;
+    private record RagChunkInfo(Guid AnalysisId, string? Title, string ContentExcerpt, string Source, double Similarity, DateTime CreatedAt);
+    private record RagAskResponse(string Answer, List<RagChunkInfo> Sources, bool HasEmbeddings);
+    private record RagEmbedStatus(int TotalAnalyses, int WithEmbedding);
 
 
     private static readonly IReadOnlyDictionary<string, string> PropertyTypeLabels =
@@ -313,6 +678,26 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadListingAsync();
+        await LoadExportStateAsync();
+        await LoadRagAnalysesAsync();
+    }
+
+    private async Task LoadExportStateAsync()
+    {
+        try
+        {
+            _exportState = await Http.GetFromJsonAsync<ExportState>($"api/listings/{Id}/export-state", _cts.Token);
+            // Pokud už byl Drive export, před-plníme _driveResult (URL je trvalá pro GD)
+            if (_exportState?.DriveFolderUrl is not null && _driveResult is null)
+            {
+                _driveResult = new DriveExportResult(
+                    _exportState.DriveFolderUrl,
+                    "[uložený export]",
+                    _exportState.DriveFolderId!,
+                    _exportState.DriveInspectionFolderId);
+            }
+        }
+        catch { /* export-state je optional, ignorujeme chybu */ }
     }
 
     private async Task LoadListingAsync()
@@ -428,6 +813,34 @@
         }
     }
 
+    private async Task CopyAiBriefAsync()
+    {
+        _aiBriefLoading = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.GetAsync($"api/listings/{Id}/ai-brief", _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                var text = await response.Content.ReadAsStringAsync(_cts.Token);
+                await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+                Snackbar.Add("✅ Zkopírováno! Vlož přímo do Clauda nebo Perplexity.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"Chyba při načítání AI briefinku: {response.StatusCode}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _aiBriefLoading = false;
+        }
+    }
+
     private async Task ExportToDriveAsync()
     {
         _driveExporting = true;
@@ -471,6 +884,218 @@
         }
     }
 
+    private async Task ExportToOneDriveAsync()
+    {
+        _oneDriveExporting = true;
+        _oneDriveResult = null;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync($"api/listings/{Id}/export-onedrive", null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _oneDriveResult = await response.Content.ReadFromJsonAsync<DriveExportResult>(_cts.Token);
+                Snackbar.Add("Export na OneDrive byl úspěšný!", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"Chyba při exportu na OneDrive: {response.StatusCode}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _oneDriveExporting = false;
+        }
+    }
+
+    private async Task CopyOneDriveUrlAsync()
+    {
+        if (_oneDriveResult is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _oneDriveResult.FolderUrl);
+            Snackbar.Add("URL zkopírováno do schránky", Severity.Info);
+        }
+        catch
+        {
+            Snackbar.Add(_oneDriveResult.FolderUrl, Severity.Normal);
+        }
+    }
+
+    private async Task SaveAnalysisToOneDriveAsync()
+    {
+        if (_oneDriveResult is null || string.IsNullOrWhiteSpace(_analysisText)) return;
+        _savingAnalysis = true;
+        StateHasChanged();
+        try
+        {
+            var content = new StringContent(_analysisText, System.Text.Encoding.UTF8, "text/plain");
+            var response = await Http.PostAsync(
+                $"api/listings/{Id}/save-analysis?folderId={Uri.EscapeDataString(_oneDriveResult.FolderId)}",
+                content, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("✅ Analýza uložena do OneDrive složky!", Severity.Success);
+                _analysisText = string.Empty;
+            }
+            else
+            {
+                var err = await response.Content.ReadAsStringAsync(_cts.Token);
+                Snackbar.Add($"Chyba při ukládání: {response.StatusCode}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _savingAnalysis = false;
+        }
+    }
+
+    private async Task UploadDriveInspectionPhotosAsync()
+    {
+        if (_driveInspectionFiles is not { Count: > 0 }) return;
+        // Folder ID je v DB, nemusíme mít _driveResult v session
+        if (_exportState?.DriveInspectionFolderId is null && _driveResult?.InspectionFolderId is null)
+        {
+            Snackbar.Add("Nejprve exportujte inzerát na Google Drive.", Severity.Warning);
+            return;
+        }
+        _uploadingDrivePhotos = true;
+        StateHasChanged();
+        try
+        {
+            // Načti všechny soubory do paměti NEJDRIVE než postavis MultipartFormDataContent
+            // (IBrowserFile stream nelze číst v backgroundu, musí přežít po dobu SendAsync)
+            var readFiles = new List<(string Name, byte[] Data, string Ct)>();
+            foreach (var file in _driveInspectionFiles)
+            {
+                try
+                {
+                    await using var stream = file.OpenReadStream(maxAllowedSize: 30 * 1024 * 1024, _cts.Token);
+                    using var ms = new MemoryStream();
+                    await stream.CopyToAsync(ms, _cts.Token);
+                    var safeName = string.IsNullOrWhiteSpace(file.Name) ? $"foto_{readFiles.Count + 1}.jpg" : Path.GetFileName(file.Name);
+                    var ct2 = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+                    readFiles.Add((safeName, ms.ToArray(), ct2));
+                }
+                catch (Exception ex)
+                {
+                    Snackbar.Add($"⚠️ Skipping {file.Name}: {ex.Message}", Severity.Warning);
+                }
+            }
+
+            if (readFiles.Count == 0)
+            {
+                Snackbar.Add("Nepodařilo se načíst žádný soubor.", Severity.Warning);
+                return;
+            }
+
+            using var content = new MultipartFormDataContent();
+            for (int i = 0; i < readFiles.Count; i++)
+            {
+                var (name, data, ct2) = readFiles[i];
+                var fileContent = new ByteArrayContent(data);
+                fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(ct2);
+                content.Add(fileContent, "files", $"prohlidka_{i + 1:D2}_{name}");
+            }
+
+            var url = $"api/listings/{Id}/upload-inspection-photos?provider=drive";
+            var response = await Http.PostAsync(url, content, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add($"✅ {readFiles.Count} fotek nahráno na Google Drive!", Severity.Success);
+                _driveInspectionFiles = [];
+            }
+            else
+            {
+                var err = await response.Content.ReadAsStringAsync(_cts.Token);
+                Snackbar.Add($"Chyba při nahrávání: {response.StatusCode}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _uploadingDrivePhotos = false;
+        }
+    }
+
+    private async Task UploadOneDriveInspectionPhotosAsync()
+    {
+        if (_oneDriveInspectionFiles is not { Count: > 0 }) return;
+        if (_exportState?.OneDriveInspectionFolderId is null && _oneDriveResult?.InspectionFolderId is null)
+        {
+            Snackbar.Add("Nejprve exportujte inzerát na OneDrive.", Severity.Warning);
+            return;
+        }
+        _uploadingOneDrivePhotos = true;
+        StateHasChanged();
+        try
+        {
+            var readFiles = new List<(string Name, byte[] Data, string Ct)>();
+            foreach (var file in _oneDriveInspectionFiles)
+            {
+                try
+                {
+                    await using var stream = file.OpenReadStream(maxAllowedSize: 30 * 1024 * 1024, _cts.Token);
+                    using var ms = new MemoryStream();
+                    await stream.CopyToAsync(ms, _cts.Token);
+                    var safeName = string.IsNullOrWhiteSpace(file.Name) ? $"foto_{readFiles.Count + 1}.jpg" : Path.GetFileName(file.Name);
+                    var ct2 = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+                    readFiles.Add((safeName, ms.ToArray(), ct2));
+                }
+                catch (Exception ex)
+                {
+                    Snackbar.Add($"⚠️ Skipping {file.Name}: {ex.Message}", Severity.Warning);
+                }
+            }
+
+            if (readFiles.Count == 0)
+            {
+                Snackbar.Add("Nepodařilo se načíst žádný soubor.", Severity.Warning);
+                return;
+            }
+
+            using var content = new MultipartFormDataContent();
+            for (int i = 0; i < readFiles.Count; i++)
+            {
+                var (name, data, ct2) = readFiles[i];
+                var fileContent = new ByteArrayContent(data);
+                fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(ct2);
+                content.Add(fileContent, "files", $"prohlidka_{i + 1:D2}_{name}");
+            }
+
+            var url = $"api/listings/{Id}/upload-inspection-photos?provider=onedrive";
+            var response = await Http.PostAsync(url, content, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add($"✅ {readFiles.Count} fotek nahráno na OneDrive!", Severity.Success);
+                _oneDriveInspectionFiles = [];
+            }
+            else
+            {
+                Snackbar.Add($"Chyba při nahrávání: {response.StatusCode}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _uploadingOneDrivePhotos = false;
+        }
+    }
+
 
     private static string GetPropertyTypeLabel(string? value)
     {
@@ -496,6 +1121,89 @@
     {
         _cts.Cancel();
         _cts.Dispose();
+    }
+
+    // ─── RAG Chat ──────────────────────────────────────────────────────────────
+
+    private record RagAnalysisInfo(Guid Id, string Source, bool HasEmbedding, string? Title);
+
+    private async Task LoadRagAnalysesAsync()
+    {
+        try
+        {
+            var analyses = await Http.GetFromJsonAsync<List<RagAnalysisInfo>>(
+                $"api/listings/{Id}/analyses", _cts.Token);
+            if (analyses is not null)
+            {
+                _ragAnalysisCount = analyses.Count;
+                _ragDescriptionEmbedded = analyses.Any(a => a.Source == "auto");
+            }
+        }
+        catch { /* RAG status je optional */ }
+    }
+
+    private async Task EmbedDescriptionAsync()
+    {
+        _ragEmbedding = true;
+        try
+        {
+            var resp = await Http.PostAsync($"api/listings/{Id}/embed-description", null, _cts.Token);
+            if (resp.IsSuccessStatusCode)
+            {
+                _ragDescriptionEmbedded = true;
+                _ragAnalysisCount++;
+                Snackbar.Add("Popis inzerátu embedován – nyní se lze ptát!", Severity.Success);
+            }
+            else
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                Snackbar.Add($"Embed selhal: {err}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _ragEmbedding = false;
+        }
+    }
+
+    private async Task AskRagAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_ragQuestion)) return;
+        _ragLoading = true;
+        _ragAnswer = null;
+        _ragSources = [];
+        try
+        {
+            var payload = new { question = _ragQuestion, topK = 5 };
+            var resp = await Http.PostAsJsonAsync($"api/listings/{Id}/ask", payload, _cts.Token);
+            if (resp.IsSuccessStatusCode)
+            {
+                var result = await resp.Content.ReadFromJsonAsync<RagAskResponse>(_cts.Token);
+                if (result is not null)
+                {
+                    _ragAnswer = result.Answer;
+                    _ragHasEmbeddings = result.HasEmbeddings;
+                    _ragSources = result.Sources ?? [];
+                }
+            }
+            else
+            {
+                _ragAnswer = $"Chyba API: {resp.StatusCode}";
+                _ragHasEmbeddings = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _ragAnswer = $"Chyba: {ex.Message}";
+        }
+        finally
+        {
+            _ragLoading = false;
+        }
     }
 
 }

@@ -329,7 +329,8 @@ VALUES
     ('DELUXREALITY', 'DeluXreality Znojmo', 'https://deluxreality.cz', true, true, true, 'Python'),
     ('LEXAMO', 'Lexamo Reality', 'https://www.lexamo.cz', true, true, true, 'Python'),
     ('CENTURY21', 'CENTURY 21 Czech Republic', 'https://www.century21.cz', true, true, true, 'Python'),
-    ('IDNES', 'iDnes Reality', 'https://reality.idnes.cz', true, true, true, 'Python')
+    ('IDNES', 'iDnes Reality', 'https://reality.idnes.cz', true, true, true, 'Python'),
+    ('REAS', 'Reas.cz', 'https://www.reas.cz', true, false, true, 'Python')
 ON CONFLICT (code) DO NOTHING;
 
 -- ============================================================================

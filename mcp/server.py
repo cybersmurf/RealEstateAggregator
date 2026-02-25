@@ -1,0 +1,429 @@
+"""
+RealEstate MCP Server
+======================
+Model Context Protocol server pro RealEstateAggregator.
+Umožňuje AI asistentům (Claude Desktop, VS Code Copilot, Cursor…) volat nástroje
+pro vyhledávání, analýzu a RAG dotazy nad realitními inzeráty.
+
+Spuštění (stdio – Claude Desktop):
+    python server.py
+
+Spuštění (HTTP/SSE – Docker, vzdálené):
+    TRANSPORT=sse python server.py
+
+Konfigurace Claude Desktop (~/.config/claude/claude_desktop_config.json):
+    {
+      "mcpServers": {
+        "realestate": {
+          "command": "python",
+          "args": ["/path/to/mcp/server.py"],
+          "env": { "API_BASE_URL": "http://localhost:5001" }
+        }
+      }
+    }
+"""
+
+import os
+import json
+import logging
+from typing import Optional
+import httpx
+from fastmcp import FastMCP
+
+# ─── Konfigurace ──────────────────────────────────────────────────────────────
+
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:5001")
+API_TIMEOUT = float(os.getenv("API_TIMEOUT_SECONDS", "30"))
+TRANSPORT = os.getenv("TRANSPORT", "stdio")   # "stdio" nebo "sse"
+PORT = int(os.getenv("PORT", "8002"))
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("realestate-mcp")
+
+# ─── MCP server ───────────────────────────────────────────────────────────────
+
+mcp = FastMCP(
+    name="RealEstate Knowledge Base",
+    instructions="""
+Jsi asistent specializovaný na analýzu nemovitostí z České republiky.
+Máš přístup k databázi realitních inzerátů (1 200+ aktivních) a uloženým analýzám.
+
+Dostupné nástroje:
+- search_listings: Vyhledávání inzerátů (text + filtry ceny, typu, nabídky)
+- get_listing: Detailní informace o konkrétním inzerátu včetně fotek
+- get_analyses: Zobrazení uložených analýz pro inzerát
+- save_analysis: Uložení nové analýzy textu (automaticky se vygeneruje embedding)
+- ask_listing: RAG dotaz nad analýzami konkrétního inzerátu
+- ask_general: RAG dotaz přes všechny inzeráty
+- list_sources: Přehled aktivních realitních zdrojů
+- get_rag_status: Stav RAG systému (počty embeddingů)
+""",
+)
+
+
+# ─── HTTP helper ──────────────────────────────────────────────────────────────
+
+async def _call_api(method: str, path: str, **kwargs) -> dict | list:
+    """Zavolá .NET API a vrátí JSON odpověď."""
+    url = f"{API_BASE_URL}{path}"
+    async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+        resp = await getattr(client, method)(url, **kwargs)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _fmt_listing(l: dict) -> str:
+    """Formátuje inzerát do čitelného textu."""
+    price = f"{l.get('price', 0):,.0f} Kč" if l.get("price") else "Cena neuvedena"
+    area = f"{l.get('areaBuiltUp', 0):.0f} m²" if l.get("areaBuiltUp") else ""
+    disposition = l.get("disposition", "") or ""
+    return (
+        f"🏠 **{l['title']}**\n"
+        f"   ID: `{l['id']}`\n"
+        f"   📍 {l.get('locationText', 'N/A')}  |  💰 {price}"
+        f"  |  {disposition} {area}\n"
+        f"   Typ: {l.get('propertyType')} | Nabídka: {l.get('offerType')}"
+        f"  |  Zdroj: {l.get('sourceName', l.get('sourceCode', ''))}\n"
+        f"   🔗 {l.get('url', '')}"
+    )
+
+
+# ─── NÁSTROJE ─────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def search_listings(
+    query: str = "",
+    property_type: Optional[str] = None,
+    offer_type: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    municipality: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> str:
+    """
+    Vyhledá realitní inzeráty v databázi.
+
+    Args:
+        query: Volný textový dotaz (např. "rodinný dům Znojmo s bazénem")
+        property_type: Typ nemovitosti: House | Apartment | Land | Cottage | Commercial | Garage | Other
+        offer_type: Typ nabídky: Sale | Rent | Auction
+        min_price: Minimální cena v Kč
+        max_price: Maximální cena v Kč
+        municipality: Obec (např. "Znojmo", "Štítary")
+        page: Číslo stránky (default 1)
+        page_size: Počet výsledků (max 50, default 10)
+    """
+    payload = {
+        "searchQuery": query or None,
+        "propertyType": property_type,
+        "offerType": offer_type,
+        "minPrice": min_price,
+        "maxPrice": max_price,
+        "municipality": municipality,
+        "page": page,
+        "pageSize": min(page_size, 50),
+    }
+    # Odstraň None hodnoty
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    result = await _call_api("post", "/api/listings/search", json=payload)
+
+    items = result.get("items", [])
+    total = result.get("totalCount", 0)
+
+    if not items:
+        return "Nenalezeny žádné inzeráty odpovídající kritériím."
+
+    lines = [f"**Nalezeno {total} inzerátů** (strana {page}):\n"]
+    for listing in items:
+        lines.append(_fmt_listing(listing))
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def get_listing(listing_id: str) -> str:
+    """
+    Vrátí kompletní detail inzerátu včetně popisu, fotek a uložených analýz.
+
+    Args:
+        listing_id: UUID inzerátu (získáš ho ze search_listings)
+    """
+    try:
+        listing = await _call_api("get", f"/api/listings/{listing_id}")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    photos = listing.get("photos", [])
+    photo_info = f"📸 {len(photos)} fotek" if photos else "Žádné fotky"
+
+    result_lines = [
+        f"# {listing['title']}",
+        f"**ID:** `{listing['id']}`",
+        f"**Zdroj:** {listing.get('sourceName', listing.get('sourceCode', ''))}",
+        f"**Typ:** {listing.get('propertyType')} | **Nabídka:** {listing.get('offerType')}",
+        f"**Cena:** {listing.get('price', 0):,.0f} Kč" if listing.get("price") else "**Cena:** neuvedena",
+        f"**Lokalita:** {listing.get('locationText', 'N/A')}",
+    ]
+
+    if listing.get("areaBuiltUp"):
+        result_lines.append(f"**Plocha zastavěná:** {listing['areaBuiltUp']:.0f} m²")
+    if listing.get("areaLand"):
+        result_lines.append(f"**Plocha pozemku:** {listing['areaLand']:.0f} m²")
+    if listing.get("disposition"):
+        result_lines.append(f"**Dispozice:** {listing['disposition']}")
+
+    result_lines += [
+        f"**Fotky:** {photo_info}",
+        f"**URL:** {listing.get('url', '')}",
+        "",
+        "## Popis",
+        listing.get("description", "Bez popisu")[:2000],
+    ]
+
+    if listing.get("description", "") and len(listing["description"]) > 2000:
+        result_lines.append("_[popis zkrácen na 2000 znaků]_")
+
+    return "\n".join(result_lines)
+
+
+@mcp.tool()
+async def get_analyses(listing_id: str) -> str:
+    """
+    Vrátí všechny uložené analýzy pro konkrétní inzerát.
+
+    Args:
+        listing_id: UUID inzerátu
+    """
+    try:
+        analyses = await _call_api("get", f"/api/listings/{listing_id}/analyses")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    if not analyses:
+        return f"Pro inzerát {listing_id} nejsou uloženy žádné analýzy."
+
+    lines = [f"**{len(analyses)} analýz** pro inzerát `{listing_id}`:\n"]
+    for a in analyses:
+        emb = "✅ embedding" if a.get("hasEmbedding") else "❌ bez embeddingu"
+        lines.append(
+            f"### [{a.get('title') or 'bez názvu'}] – {a.get('source', 'manual')} – {emb}"
+        )
+        lines.append(f"*{a.get('createdAt', '')[:10]}*")
+        lines.append(f"`ID: {a['id']}`")
+        content = a.get("content", "")
+        lines.append(content[:500] + ("…" if len(content) > 500 else ""))
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def save_analysis(
+    listing_id: str,
+    content: str,
+    title: Optional[str] = None,
+    source: str = "mcp",
+) -> str:
+    """
+    Uloží analýzu inzerátu do databáze. Automaticky se vygeneruje pgvector embedding
+    (pokud je nakonfigurován OpenAI klíč), takže text bude prohledatelný přes RAG.
+
+    Args:
+        listing_id: UUID inzerátu
+        content: Text analýzy (markdown, plain text – libovolná délka)
+        title: Volitelný nadpis (např. "Analýza z prohlídky 25.2.2026")
+        source: Původ analýzy: mcp | claude | perplexity | manual | ai
+    """
+    payload = {
+        "content": content,
+        "title": title,
+        "source": source,
+    }
+    try:
+        result = await _call_api(
+            "post", f"/api/listings/{listing_id}/analyses", json=payload
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    emb_status = "✅ embedding vygenerován" if result.get("hasEmbedding") else "⚠️ bez embeddingu (OpenAI nenastaveno)"
+    return (
+        f"✅ Analýza uložena\n"
+        f"ID: `{result['id']}`\n"
+        f"Inzerát: `{listing_id}`\n"
+        f"Zdroj: {result.get('source')}\n"
+        f"Embedding: {emb_status}\n"
+        f"Délka: {len(content)} znaků"
+    )
+
+
+@mcp.tool()
+async def ask_listing(
+    listing_id: str,
+    question: str,
+    top_k: int = 5,
+) -> str:
+    """
+    Položí RAG dotaz nad uloženými analýzami konkrétního inzerátu.
+    Použije pgvector pro nalezení nejrelevantnějších částí analýz a pošle je jako kontext do OpenAI.
+
+    Args:
+        listing_id: UUID inzerátu
+        question: Otázka v přirozeném jazyce (česky nebo anglicky)
+        top_k: Počet nejpodobnějších analýz použitých jako kontext (default 5)
+    """
+    payload = {"question": question, "topK": top_k}
+    try:
+        result = await _call_api(
+            "post", f"/api/listings/{listing_id}/ask", json=payload
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    answer = result.get("answer", "")
+    sources = result.get("sources", [])
+    has_emb = result.get("hasEmbeddings", False)
+
+    lines = [answer, ""]
+    if sources:
+        lines.append(f"---\n*Použité zdroje ({len(sources)}):*")
+        for s in sources:
+            sim = s.get("similarity", 0)
+            lines.append(
+                f"- [{s.get('title') or 'analýza'}] "
+                f"{s.get('source')} | podobnost: {sim:.2%} | `{s['analysisId']}`"
+            )
+    if not has_emb:
+        lines.append("\n⚠️ Podobnostní vyhledávání nebylo použito (analyzy nemají embedding nebo OpenAI není nakonfigurováno).")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def ask_general(
+    question: str,
+    top_k: int = 5,
+) -> str:
+    """
+    Položí RAG dotaz přes analýzy VŠECH inzerátů v databázi.
+    Ideální pro otázky jako "který inzerát má největší pozemek pod 2M Kč?" nebo
+    "porovnej výhody inzerátů z Moravy".
+
+    Args:
+        question: Otázka v přirozeném jazyce
+        top_k: Počet nejpodobnějších analýz z celé databáze (default 5)
+    """
+    payload = {"question": question, "topK": top_k}
+    result = await _call_api("post", "/api/rag/ask", json=payload)
+
+    answer = result.get("answer", "")
+    sources = result.get("sources", [])
+
+    lines = [answer, ""]
+    if sources:
+        lines.append(f"---\n*Použité zdroje ({len(sources)}):*")
+        for s in sources:
+            sim = s.get("similarity", 0)
+            lines.append(
+                f"- [{s.get('title') or 'analýza'}] "
+                f"inzerát `{s.get('listingId', s.get('analysisId'))}` | "
+                f"podobnost: {sim:.2%}"
+            )
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def list_sources() -> str:
+    """
+    Vrátí seznam aktivních realitních zdrojů (portálů) a počty jejich inzerátů.
+    """
+    sources = await _call_api("get", "/api/sources")
+
+    if not sources:
+        return "Žádné aktivní zdroje nenalezeny."
+
+    lines = [f"**{len(sources)} aktivních zdrojů:**\n"]
+    for s in sources:
+        lines.append(
+            f"- **{s.get('name', s.get('code'))}** (`{s.get('code')}`)"
+            f" – {s.get('listingCount', '?')} inzerátů | {s.get('baseUrl', '')}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def get_rag_status() -> str:
+    """
+    Vrátí stav RAG systému: počty analýz, embeddingů a zda je OpenAI nakonfigurováno.
+    """
+    status = await _call_api("get", "/api/rag/status")
+
+    configured = status.get("openAiConfigured", False)
+    emb_icon = "✅" if configured else "❌"
+
+    return (
+        f"## RAG Status\n"
+        f"{emb_icon} **OpenAI:** {'nakonfigurováno' if configured else 'NENÍ nakonfigurováno (embeddingy nefungují)'}\n"
+        f"📝 **Celkem analýz:** {status.get('totalAnalyses', 0)}\n"
+        f"🔢 **S embeddingem:** {status.get('withEmbedding', 0)}\n"
+        f"⚠️ **Bez embeddingu:** {status.get('withoutEmbedding', 0)}\n"
+        f"🏠 **Inzerátů s analýzou:** {status.get('listingsWithAnalyses', 0)}"
+    )
+
+
+@mcp.tool()
+async def embed_description(listing_id: str) -> str:
+    """
+    Embeduje popis inzerátu jako 'auto' analýzu do RAG znalostní báze.
+    Idempotentní – přeskočí pokud embedding již existuje.
+    Je nutné spustit jednou před prvním dotazem (ask_listing).
+    """
+    result = await _call_api("post", f"/api/listings/{listing_id}/embed-description")
+    if result.get("alreadyExists"):
+        return "✅ Popis inzerátu je již embedován."
+    analysis = result
+    has_emb = analysis.get("hasEmbedding", False)
+    emb_icon = "✅" if has_emb else "⚠️"
+    return (
+        f"{emb_icon} Popis embedován jako analýza\n"
+        f"ID: {analysis.get('id')}\n"
+        f"Titulek: {analysis.get('title')}\n"
+        f"Embedding: {'ano' if has_emb else 'ne (Ollama nedostupná?)'}"
+    )
+
+
+@mcp.tool()
+async def bulk_embed_descriptions(limit: int = 100) -> str:
+    """
+    Batch embed popisů inzerátů bez 'auto' analýzy.
+    Vhodné pro inicializaci knowledge base.
+    limit: maximální počet inzerátů ke zpracování (výchozí 100).
+    """
+    result = await _call_api("post", "/api/rag/embed-descriptions", json={"limit": limit})
+    processed = result.get("processed", 0)
+    return f"✅ Zpracováno {processed} inzerátů ({limit} max limit).\n\n{result.get('message', '')}"
+
+
+# ─── Entrypoint ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    if TRANSPORT == "sse":
+        import asyncio
+        logger.info("Starting MCP server in SSE mode on %s:%d", "0.0.0.0", PORT)
+        asyncio.run(mcp.run_http_async(transport="sse", host="0.0.0.0", port=PORT))
+    else:
+        logger.info("Starting MCP server in stdio mode (API: %s)", API_BASE_URL)
+        mcp.run()

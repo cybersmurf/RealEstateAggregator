@@ -10,12 +10,29 @@ namespace RealEstate.Api;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddRealEstateServices(this IServiceCollection services)
+    public static IServiceCollection AddRealEstateServices(this IServiceCollection services, IConfiguration config)
     {
         services.AddScoped<IListingService, ListingService>();
         services.AddScoped<ISourceService, SourceService>();
         services.AddScoped<IAnalysisService, AnalysisService>();
         services.AddScoped<IScrapingService, ScrapingService>();
+
+        // RAG – embeddingy + chat: Ollama (lokální) → OpenAI → disabled
+        var embeddingProvider = config["Embedding:Provider"] ?? "";
+        var ollamaBaseUrl = config["Ollama:BaseUrl"];
+        var openAiKey = config["OpenAI:ApiKey"];
+
+        if (embeddingProvider.Equals("ollama", StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(ollamaBaseUrl) && string.IsNullOrWhiteSpace(openAiKey)))
+        {
+            services.AddHttpClient("Ollama");
+            services.AddSingleton<IEmbeddingService, OllamaEmbeddingService>();
+        }
+        else
+        {
+            services.AddSingleton<IEmbeddingService, OpenAIEmbeddingService>();
+        }
+        services.AddScoped<IRagService, RagService>();
 
         // Repositories
         services.AddScoped<IListingRepository, ListingRepository>();
@@ -30,6 +47,23 @@ public static class ServiceCollectionExtensions
         // Google Drive export
         services.AddScoped<IGoogleDriveExportService, GoogleDriveExportService>();
         services.AddHttpClient("DrivePhotoDownload", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "Mozilla/5.0 (compatible; RealEstateAggregator/1.0)");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        // OneDrive export
+        services.AddScoped<IOneDriveExportService, OneDriveExportService>();
+        services.AddHttpClient("OneDriveGraph", client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(5);
+        });
+        services.AddHttpClient("OneDriveToken", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddHttpClient("OneDrivePhotoDownload", client =>
         {
             client.DefaultRequestHeaders.Add("User-Agent",
                 "Mozilla/5.0 (compatible; RealEstateAggregator/1.0)");
@@ -56,6 +90,7 @@ public static class ServiceCollectionExtensions
             options.UseSnakeCaseNamingConvention();
             options.ConfigureWarnings(warnings =>
                 warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
+
         });
 
         return services;

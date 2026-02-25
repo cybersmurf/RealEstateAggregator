@@ -153,6 +153,7 @@ class DatabaseManager:
         
         # Mapování českých hodnot na enum hodnoty v DB
         property_type_map = {
+            # České hodnoty (většina scraperů)
             "Dům": "House",
             "Byt": "Apartment",
             "Pozemek": "Land",
@@ -161,12 +162,26 @@ class DatabaseManager:
             "Průmyslový": "Industrial",
             "Garáž": "Garage",
             "Ostatní": "Other",
+            # Anglické passthrough (REAS a budoucí scrapery)
+            "House": "House",
+            "Apartment": "Apartment",
+            "Land": "Land",
+            "Cottage": "Cottage",
+            "Commercial": "Commercial",
+            "Industrial": "Industrial",
+            "Garage": "Garage",
+            "Other": "Other",
         }
         
         offer_type_map = {
+            # České hodnoty
             "Prodej": "Sale",
             "Pronájem": "Rent",
             "Dražba": "Auction",
+            # Anglické passthrough (REAS a budoucí scrapery)
+            "Sale": "Sale",
+            "Rent": "Rent",
+            "Auction": "Auction",
         }
         
         property_type_db = property_type_map.get(listing_data.get("property_type", "Ostatní"), "Other")

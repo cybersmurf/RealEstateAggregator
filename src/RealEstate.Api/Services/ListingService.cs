@@ -31,7 +31,7 @@ public class ListingService : IListingService
     {
         var query = _repository.Query(); // IQueryable<Listing> s AsExpandable()
 
-        // 1) Stavíme predikát s AND kombinací filtrů
+        // 1) Stavíme predikát s AND kombinací filtrů přes LinqKit PredicateBuilder
         var predicate = BuildBasePredicate(filter);
 
         // 2) Přidáme fulltext (OR nad klíčovými slovy)
@@ -41,9 +41,10 @@ public class ListingService : IListingService
             predicate = predicate.And(searchPredicate);
         }
 
+        // 3) Expandujeme LinqKit predikát
         query = query.Where(predicate);
 
-        // 3) Counting před stránkováním
+        // 4) Counting před stránkováním
         var totalCount = await query.CountAsync(cancellationToken);
 
         // 4) Sorting – řazení dle filtru, .ThenBy(Id) zajišťuje deterministické pořadí
@@ -316,12 +317,13 @@ public class ListingService : IListingService
             }
         }
 
-        // Offer Type
+        // OfferType
         if (!string.IsNullOrWhiteSpace(filter.OfferType))
         {
-            if (Enum.TryParse<OfferType>(filter.OfferType, ignoreCase: true, out var offerType))
+            if (Enum.TryParse<OfferType>(filter.OfferType, ignoreCase: true, out var offerTypeEnum))
             {
-                predicate = predicate.And(x => x.OfferType == offerType);
+                var capturedOfferType = offerTypeEnum; // capture in local variable for lambda
+                predicate = predicate.And(x => x.OfferType == capturedOfferType);
             }
         }
 

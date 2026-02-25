@@ -5,6 +5,9 @@ using RealEstate.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Zvýšínmá limit tela požadavku pro upload fotek z prohlídky (výchozí 30 MB nestací)
+builder.WebHost.ConfigureKestrel(opts => opts.Limits.MaxRequestBodySize = 500_000_000);
+
 // ─── API Key ──────────────────────────────────────────────────────────────────
 // Načteme z prostředí, fallback na výchozí dev hodnotu.
 // V produkci nastavit: API_KEY=<tajný klíč>
@@ -49,7 +52,7 @@ builder.Services.AddCors(options =>
 
 // Custom services
 builder.Services.AddRealEstateDb(builder.Configuration);
-builder.Services.AddRealEstateServices();
+builder.Services.AddRealEstateServices(builder.Configuration);
 builder.Services.AddStorageService(builder.Configuration);
 
 
@@ -98,6 +101,8 @@ app.MapSourceEndpoints();
 app.MapAnalysisEndpoints();
 app.MapExportEndpoints();
 app.MapDriveAuthEndpoints();
+app.MapOneDriveAuthEndpoints();
+app.MapRagEndpoints();
 
 // ─── Scraping endpoints – chráněno API klíčem ─────────────────────────────────
 app.MapScrapingEndpoints()

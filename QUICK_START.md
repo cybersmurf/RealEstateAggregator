@@ -1,7 +1,7 @@
 # Quick Start Guide - Real Estate Aggregator
 
 **Vytvořeno**: 22. února 2026  
-**Verze**: 1.0.0-alpha
+**Verze**: 1.1.0 (aktualizováno 25. února 2026 – RAG + MCP + Export retry)
 
 ---
 
@@ -167,6 +167,93 @@ pip install -r requirements.txt
 python run_api.py
 # API bude na http://localhost:8001
 ```
+
+---
+
+### Krok 7: Ollama + RAG (lokální AI – volitelné)
+
+> Vyžaduje Ollama nainstalovaný lokálně (https://ollama.com). Funguje offline, žádná data neodcházení.
+
+```bash
+# 1. Stáhnout modely (jednorázově)
+ollama pull nomic-embed-text   # 274 MB – embedding model
+ollama pull qwen2.5:14b        # 9 GB  – chat model
+
+# 2. Ujistit se že Ollama běží
+ollama serve   # nebo: launchctl start com.ollama.ollama (pokud nainstalováno přes .pkg)
+
+# 3. Ověřit RAG status (API musí běžet)
+curl http://localhost:5001/api/rag/status | jq
+
+# Očekávaná odpověď:
+# { "provider": "ollama", "isConfigured": true, "embeddingModel": "nomic-embed-text",
+#   "chatModel": "qwen2.5:14b", "totalAnalyses": 0, "embeddedAnalyses": 0 }
+
+# 4. Batch-embed popisy všech inzerátů (doporučeno po prvním importu)
+curl -X POST http://localhost:5001/api/rag/embed-descriptions \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 500}'
+# Odpověď: { "processed": 482, "message": "Zpracováno 482 inzerátů" }
+
+# 5. Test RAG chatu
+curl -X POST http://localhost:5001/api/listings/{listing-uuid}/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Jaké jsou hlavní výhody této nemovitosti?","topK":5}' | jq
+```
+
+**Konfigurace v `appsettings.json`:**
+```json
+{
+  "Ollama": {
+    "BaseUrl": "http://localhost:11434",
+    "EmbeddingModel": "nomic-embed-text",
+    "ChatModel": "qwen2.5:14b"
+  },
+  "Embedding": {
+    "Provider": "ollama",
+    "VectorDimensions": "768"
+  }
+}
+```
+
+**V Dockeru** (Ollama na host mašině):
+```
+Ollama__BaseUrl=http://host.docker.internal:11434
+```
+
+---
+
+### Krok 8: MCP Server – Claude Desktop integrace (volitelné)
+
+MCP server umožňuje AI asistentům (Claude Desktop) přímo přistupovat k databázi inzerátů.
+
+```bash
+# Nainstaluj závislosti
+cd mcp
+pip install -r requirements.txt
+
+# Test spuštění (stdio pro Claude Desktop)
+API_BASE_URL=http://localhost:5001 python server.py
+```
+
+**Konfigurace Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "realestate": {
+      "command": "python",
+      "args": ["/Users/petrsramek/Projects/RealEstateAggregator/mcp/server.py"],
+      "env": {
+        "API_BASE_URL": "http://localhost:5001"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop → v nabídce nástrojů uvidíš `realestate` s 9 nástroji.
+
+**Dostupné nástroje:** `search_listings`, `get_listing`, `get_analyses`, `save_analysis`, `ask_listing`, `ask_general`, `list_sources`, `get_rag_status`, `embed_description`, `bulk_embed_descriptions`
 
 ---
 

@@ -71,6 +71,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             "DELUXREALITY",
             "LEXAMO",
             "CENTURY21",
+            "REAS",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
@@ -86,6 +87,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         from core.scrapers.deluxreality_scraper import DeluxRealityScraper
         from core.scrapers.lexamo_scraper import LexamoScraper
         from core.scrapers.century21_scraper import Century21Scraper
+        from core.scrapers.reas_scraper import ReasScraper
 
         # Vybuduj tasku pro paralelní scraping
         tasks = []
@@ -161,6 +163,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             logger.info(f"Job {job_id}: Scheduling CENTURY 21 scraper...")
             scraper = Century21Scraper()
             tasks.append(("CENTURY21", scraper.run(full_rescan=request.full_rescan)))
+
+        if "REAS" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Reas.cz scraper...")
+            scraper = ReasScraper(fetch_details=True, detail_concurrency=5)
+            tasks.append(("REAS", scraper.run(full_rescan=request.full_rescan)))
 
         # Čas před spuštěním scrapingu – slouží pro deaktivaci neviděných inzerátů
         scrape_started_at = datetime.utcnow()

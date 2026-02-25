@@ -42,10 +42,18 @@ public class Listing
     
     // 🔥 pgvector: OpenAI embedding (1536 dimensions) for semantic search
     public Vector? DescriptionEmbedding { get; set; }
+
+    // Export folder IDs – ukládámy po úspěšném exportu, aby byl export idempotentní
+    // a upload fotek z prohlídky fungoval i po refreshi stránky
+    public string? DriveFolderId { get; set; }
+    public string? DriveInspectionFolderId { get; set; }
+    public string? OneDriveFolderId { get; set; }
+    public string? OneDriveInspectionFolderId { get; set; }
     
     // Navigation properties
     public Source Source { get; set; } = null!;
     public ICollection<ListingPhoto> Photos { get; set; } = new List<ListingPhoto>();
     public ICollection<UserListingState> UserStates { get; set; } = new List<UserListingState>();
     public ICollection<AnalysisJob> AnalysisJobs { get; set; } = new List<AnalysisJob>();
+    public ICollection<ListingAnalysis> Analyses { get; set; } = new List<ListingAnalysis>();
 }

@@ -21,6 +21,7 @@ public sealed class RealEstateDbContext : DbContext
     public DbSet<AnalysisJob> AnalysisJobs => Set<AnalysisJob>();
     public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();
     public DbSet<UserListingPhoto> UserListingPhotos => Set<UserListingPhoto>();
+    public DbSet<ListingAnalysis> ListingAnalyses => Set<ListingAnalysis>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -104,6 +105,11 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.LastSeenAt).HasColumnName("last_seen_at").HasColumnType("timestamptz");
             entity.Property(e => e.IsActive).HasColumnName("is_active");
             entity.Property(e => e.DescriptionEmbedding).HasColumnName("description_embedding").HasColumnType("vector(1536)");
+
+            entity.Property(e => e.DriveFolderId).HasColumnName("drive_folder_id");
+            entity.Property(e => e.DriveInspectionFolderId).HasColumnName("drive_inspection_folder_id");
+            entity.Property(e => e.OneDriveFolderId).HasColumnName("onedrive_folder_id");
+            entity.Property(e => e.OneDriveInspectionFolderId).HasColumnName("onedrive_inspection_folder_id");
 
             // 🔍 Shadow property pro precomputed tsvector (GIN index) – fulltext search
             entity.Property<NpgsqlTsVector>("SearchTsv")
@@ -253,6 +259,41 @@ public sealed class RealEstateDbContext : DbContext
             // Indexes
             entity.HasIndex(e => e.ListingId);
             entity.HasIndex(e => e.UploadedAt);
+        });
+
+        // =====================================================================
+        // ListingAnalysis – RAG analýzy s pgvector embeddingy
+        // =====================================================================
+        modelBuilder.Entity<ListingAnalysis>(entity =>
+        {
+            entity.ToTable("listing_analyses", "re_realestate");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.Content).HasColumnName("content").IsRequired();
+            entity.Property(e => e.Embedding)
+                .HasColumnName("embedding")
+                .HasColumnType("vector(768)");  // nomic-embed-text (Ollama). OpenAI: vector(1536)
+            entity.Property(e => e.Source)
+                .HasColumnName("source")
+                .HasMaxLength(50)
+                .HasDefaultValue("manual");
+            entity.Property(e => e.Title).HasColumnName("title").HasMaxLength(500);
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasColumnType("timestamptz");
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnName("updated_at")
+                .HasColumnType("timestamptz");
+
+            entity.HasOne(e => e.Listing)
+                .WithMany(l => l.Analyses)
+                .HasForeignKey(e => e.ListingId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.ListingId);
+            entity.HasIndex(e => e.CreatedAt);
         });
     }
 }

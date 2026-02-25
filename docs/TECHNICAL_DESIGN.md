@@ -1222,4 +1222,118 @@ volumes:
 
 ---
 
-**Konec technické dokumentace** • Verze 1.0 • 22. února 2026
+## 🤖 RAG + AI Architektura (Session 5–6, únor 2026)
+
+### Přehled
+
+Aplikace integruje lokální AI pro sémantické vyhledávání a chat nad inzeráty. Veškeré zpracování probíhá lokálně (Ollama na M2 Ultra) bez odesílání dat do cloudu.
+
+```
+Blazor UI (ListingDetail)
+    │ POST /api/listings/{id}/analyses
+    │ POST /api/listings/{id}/ask
+    ▼
+RagService (.NET)
+    │ embeddingy           │ chat
+    ▼                      ▼
+OllamaEmbeddingService   Ollama :11434
+    ▼                      nomic-embed-text (768 dim)
+PostgreSQL pgvector        qwen2.5:14b (9 GB)
+listing_analyses
+    ↑
+MCP Server (Python FastMCP 3.x :8002)
+    ← stdio (Claude Desktop)
+    ← SSE/HTTP (Docker)
+```
+
+### Databázová entita `listing_analyses`
+
+```sql
+CREATE TABLE re_realestate.listing_analyses (
+    id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    listing_id  uuid        NOT NULL REFERENCES re_realestate.listings(id) ON DELETE CASCADE,
+    content     text        NOT NULL,
+    embedding   vector(768),           -- NULL dokud není embedováno
+    source      text        NOT NULL DEFAULT 'manual',  -- manual|claude|mcp|auto
+    title       text,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_listing_analyses_embedding
+    ON re_realestate.listing_analyses USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+```
+
+### Embedding providers
+
+| Provider | Model | Dimenze | Cena | Offline |
+|---|---|---|---|---|
+| **Ollama** (primární) | `nomic-embed-text` | 768 | Zdarma | ✅ |
+| **OpenAI** (fallback) | `text-embedding-3-small` | 1536 | $0.02/1M | ❌ |
+
+Přepínání přes `Embedding__Provider=ollama|openai` env var.
+
+### Ingestor pattern
+
+Každý zdroj dat (ruční poznámka, AI závěr, popis inzerátu, PDF, e-mail) se ukládá jako jeden záznam v `listing_analyses` s různým `source`:
+
+| Source | Spuštění |
+|---|---|
+| `manual` | UI nebo Claude Desktop |
+| `claude` | MCP `save_analysis` tool |
+| `auto` | `POST /api/listings/{id}/embed-description` (idempotentní) |
+| `import` | Vlastní ingestor (PDF, e-mail...) |
+
+### RAG endpointy
+
+| Metoda | Cesta | Popis |
+|---|---|---|
+| `POST` | `/api/listings/{id}/analyses` | Uložit analýzu + embedding |
+| `GET` | `/api/listings/{id}/analyses` | Seznam analýz inzerátu |
+| `DELETE` | `/api/listings/{id}/analyses/{aId}` | Smazat analýzu |
+| `POST` | `/api/listings/{id}/ask` | RAG chat pro jeden inzerát |
+| `POST` | `/api/rag/ask` | RAG chat napříč všemi inzeráty |
+| `GET` | `/api/rag/status` | Stav RAG (počty, provider) |
+| `POST` | `/api/listings/{id}/embed-description` | Auto-embed popisu (idempotentní) |
+| `POST` | `/api/rag/embed-descriptions` | Batch embed všech bez `auto` analýzy |
+
+### MCP Server
+
+**Soubor:** `mcp/server.py` – FastMCP 3.x, 9 nástrojů
+
+| Tool | Popis |
+|---|---|
+| `search_listings` | Hledání inzerátů s filtry |
+| `get_listing` | Detail inzerátu |
+| `get_analyses` | Analýzy inzerátu |
+| `save_analysis` | Uložit + embedovat analýzu |
+| `ask_listing` | RAG chat pro inzerát |
+| `ask_general` | RAG chat napříč všemi |
+| `list_sources` | Aktivní zdroje |
+| `get_rag_status` | Stav RAG systému |
+| `embed_description` | Auto-embed popisu inzerátu |
+| `bulk_embed_descriptions` | Dávkový embed (limit N) |
+
+### Cloud Storage Export s retry (Session 6)
+
+`GoogleDriveExportService` + `OneDriveExportService`:
+- Retry 3× s exponenciálním backoff (2s, 4s, 6s)
+- HTTP timeout 30 s pro stahování fotek
+- `DriveExportResultDto` obsahuje `PhotosUploaded`, `PhotosTotal`, `AllPhotosUploaded`
+- UI badge zelený/oranžový podle úplnosti exportu
+
+---
+
+## 📖 Dokumentační soubory
+
+| Soubor | Obsah |
+|---|---|
+| `docs/TECHNICAL_DESIGN.md` | Tento soubor – architektura a technická rozhodnutí |
+| `docs/API_CONTRACTS.md` | API endpointy (request/response příklady) |
+| `docs/RAG_MCP_DESIGN.md` | Detailní design RAG + MCP serveru |
+| `docs/AI_SESSION_SUMMARY.md` | Historie sessions + changelog |
+| `docs/BACKLOG.md` | Product backlog |
+| `QUICK_START.md` | Jak rychle spustit celý stack |
+
+---
+
+**Konec technické dokumentace** • Verze 1.1 • 25. února 2026

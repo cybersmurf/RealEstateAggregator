@@ -628,9 +628,10 @@
                 ? _selectedDispositiones!.First()
                 : null;
             
-            // Třídění: pokud máme uložené v _filter (ze SessionStorage), ponechejmě ho,
-            // jinak použij nový sort z UI (state.SortLabel)
-            if (string.IsNullOrEmpty(_filter.SortBy) && !string.IsNullOrEmpty(state.SortLabel))
+            // Třídění: vždy aktualizuj z UI state (jinak se směr nikdy nepřepne).
+            // SessionStorage restore: _filter.SortBy je nastaven, ale state.SortLabel je prázdný
+            // (MudTable první volání má SortLabel="") → podmínka ochrání uložený sort.
+            if (!string.IsNullOrEmpty(state.SortLabel))
             {
                 _filter.SortBy = state.SortLabel;
                 _filter.SortDescending = state.SortDirection == MudBlazor.SortDirection.Descending;

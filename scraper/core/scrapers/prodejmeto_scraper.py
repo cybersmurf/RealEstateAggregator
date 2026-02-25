@@ -246,7 +246,16 @@ class ProdejmeToScraper:
 
         locality = params.get("Lokalita") or params.get("Lokalita obec") or ""
         region = params.get("Lokalita kraj") or ""
-        result["location_text"] = locality or region
+        # Kombinuj obec + kraj, aby prošly geografickým filtrem
+        # (např. "Suchohrdly, Jihomoravský kraj" projde filtrem "jihomoravsk")
+        if locality and region:
+            result["location_text"] = f"{locality}, {region}"
+        elif locality:
+            result["location_text"] = locality
+        elif region:
+            result["location_text"] = region
+        else:
+            result["location_text"] = ""
 
         result["description"] = self._extract_description(soup)
         result["photos"] = self._extract_photos(soup)
@@ -336,13 +345,31 @@ class ProdejmeToScraper:
         urls: List[str] = []
         for link in soup.select("a[href*='/upload/']"):
             href = link.get("href")
-            if href and href not in urls:
-                urls.append(urljoin(BASE_URL, href))
+            if href:
+                url = self._fix_upload_url(href)
+                if url not in urls:
+                    urls.append(url)
         for img in soup.select("img[src*='/upload/']"):
             src = img.get("src")
-            if src and src not in urls:
-                urls.append(urljoin(BASE_URL, src))
+            if src:
+                url = self._fix_upload_url(src)
+                if url not in urls:
+                    urls.append(url)
         return urls[:20]
+
+    @staticmethod
+    def _fix_upload_url(path: str) -> str:
+        """Opraví URL fotek – prodejme.to ukládá fotky na /media/estate/upload/,
+        ale v HTML někdy vrací jen /upload/ (bez /media/estate/ prefixu)."""
+        if path.startswith("http"):
+            # Absolutní URL – oprav jen pokud chybí /media/estate/
+            if "/upload/" in path and "/media/estate/upload/" not in path:
+                return path.replace("/upload/", "/media/estate/upload/", 1)
+            return path
+        # Relativní cesta
+        if path.startswith("/upload/"):
+            path = "/media/estate" + path
+        return urljoin(BASE_URL, path)
 
     @staticmethod
     def _parse_price(text: str) -> Optional[int]:

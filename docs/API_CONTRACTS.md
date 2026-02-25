@@ -724,4 +724,218 @@ Limity:
 
 ---
 
-**Konec API dokumentace** • Verze 1.0 • 22. února 2026
+---
+
+## 🤖 RAG API (Session 6 – 25. února 2026)
+
+Endpointy pro ukládání analýz inzerátů, vektorové embeddingy a AI chat s kontextem.
+
+### GET /api/listings/{id}/analyses
+
+Vrátí seznam uložených analýz pro daný inzerát.
+
+#### Response 200 OK
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "listingId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "content": "Lokalita je výborná - 5 min od vlakové stanice...",
+    "title": "Moje poznámka – 24.2.2026",
+    "source": "manual",
+    "hasEmbedding": true,
+    "createdAt": "2026-02-25T14:30:00Z",
+    "updatedAt": "2026-02-25T14:30:19Z"
+  }
+]
+```
+
+---
+
+### POST /api/listings/{id}/analyses
+
+Uloží analýzu inzerátu a automaticky vygeneruje vektorový embedding.
+
+#### Request Body
+
+```json
+{
+  "content": "Text analýzy nebo poznámky (povinné)",
+  "title": "Volitelný nadpis (nepovinné)",
+  "source": "manual"
+}
+```
+
+**Hodnoty `source`:** `manual`, `claude`, `mcp`, `ai`
+
+#### Response 201 Created
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "listingId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "content": "Text analýzy...",
+  "title": "Volitelný nadpis",
+  "source": "manual",
+  "hasEmbedding": true,
+  "createdAt": "2026-02-25T14:30:00Z",
+  "updatedAt": "2026-02-25T14:30:19Z"
+}
+```
+
+#### Response 404 Not Found
+
+```json
+{ "error": "Listing not found" }
+```
+
+---
+
+### DELETE /api/listings/{id}/analyses/{analysisId}
+
+Smaže analýzu inzerátu.
+
+#### Response 204 No Content
+
+(Prázdné tělo)
+
+#### Response 404 Not Found
+
+```json
+{ "error": "Analysis not found" }
+```
+
+---
+
+### POST /api/listings/{id}/ask
+
+RAG (Retrieval-Augmented Generation) – zodpoví otázku na základě uložených analýz **jednoho inzerátu**.
+
+#### Request Body
+
+```json
+{
+  "question": "Je tato nemovitost vhodná pro rodinu s dětmi?",
+  "topK": 5
+}
+```
+
+#### Response 200 OK (s embeddingy)
+
+```json
+{
+  "answer": "Na základě uložených analýz: lokalita je klidná, blízko školy...",
+  "sources": ["550e8400-e29b-41d4-a716-446655440000"],
+  "hasEmbeddings": true
+}
+```
+
+#### Response 200 OK (bez analýz)
+
+```json
+{
+  "answer": "Pro tento inzerát zatím nejsou uloženy žádné analýzy.",
+  "sources": [],
+  "hasEmbeddings": false
+}
+```
+
+---
+
+### POST /api/rag/ask
+
+RAG otázka napříč **všemi** analyzovanými inzeráty.
+
+#### Request Body
+
+```json
+{
+  "question": "Které nemovitosti jsou vhodné pro investici do pronájmu?",
+  "topK": 5
+}
+```
+
+#### Response 200 OK
+
+```json
+{
+  "answer": "Na základě analýz z databáze: nejvhodnější jsou...",
+  "sources": ["550e8400-...", "661f9500-..."],
+  "hasEmbeddings": true
+}
+```
+
+---
+
+### POST /api/listings/{id}/embed-description
+
+Embeduje popis inzerátu jako "auto" analýzu. **Idempotentní** – pokud "auto" záznam již existuje, přeskočí.
+
+#### Response 201 Created (nově embedováno)
+
+`ListingAnalysisDto` se `source: "auto"`
+
+#### Response 200 OK (již existuje)
+
+```json
+{ "message": "Auto analýza již existuje", "alreadyExists": true }
+```
+
+---
+
+### POST /api/rag/embed-descriptions
+
+Bulk embed popisů inzerátů bez "auto" analýzy. Vhodné pro inicializaci knowledge base po nasazení.
+
+#### Request Body
+
+```json
+{ "limit": 100 }
+```
+
+#### Response 200 OK
+
+```json
+{ "processed": 148, "message": "Zpracováno 148 inzerátů" }
+```
+
+---
+
+### GET /api/rag/status
+
+Vrátí stav RAG systému: konfigurace, provider, počty vektorů.
+
+#### Response 200 OK
+
+```json
+{
+  "provider": "ollama",
+  "isConfigured": true,
+  "ollamaBaseUrl": "http://localhost:11434",
+  "embeddingModel": "nomic-embed-text",
+  "chatModel": "qwen2.5:14b",
+  "totalAnalyses": 12,
+  "embeddedAnalyses": 10,
+  "vectorDimensions": 768
+}
+```
+
+---
+
+## 🔗 MCP Server (SSE transport)
+
+MCP server naslouchá na `:8002` v Docker deploymentu.
+
+```
+GET  http://localhost:8002/sse          ← SSE endpoint pro AI klienty
+POST http://localhost:8002/messages     ← MCP message endpoint
+```
+
+**Dostupné nástroje:** `search_listings`, `get_listing`, `get_analyses`, `save_analysis`, `ask_listing`, `ask_general`, `list_sources`, `get_rag_status`
+
+Viz `/docs/RAG_MCP_DESIGN.md` pro kompletní dokumentaci MCP nástrojů.
+
+---
+
+**Konec API dokumentace** • Verze 1.1 • 25. února 2026

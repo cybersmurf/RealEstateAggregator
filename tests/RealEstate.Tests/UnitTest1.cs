@@ -30,8 +30,9 @@ public class EnumStringConversionTests
     }
 
     [Theory]
-    [InlineData(OfferType.Sale, "Sale")]
-    [InlineData(OfferType.Rent, "Rent")]
+    [InlineData(OfferType.Sale,    "Sale")]
+    [InlineData(OfferType.Rent,    "Rent")]
+    [InlineData(OfferType.Auction, "Auction")]   // přidáno Session 5
     public void OfferType_ToString_ReturnsEnglishDatabaseValue(OfferType ot, string expected)
     {
         Assert.Equal(expected, ot.ToString());
@@ -52,8 +53,9 @@ public class EnumStringConversionTests
     }
 
     [Theory]
-    [InlineData("Sale", OfferType.Sale)]
-    [InlineData("Rent", OfferType.Rent)]
+    [InlineData("Sale",    OfferType.Sale)]
+    [InlineData("Rent",    OfferType.Rent)]
+    [InlineData("Auction", OfferType.Auction)]   // přidáno Session 5
     public void OfferType_ParseFromString_RoundTrips(string value, OfferType expected)
     {
         Assert.Equal(expected, Enum.Parse<OfferType>(value));
@@ -79,6 +81,7 @@ public class NormalizeStatusTests
     [InlineData("   ",        "New")]
     [InlineData("Unknown",    "New")]
     [InlineData("invalid",    "New")]
+    [InlineData("Auction",    "New")]   // OfferType.Auction ≠ UserStatus → musí vrátit New
     public void NullOrUnknown_ReturnsNew(string? input, string expected)
         => Assert.Equal(expected, Invoke(input));
 

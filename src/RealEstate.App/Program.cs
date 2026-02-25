@@ -14,6 +14,7 @@ builder.Services.AddMudServices();
 builder.Services.AddHttpClient("RealEstateApi", client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["ApiBaseUrl"] ?? "http://localhost:5001");
+    client.Timeout = TimeSpan.FromMinutes(10); // velký multipart upload fotek z prohlídky
 });
 
 // Register HttpClient as singleton for DI
