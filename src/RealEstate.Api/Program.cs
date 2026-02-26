@@ -35,8 +35,16 @@ builder.Host.UseSerilog((ctx, services, config) =>
         config.WriteTo.Console(new CompactJsonFormatter());
 });
 
-// Zvýšínmá limit tela požadavku pro upload fotek z prohlídky (výchozí 30 MB nestací)
-builder.WebHost.ConfigureKestrel(opts => opts.Limits.MaxRequestBodySize = 500_000_000);
+// Kestrel: zvýšen limit těla požadavku pro upload fotek z prohlídky (výchozí 30 MB nestačí)
+// 150 fotek × ~6 MB = ~900 MB → nastavujeme 1 GB pro jistotu
+builder.WebHost.ConfigureKestrel(opts => opts.Limits.MaxRequestBodySize = 1_000_000_000);
+
+// FormOptions: multipart body limit (výchozí 128 MB nestačí pro 150 fotek)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(opts =>
+{
+    opts.MultipartBodyLengthLimit = 1_000_000_000; // 1 GB
+    opts.ValueCountLimit           = 2_048;
+});
 
 // ─── API Key ──────────────────────────────────────────────────────────────────
 // Načteme z prostředí, fallback na výchozí dev hodnotu.
