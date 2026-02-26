@@ -82,7 +82,8 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 - **Embeddingy**: Ollama `nomic-embed-text` (768 dim, lokální, offline)
 - **Chat**: Ollama `qwen2.5:14b` (lokální, ~9 GB, M2 Ultra)
 - **Vektorová DB**: pgvector IVFFlat index (cosine distance)
-- **MCP Server**: FastMCP 3.x, 9 nástrojů, stdio + SSE transport
+- **MCP Server**: FastMCP 3.x, 5 nástrojů (search, get_listing, get_analyses, get_inspection_photos, save_analysis) + Google Drive MCP
+- **Claude Desktop**: stdio transport, kompletní workflow pro čtení ZÁPISŮ Z PROHLÍDKY + ukládání analýz
 
 ### Infrastruktura
 - **Hosting**: Docker Compose (5 služeb: postgres, api, app, scraper, mcp)
@@ -322,4 +323,4 @@ Tento projekt je privátní. Všechna práva vyhrazena.
 Pro otázky a podporu kontaktujte vlastníka projektu.
 
 **Vytvořeno**: Únor 2026  
-**Verze**: 1.1.0 (25. února 2026 – RAG + MCP + Export retry)
+**Verze**: 1.2.0 (26. února 2026 – MCP Tools kompletní integrace + Session 14)

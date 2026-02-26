@@ -1,8 +1,8 @@
 # GitHub Copilot Instructions – RealEstateAggregator
 
 **Project:** Real Estate Aggregator with Semantic Search & AI Analysis  
-**Stack:** .NET 10, Blazor Server, PostgreSQL 15 + **PostGIS 3.4** + pgvector, Python FastAPI scrapers  
-**Last Updated:** 26. února 2026 (Session 10)
+**Stack:** .NET 10, Blazor Server, PostgreSQL 15 + **PostGIS 3.4** + pgvector, Python FastAPI scrapers, **MCP Tools for Claude Desktop**  
+**Last Updated:** 26. února 2026 (Session 14)
 
 ---
 
@@ -322,6 +322,70 @@ docker cp src/RealEstate.Api/Templates/ai_instrukce_existing.md realestate-api:/
 # Trvalá změna:
 docker compose build --no-cache api && docker compose up -d --no-deps api
 ```
+
+### MCP Tools for AI Analysis
+
+**Model Context Protocol** – integrace s Claude Desktop pro přímou správu analýz.
+
+**Umístění:** `mcp/server.py` – custom MCP server běžící na `http://localhost:5001/api/*`
+
+**Konfigurace:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+```json
+{
+  "mcpServers": {
+    "realestate": {
+      "command": "python3",
+      "args": ["/Users/petrsramek/Projects/RealEstateAggregator/mcp/server.py"],
+      "env": {
+        "REALESTATE_API_URL": "http://localhost:5001"
+      }
+    }
+  }
+}
+```
+
+**Workflow pro Claude Desktop:**
+```python
+# 1. Najít inzeráty
+search_listings(query="Znojmo dům 3M")
+
+# 2. Načíst KOMPLETNÍ detail (+ ZÁPIS Z PROHLÍDKY!)
+get_listing(listing_id="14fe1165...")
+# Vrátí: cena, plocha, GPS, popis, Drive URL,
+#        📋 ZÁPIS Z PROHLÍDKY (poznámky z osobní návštěvy),
+#        📸 fotky z inzerátu + 📷 fotky z prohlídky
+
+# 3. Přečíst všechny existující analýzy
+get_analyses(listing_id="14fe1165...")
+# Vrátí: historii všech analýz (plný obsah bez zkrácení)
+
+# 4. Uložit NOVOU analýzu
+save_analysis(
+    listing_id="14fe1165...",
+    content="# Analýza...",
+    title="Analýza z prohlídky 26.2.2026",
+    source="claude"  # automaticky tagged
+)
+# Analýza se uloží do DB + vygeneruje pgvector embedding → prohledávatelná přes RAG
+```
+
+**Dostupné MCP Tools:**
+| Tool | Popis | Read/Write |
+|------|-------|------------|
+| `search_listings` | Najít inzeráty dle query, filtru | ✅ Read |
+| `get_listing` | Kompletní detail + ZÁPIS Z PROHLÍDKY | ✅ Read |
+| `get_analyses` | Všechny uložené analýzy (plný obsah) | ✅ Read |
+| `get_inspection_photos` | Vlastní fotky z prohlídky | ✅ Read |
+| `save_analysis` | Uložit novou analýzu + embedding | ✍️ Write |
+
+**Klíčové vlastnosti:**
+- `source="claude"` – každá analýza je automaticky označená zdrojem
+- **Plný obsah bez zkrácení** – `get_analyses` vrací kompletní text analýz
+- **ZÁPIS Z PROHLÍDKY je v get_listing** – automaticky součástí dat, ne samostatný call
+- **Embedding auto-generuje** – každá uložená analýza dostane pgvector embedding pro RAG
+- **Drive URL** – `get_listing` vrací přímý odkaz na Google Drive složku s exporty
+
+⚠️ **Restart Claude Desktop** po změnách v `mcp/server.py` nebo config!
 
 ### Photo Synchronization
 
@@ -649,11 +713,14 @@ Include upsert to database via get_db_manager().
 ### ✅ Dokončeno v Session 13 (2026-02-26)
 - [x] **Serilog structured logging** – `Serilog.AspNetCore` 9 + `CompactJsonFormatter` + Enrichers (Environment/Process/Thread); bootstrap logger pro zachycení chyb před DI; `UseSerilog` s `ReadFrom.Configuration` + `ReadFrom.Services`; Development: obarvenÿ console output s SourceContext; Production: CompactJsonFormatter (JSON) pro log aggregaci; `UseSerilogRequestLogging()` – HTTP metoda, cesta, status, čas obsluhy; `appsettings.json` MinimumLevel overrides (EF Core/Microsoft → Warning); `try/catch/finally` wrapper s `Log.Fatal` + `Log.CloseAndFlush()`
 
-**Last Updated:** 26. února 2026 (Session 13)
-**Current Commit:** session 13 – Serilog structured logging
+**Last Updated:** 26. února 2026 (Session 14)
+**Current Commit:** session 14 – MCP Tools komplétní dokumentace
 **DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20, …), **GPS: 1366/1403 geocodováno (1346 Nominatim, 20 scraper = 97% pokrytí)**
-**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
+**Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní), **MCP Server (Claude Desktop integration)**
 **Unit testy:** 141 C# testů zelených (`dotnet test tests/RealEstate.Tests`) + 83 Python testů zelených (`scraper/.venv/bin/pytest scraper/tests/`)
+
+### ✅ Dokončeno v Session 14 (2026-02-26)
+- [x] **MCP Tools vylepšení** – `get_listing` docstring: zdůrazní workflow (1. load data, 2. read analyses, 3. save new); kompletní popis všech polí (ZÁPIS Z PROHLÍDKY, Drive URL, fotky); `get_analyses` docstring: zdůrazní že vrací VŠECHNY analýzy v historii (plný obsah bez zkrácení); `save_analysis` docstring: workflow uložení + auto `source="claude"`; zvýšen upload limit na 150 fotek (Kestrel 1GB, FormOptions 1GB, MudFileUpload MaximumFileCount=150); local inspection photo storage + API endpoint `GET /api/listings/{id}/inspection-photos`; `ListingDetailDto`: přidány `DriveFolderUrl`, `DriveInspectionFolderUrl`, `HasOneDriveExport`; Google Drive MCP credentials setup (`~/.gdrive-server-credentials.json`)
 
 ### ✅ Dokončeno v Session 12 (2026-02-26)
 - [x] **Moje inzeráty stránka** – `MyListingsSummaryDto` + `UserListingsGroupDto`; `IListingService.GetMyListingsAsync()` + implementace; `GET /api/listings/my-listings` (inzeráty = status ≠ New, seskupené dle stavu, pořadí ToVisit→Liked→Visited→Disliked); `MyListings.razor` (barevné sekce, souhrné čipy, prázdný stav, ikona poznámek, CancellationToken); NavMenu odkaz "Moje inzeráty"; 141/141 testů zelených
