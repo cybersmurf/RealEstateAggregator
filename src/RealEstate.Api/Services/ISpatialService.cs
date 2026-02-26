@@ -40,4 +40,10 @@ public interface ISpatialService
 
     /// <summary>Statistika geokódování – kolik inzerátů má/nemá GPS souřadnice.</summary>
     Task<object> GetGeocodeStatsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Geokóduje dávku aktivních inzerátů bez GPS souřadnic přes Nominatim.
+    /// Respektuje rate limit 1 req/s. Vrátí počet úspěšně geokódovaných.
+    /// </summary>
+    Task<BulkGeocodeResultDto> BulkGeocodeListingsAsync(int batchSize = 50, CancellationToken ct = default);
 }

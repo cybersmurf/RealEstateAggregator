@@ -129,15 +129,49 @@
     <div id="@_mapId" style="height: 620px; width: 100%; border-radius: 4px;"></div>
 </MudPaper>
 
-<!-- Statistiky koordinátů -->
+<!-- Statistiky koordinátů + geocoding -->
 @if (_geocodeStats != null)
 {
-    <MudPaper Class="pa-2 mt-2" Elevation="0">
-        <MudText Typo="Typo.caption" Color="Color.Secondary">
-            GPS pokrytí: @_geocodeStats.WithCoords / @_geocodeStats.Total inzerátů
-            (@((_geocodeStats.Total > 0 ? (double)_geocodeStats.WithCoords / _geocodeStats.Total * 100 : 0.0).ToString("F0")) %)
-            · @_geocodeStats.ActiveWithoutCoords aktivních bez souřadnic
-        </MudText>
+    <MudPaper Class="pa-3 mt-2" Elevation="1">
+        <MudGrid Spacing="1" AlignItems="Center">
+            <MudItem xs="12" sm="8">
+                <MudText Typo="Typo.body2">
+                    <MudIcon Icon="@Icons.Material.Filled.GpsFixed" Size="Size.Small" Class="mr-1" />
+                    GPS pokrytí:
+                    <strong>@_geocodeStats.WithCoords / @_geocodeStats.Total inzerátů</strong>
+                    (@((_geocodeStats.Total > 0 ? (double)_geocodeStats.WithCoords / _geocodeStats.Total * 100 : 0.0).ToString("F0")) %)
+                    @if (_geocodeStats.ActiveWithoutCoords > 0)
+                    {
+                        <MudChip T="string" Color="Color.Warning" Size="Size.Small" Class="ml-2">
+                            @_geocodeStats.ActiveWithoutCoords bez GPS
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Color="Color.Success" Size="Size.Small" Class="ml-2">Vše geokódováno ✓</MudChip>
+                    }
+                </MudText>
+                @if (_lastGeocodeResult != null)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">
+                        Poslední batch: @_lastGeocodeResult.Succeeded přidáno, @_lastGeocodeResult.Failed selhalo,
+                        zbývá @_lastGeocodeResult.RemainingWithoutGps · ~@(_lastGeocodeResult.AvgMsPerRequest) ms/req
+                    </MudText>
+                }
+            </MudItem>
+            @if (_geocodeStats.ActiveWithoutCoords > 0)
+            {
+                <MudItem xs="12" sm="4" Class="d-flex justify-end">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Warning"
+                               OnClick="RunGeocodingBatchAsync"
+                               Disabled="_isGeocoding"
+                               StartIcon="@Icons.Material.Filled.LocationSearching"
+                               Size="Size.Small">
+                        @(_isGeocoding ? "Geocoduji 20 inzerátů..." : $"Geocodovat dalších 20")
+                    </MudButton>
+                </MudItem>
+            }
+        </MudGrid>
     </MudPaper>
 }
 
@@ -167,6 +201,8 @@
 
     // Statistiky geocodingu
     private GeocodeStatsDto? _geocodeStats;
+    private bool _isGeocoding;
+    private BulkGeocodeResultApiDto? _lastGeocodeResult;
 
     // ─────────────────────────────────────────────────────────────────────
 
@@ -310,6 +346,40 @@
         StateHasChanged();
     }
 
+    private async Task RunGeocodingBatchAsync()
+    {
+        _isGeocoding = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync("api/spatial/bulk-geocode?batchSize=20", null);
+            if (response.IsSuccessStatusCode)
+            {
+                _lastGeocodeResult = await response.Content.ReadFromJsonAsync<BulkGeocodeResultApiDto>();
+                Snackbar.Add($"Geocodováno: {_lastGeocodeResult?.Succeeded} ✓, zbývá {_lastGeocodeResult?.RemainingWithoutGps}", Severity.Success);
+                await LoadGeocodeStatsAsync();
+                // Obnov markery na mapě
+                if (_corridorWkt != null)
+                    await SearchInCorridorAsync(_corridorWkt);
+                else
+                    await LoadMapPointsAsync();
+            }
+            else
+            {
+                Snackbar.Add("Geocoding selhal – zkuste znovu", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Geocoding chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isGeocoding = false;
+            StateHasChanged();
+        }
+    }
+
     private string BuildMapPointsUrl()
     {
         var parts = new List<string>();
@@ -352,4 +422,8 @@
     private sealed record GeocodeStatsDto(
         int Total, int WithCoords, int ActiveWithoutCoords,
         int FromScraper, int FromNominatim);
+
+    private sealed record BulkGeocodeResultApiDto(
+        int Processed, int Succeeded, int Failed,
+        int RemainingWithoutGps, int AvgMsPerRequest);
 }

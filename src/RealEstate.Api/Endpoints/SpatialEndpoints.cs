@@ -41,6 +41,10 @@ public static class SpatialEndpoints
             .WithName("GetGeocodeStats")
             .WithSummary("Statistika GPS kódování inzerátů");
 
+        group.MapPost("/bulk-geocode", BulkGeocode)
+            .WithName("BulkGeocode")
+            .WithSummary("Geokóduje dávku inzerátů bez GPS přes Nominatim (max batchSize, ~1.1s/req)");
+
         return app;
     }
 
@@ -115,5 +119,14 @@ public static class SpatialEndpoints
     {
         var stats = await service.GetGeocodeStatsAsync(ct);
         return TypedResults.Ok<object>(stats);
+    }
+
+    private static async Task<Ok<BulkGeocodeResultDto>> BulkGeocode(
+        [FromServices] ISpatialService service,
+        CancellationToken ct,
+        [FromQuery] int batchSize = 50)
+    {
+        var result = await service.BulkGeocodeListingsAsync(batchSize, ct);
+        return TypedResults.Ok(result);
     }
 }

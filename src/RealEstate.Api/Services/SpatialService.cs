@@ -251,6 +251,110 @@ public sealed class SpatialService(
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // BULK GEOCODING
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    public async Task<BulkGeocodeResultDto> BulkGeocodeListingsAsync(int batchSize = 50, CancellationToken ct = default)
+    {
+        // 1. Načti dávku inzerátů bez GPS přes EF Core LINQ
+        var listings = await db.Listings
+            .Where(l => l.Latitude == null && l.IsActive
+                     && l.LocationText != null && l.LocationText != "")
+            .OrderByDescending(l => l.FirstSeenAt)
+            .Take(batchSize)
+            .Select(l => new { l.Id, l.LocationText })
+            .ToListAsync(ct);
+
+        if (listings.Count == 0)
+        {
+            var remainingZero = await db.Listings.CountAsync(l => l.Latitude == null && l.IsActive, ct);
+            return new BulkGeocodeResultDto(0, 0, 0, remainingZero, 0);
+        }
+
+        var client = httpClientFactory.CreateClient("Nominatim");
+        int succeeded = 0, failed = 0;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        foreach (var item in listings)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var query = ExtractCityFromLocationText(item.LocationText!);
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                failed++;
+                continue;
+            }
+
+            try
+            {
+                var url = $"{NominatimBaseUrl}/search"
+                        + $"?q={Uri.EscapeDataString(query)}&countrycodes=cz&format=json&limit=1&accept-language=cs";
+
+                var results = await client.GetFromJsonAsync<NominatimResult[]>(url, ct);
+
+                if (results is { Length: > 0 })
+                {
+                    await db.Database.ExecuteSqlRawAsync(
+                        """
+                        UPDATE re_realestate.listings
+                        SET latitude = {0}, longitude = {1},
+                            geocode_source = 'nominatim', geocoded_at = now()
+                        WHERE id = {2}
+                        """,
+                        [results[0].Lat, results[0].Lon, item.Id], ct);
+
+                    succeeded++;
+                    logger.LogDebug("Geocoded [{Query}] → {Lat},{Lon}", query, results[0].Lat, results[0].Lon);
+                }
+                else
+                {
+                    failed++;
+                    logger.LogDebug("Geocoding nenalezl výsledek pro: '{Query}'", query);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failed++;
+                logger.LogWarning(ex, "Geocoding selhal pro listing {Id} / '{Query}'", item.Id, query);
+            }
+
+            // Nominatim ToS: max 1 request/second
+            await Task.Delay(1100, ct);
+        }
+
+        sw.Stop();
+        var avgMs = listings.Count > 0 ? (int)(sw.ElapsedMilliseconds / listings.Count) : 0;
+        var remaining = await db.Listings.CountAsync(l => l.Latitude == null && l.IsActive, ct);
+
+        logger.LogInformation(
+            "Bulk geocoding dokončen: batch={Batch}, succeeded={Succeeded}, failed={Failed}, remaining={Remaining}",
+            listings.Count, succeeded, failed, remaining);
+
+        return new BulkGeocodeResultDto(listings.Count, succeeded, failed, remaining, avgMs);
+    }
+
+    /// <summary>
+    /// Extrahuje vhodný geocoding dotaz z location_text inzerátu.
+    /// "Štítary" → "Štítary", "Pohořelice, Jihomoravský kraj" → "Pohořelice",
+    /// "Praha 10-Vršovice" → "Praha 10-Vršovice"
+    /// </summary>
+    private static string ExtractCityFromLocationText(string locationText)
+    {
+        if (string.IsNullOrWhiteSpace(locationText)) return "";
+
+        var parts = locationText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0) return locationText.Trim();
+
+        // Heuristika: pokud první část vypadá jako "ulice 28" (číslo na konci), vezmi druhou část
+        var first = parts[0].Trim();
+        if (parts.Length > 1 && System.Text.RegularExpressions.Regex.IsMatch(first, @"\s+\d+\s*$"))
+            return parts[1].Trim();
+
+        return first;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
 

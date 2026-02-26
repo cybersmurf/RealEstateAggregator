@@ -68,3 +68,17 @@ public record SpatialAreaDto(
     bool IsActive,
     DateTime CreatedAt
 );
+
+/// <summary>Výsledek bulk geocodování inzerátů.</summary>
+public record BulkGeocodeResultDto(
+    /// <summary>Počet inzerátů zpracovaných v tomto běhu.</summary>
+    int Processed,
+    /// <summary>Počet úspěšně geokódovaných.</summary>
+    int Succeeded,
+    /// <summary>Počet selhání (adresa nenalezena nebo chyba sítě).</summary>
+    int Failed,
+    /// <summary>Počet inzerátů bez GPS, které ještě zbývají zpracovat.</summary>
+    int RemainingWithoutGps,
+    /// <summary>Průměrný čas na request v ms (pro odhad celkové doby).</summary>
+    int AvgMsPerRequest
+);
