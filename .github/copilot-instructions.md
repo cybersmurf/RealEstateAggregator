@@ -490,9 +490,11 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **UserStatus filtr v UI** – `MudSelect "Můj stav"` v Listings.razor filtru; quick filtry ❤️ Oblíbené + 🚗 K návštěvě; `ListingsPageState` rozšíren o `UserStatus`; SessionStorage persist
 - [x] **Export CSV** – `GET /api/listings/export.csv`; `IListingService.ExportCsvAsync` + `ListingService` implementace (pageSize=5000); UTF-8 BOM (Excel), semicolony, česky; MudIconButton v toolbaru; `BuildCsvExportUrl()` z `Http.BaseAddress`
 - [x] **REAS full_rescan** – job úspěšný (20 inzerátů = správně, JMK lokální filtr)
+- [x] **Photo download pipeline** – `PhotoDownloadService.cs` + `IPhotoDownloadService`; `POST /api/photos/bulk-download?batchSize=N` (1-200); `GET /api/photos/stats`; ukládá do `wwwroot/uploads/listings/{id}/photos/`, `stored_url` = `{PHOTOS_PUBLIC_BASE_URL}/uploads/...`; `uploads_data` Docker volume; ~365ms/fotka; 53/53 testovací batche ✓
+- [x] **Photo download UI panel** – Map.razor: panel pod GPS (celkem/staženo/%), tlačítko `Stáhnout 100 fotek` → bulk-download batch; `LoadPhotoStatsAsync()` v `OnAfterRenderAsync`
 
 ### High Priority (zbývá)
-- [ ] Photo download pipeline – original_url → stored_url (S3/local)
+- [x] Photo download pipeline – original_url → stored_url (S3/local) ✅ (local uploads_data volume + PhotoDownloadService)
 - [x] Kontejnerizace Blazor App – `realestate-app` Docker kontejner hotov ✅
 - [x] Prostorové filtrování – `ST_Buffer` koridor (PostGIS) + Leaflet mapa + bulk geocoding ✅
 
