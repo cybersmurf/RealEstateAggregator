@@ -514,12 +514,13 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] Semantic search – RAG service s pgvector (Ollama `nomic-embed-text` 768D, OpenAI 1536D), `FindSimilarAsync` přes `embedding <->` L2 distance ✅
 - [x] Analysis jobs – `AnalysisService` + `RagService.SaveAnalysisAsync` + `BulkEmbedDescriptionsAsync` ✅
 - [ ] User listing states – uložit/archivovat/kontakt tracking (základ hotov, rozšíření zbývá)
+- [x] **Moje inzeráty** – `GET /api/listings/my-listings` + `MyListings.razor` (/my-listings): karty seskupené dle stavu (K návštěvě/Zajímavé/Navštíveno/Nezajímavé), souhrn čipů s počty, prázdný stav, ikona poznámek, NavMenu entry ✅
 - [x] Background scheduled scraping – APScheduler `AsyncIOScheduler` v `scraper/api/main.py`, cron 3:00 denně + neděle 2:00 ✅
 
 ### Low Priority
 - [x] **Unit testy scraper** – pytest 83/83 zelených; `scraper/tests/test_parsers.py` (ProdejmeToScraper, RemaxScraper, ReasScraper, ZnojmoRealityScraper) + `scraper/tests/test_filters.py` (FilterManager geo/quality/price); `scraper/pytest.ini` ✅
 - [ ] Monitoring – Prometheus/Serilog metrics
-- [ ] Export funkce (CSV/Excel) – projekt RealEstate.Export existuje
+- [x] Export funkce (CSV/Excel) – CSV export implementován v Session 10 (`GET /api/listings/export.csv`, UTF-8 BOM, semicolony) ✅
 - [ ] AI šablony – úprava sekcí dle uživatelského feedbacku z reálných analýz
 
 ---
@@ -645,8 +646,11 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 26. února 2026 (Session 11)  
-**Current Commit:** session 11 – Python scraper unit testy 83/83 zelených
+**Last Updated:** 26. února 2026 (Session 12)
+**Current Commit:** session 12 – Moje inzeráty stránka, GetMyListingsAsync
 **DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20, …), **GPS: 1366/1403 geocodováno (1346 Nominatim, 20 scraper = 97% pokrytí)**
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
 **Unit testy:** 141 C# testů zelených (`dotnet test tests/RealEstate.Tests`) + 83 Python testů zelených (`scraper/.venv/bin/pytest scraper/tests/`)
+
+### ✅ Dokončeno v Session 12 (2026-02-26)
+- [x] **Moje inzeráty stránka** – `MyListingsSummaryDto` + `UserListingsGroupDto`; `IListingService.GetMyListingsAsync()` + implementace; `GET /api/listings/my-listings` (inzeráty = status ≠ New, seskupené dle stavu, pořadí ToVisit→Liked→Visited→Disliked); `MyListings.razor` (barevné sekce, souhrné čipy, prázdný stav, ikona poznámek, CancellationToken); NavMenu odkaz "Moje inzeráty"; 141/141 testů zelených
