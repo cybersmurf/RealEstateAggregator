@@ -125,22 +125,22 @@ public sealed class SpatialService(
 
         if (!string.IsNullOrEmpty(request.PolygonWkt))
         {
-            // Hledej pomocí WKT polygonu
+            // Hledej pomocí WKT polygonu – $1 = pozicový Npgsql parametr
             whereClause = """
                 l.is_active = true
                 AND l.location_point IS NOT NULL
-                AND ST_Intersects(l.location_point, ST_GeomFromText({0}, 4326))
+                AND ST_Intersects(l.location_point, ST_GeomFromText($1, 4326))
                 """;
             parameters = [request.PolygonWkt];
         }
         else if (request.BboxMinLat.HasValue && request.BboxMinLon.HasValue
               && request.BboxMaxLat.HasValue && request.BboxMaxLon.HasValue)
         {
-            // Bounding box search
+            // Bounding box search – $1..$4 = pozicové Npgsql parametry
             whereClause = """
                 l.is_active = true
                 AND l.location_point IS NOT NULL
-                AND l.location_point && ST_MakeEnvelope({0}, {1}, {2}, {3}, 4326)
+                AND l.location_point && ST_MakeEnvelope($1, $2, $3, $4, 4326)
                 """;
             parameters = [request.BboxMinLon.Value, request.BboxMinLat.Value,
                           request.BboxMaxLon.Value, request.BboxMaxLat.Value];
@@ -436,8 +436,9 @@ public sealed class SpatialService(
             GROUP BY c.geom
             """;
 
-        var p1 = cmd.CreateParameter(); p1.ParameterName = "$1"; p1.Value = lineWkt;
-        var p2 = cmd.CreateParameter(); p2.ParameterName = "$2"; p2.Value = bufferMeters;
+        // Pozicové parametry $1, $2 – Npgsql mapuje dle pořadí, ParameterName nenastavujeme
+        var p1 = cmd.CreateParameter(); p1.Value = lineWkt;
+        var p2 = cmd.CreateParameter(); p2.Value = bufferMeters;
         cmd.Parameters.Add(p1);
         cmd.Parameters.Add(p2);
 
@@ -518,7 +519,7 @@ public sealed class SpatialService(
         for (int i = 0; i < sqlParams.Length; i++)
         {
             var p = cmd.CreateParameter();
-            p.ParameterName = $"${i + 1}";
+            // Pozicové parametry $1, $2, ... – Npgsql mapuje dle pořadí přidání, NE dle ParameterName
             p.Value = sqlParams[i] ?? DBNull.Value;
             cmd.Parameters.Add(p);
         }
