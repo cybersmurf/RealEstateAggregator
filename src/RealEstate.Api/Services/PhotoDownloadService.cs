@@ -53,7 +53,11 @@ public sealed class PhotoDownloadService(
             try
             {
                 // ── Download photo stream ───────────────────────────────────
-                using var response = await httpClient.GetAsync(photo.OriginalUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+                // URL může obsahovat mezery (prodejme.to filename) – Safe parse přes Uri
+                var requestUrl = Uri.TryCreate(photo.OriginalUrl, UriKind.Absolute, out var parsedUri)
+                    ? parsedUri.AbsoluteUri
+                    : photo.OriginalUrl;
+                using var response = await httpClient.GetAsync(requestUrl, HttpCompletionOption.ResponseHeadersRead, ct);
 
                 if (!response.IsSuccessStatusCode)
                 {

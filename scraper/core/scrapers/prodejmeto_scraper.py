@@ -7,14 +7,15 @@ Site characteristics:
   response: { count: 55, html: '<div class="project-item">...' }
 - Each page returns ~9 items; paginate until we collect all
 - Detail URL: /nabidky/{slug}
-- Photos: /media/estate/upload/{id}/{hash}_{file}.jpg
+- Photos: /upload/{id}/{hash}_{file}.jpg (NE /media/estate/upload/ !)
+  URL musí mít enkodóvanou filename (%20 apod.)
 """
 import asyncio
 import logging
 import math
 import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote
 
 import httpx
 from bs4 import BeautifulSoup
@@ -359,17 +360,25 @@ class ProdejmeToScraper:
 
     @staticmethod
     def _fix_upload_url(path: str) -> str:
-        """Opraví URL fotek – prodejme.to ukládá fotky na /media/estate/upload/,
-        ale v HTML někdy vrací jen /upload/ (bez /media/estate/ prefixu)."""
+        """Opraví a enkodódíuje URL fotek z prodejme.to.
+        V HTML je cesta /upload/{id}/{hash}_{soubor.jpg} (relativní)
+        nebo absol. URL https://...prodejme.to/upload/... .
+        Počítečky jako \u0159, \ meçe apod. musí být URL-enkodódovany."""
         if path.startswith("http"):
-            # Absolutní URL – oprav jen pokud chybí /media/estate/
-            if "/upload/" in path and "/media/estate/upload/" not in path:
-                return path.replace("/upload/", "/media/estate/upload/", 1)
-            return path
-        # Relativní cesta
-        if path.startswith("/upload/"):
-            path = "/media/estate" + path
-        return urljoin(BASE_URL, path)
+            # Absolutní URL – může být búď chybně /media/estate/upload/ nebo správně /upload/
+            # Oprav chybnou variantu a enkodóduj filename
+            path = path.replace("/media/estate/upload/", "/upload/")
+        else:
+            # Relativní cesta
+            if path.startswith("/media/estate/upload/"):
+                path = path[len("/media/estate"):]
+            if not path.startswith("/upload/"):
+                path = "/upload/" + path.lstrip("/")
+            path = urljoin(BASE_URL, path)
+        # URL-enkodóduj filename (zachová /, :, @)
+        # Rozdel na prefix a filename, enkoduj jen filename
+        prefix_end = path.rindex("/") + 1
+        return path[:prefix_end] + quote(path[prefix_end:], safe="")
 
     @staticmethod
     def _parse_price(text: str) -> Optional[int]:
