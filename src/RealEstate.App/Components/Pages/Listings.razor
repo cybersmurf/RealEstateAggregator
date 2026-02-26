@@ -140,6 +140,30 @@
                                      Clearable="true" />
                 </MudItem>
 
+                <!-- Stav inzerátu -->
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="string" @bind-Value="_filter.UserStatus" Label="Můj stav"
+                               Clearable="true" Dense="true" Variant="Variant.Outlined"
+                               AdornmentIcon="@Icons.Material.Filled.Bookmarks">
+                        <MudSelectItem T="string" Value="@((string?)null)">Vše</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("New")">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Icon="@Icons.Material.Filled.FiberNew">Nové</MudChip>
+                        </MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Liked")">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.Favorite">Zajímavé</MudChip>
+                        </MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Disliked")">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Icon="@Icons.Material.Filled.HeartBroken">Nezajímavé</MudChip>
+                        </MudSelectItem>
+                        <MudSelectItem T="string" Value="@("ToVisit")">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Icon="@Icons.Material.Filled.DirectionsCar">K návštěvě</MudChip>
+                        </MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Visited")">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Icon="@Icons.Material.Filled.DoneAll">Navštíveno</MudChip>
+                        </MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
                 <!-- Zdroje -->
                 <MudItem xs="12">
                     <MudText Typo="Typo.caption" Class="mb-1">Zdroje</MudText>
@@ -451,13 +475,15 @@
 
     // Quick filtry
     private string? _activeQuickFilter;
-    private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType)> _quickFilters =
+    private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType, string? UserStatus)> _quickFilters =
     [
-        ("houses-sale", "Domy k prodeji", "House", "Sale"),
-        ("apartments", "Byty", "Apartment", null),
-        ("land-sale", "Pozemky k prodeji", "Land", "Sale"),
-        ("cottages", "Chaty / chalupy", "Cottage", null),
-        ("rent", "Pronájem", null, "Rent"),
+        ("houses-sale",  "Domy k prodeji",  "House",     "Sale", null),
+        ("apartments",   "Byty",             "Apartment", null,   null),
+        ("land-sale",    "Pozemky k prodeji","Land",      "Sale", null),
+        ("cottages",     "Chaty / chalupy",  "Cottage",   null,   null),
+        ("rent",         "Pronájem",          null,        "Rent", null),
+        ("liked",        "❤️ Oblíbené",        null,        null,   "Liked"),
+        ("to-visit",     "🚗 K návštěvě",      null,        null,   "ToVisit"),
     ];
 
     // --- Filter state persistence (obnovení po návratu z detailu) ---
@@ -483,7 +509,8 @@
         int      CardPage,
         int      TablePage,  // 1-indexed číslo stránky tabulky
         string?  SortBy,     // Sloupec třídění ("Price", "Title", atd.)
-        bool     SortDescending // Sestupné třídění
+        bool     SortDescending, // Sestupné třídění
+        string?  UserStatus  // Filtr dle mého stavu ("Liked", "ToVisit", ...)
     );
 
     [SupplyParameterFromQuery(Name = "source")]
@@ -525,6 +552,7 @@
                     PageSize         = 20,
                     SortBy           = s.SortBy,
                     SortDescending   = s.SortDescending,
+                    UserStatus       = s.UserStatus,
                 };
                 _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
                 _selectedDispositiones = s.Disposition != null ? new[] { s.Disposition } : new List<string>();
@@ -594,7 +622,8 @@
                 CardPage:          _cardPage,
                 TablePage:         _filter.Page,  // 1-indexed aktuální stránka tabulky
                 SortBy:            _filter.SortBy,
-                SortDescending:    _filter.SortDescending
+                SortDescending:    _filter.SortDescending,
+                UserStatus:        _filter.UserStatus
             );
             await SessionStorage.SetAsync(FilterStateKey, state);
         }
@@ -754,7 +783,8 @@
         _activeQuickFilter = key;
         var qf = key != null ? _quickFilters.FirstOrDefault(q => q.Key == key) : default;
         _filter.PropertyType = qf.PropertyType;
-        _filter.OfferType = qf.OfferType;
+        _filter.OfferType    = qf.OfferType;
+        _filter.UserStatus   = qf.UserStatus;
 
         if (_cardView)
         {
