@@ -11,6 +11,10 @@ from pathlib import Path
 import os
 import logging
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
 from .schemas import ScrapeTriggerRequest, ScrapeTriggerResponse, ScrapeJob
 from core.runner import run_scrape_job
 from core.database import init_db_manager, get_db_manager
@@ -18,6 +22,35 @@ from core.geocoding import bulk_geocode, geocode_address
 from core.ruian_service import lookup_ruian_address, bulk_ruian_lookup
 
 logger = logging.getLogger(__name__)
+
+# Globální scheduler instance
+_scheduler: AsyncIOScheduler | None = None
+
+def get_scheduler() -> AsyncIOScheduler:
+    if _scheduler is None:
+        raise RuntimeError("Scheduler není inicializován")
+    return _scheduler
+
+
+async def _scheduled_scrape_all(full_rescan: bool = False) -> None:
+    """Naplánovaný scraping všech aktivních zdrojů."""
+    db_manager = get_db_manager()
+
+    async with db_manager.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT code FROM re_realestate.sources WHERE is_active = true ORDER BY code"
+        )
+    source_codes = [r["code"] for r in rows]
+
+    if not source_codes:
+        logger.warning("[Scheduler] Žádné aktivní zdroje k scrapování")
+        return
+
+    job_id = uuid4()
+    request = ScrapeTriggerRequest(source_codes=source_codes, full_rescan=full_rescan)
+    await db_manager.create_scrape_job(job_id=job_id, source_codes=source_codes, full_rescan=full_rescan)
+    logger.info(f"[Scheduler] Spouštím naplánovaný scraping: {len(source_codes)} zdrojů, job_id={job_id}, full_rescan={full_rescan}")
+    await run_scrape_job(job_id, request)
 
 
 @asynccontextmanager
@@ -74,7 +107,39 @@ async def lifespan(app: FastAPI):
         await db_manager.connect()
         logger.info(f"✓ Database connected to {db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
         print(f"✓ Database connected to {db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
-        
+
+        # ── Scheduler ──────────────────────────────────────────────────────
+        global _scheduler
+        _scheduler = AsyncIOScheduler(timezone="Europe/Prague")
+
+        sched_cfg = config.get("scheduler", {})
+        if sched_cfg.get("enabled", True):
+            # Denní quick scraping – každý den ve 3:00 ráno
+            daily_cron = sched_cfg.get("daily_cron", "0 3 * * *")
+            _scheduler.add_job(
+                _scheduled_scrape_all,
+                CronTrigger.from_crontab(daily_cron, timezone="Europe/Prague"),
+                id="daily_scrape",
+                name="Denní scraping (všechny zdroje)",
+                replace_existing=True,
+                kwargs={"full_rescan": False},
+            )
+            # Týdenní full rescan – v neděli v 2:00
+            weekly_cron = sched_cfg.get("weekly_cron", "0 2 * * 0")
+            _scheduler.add_job(
+                _scheduled_scrape_all,
+                CronTrigger.from_crontab(weekly_cron, timezone="Europe/Prague"),
+                id="weekly_full_rescan",
+                name="Týdenní full rescan",
+                replace_existing=True,
+                kwargs={"full_rescan": True},
+            )
+            _scheduler.start()
+            logger.info(f"✓ Scheduler spuštěn | denní={daily_cron} | weekly={weekly_cron}")
+            print(f"✓ Scheduler spuštěn | denní={daily_cron} | týdenní={weekly_cron}")
+        else:
+            logger.info("Scheduler je vypnut (scheduler.enabled=false v settings.yaml)")
+
     except Exception as exc:
         logger.error(f"❌ Startup failed: {exc}")
         print(f"❌ Startup failed: {exc}")
@@ -87,6 +152,9 @@ async def lifespan(app: FastAPI):
     # SHUTDOWN
     # ============================================================================
     try:
+        if _scheduler and _scheduler.running:
+            _scheduler.shutdown(wait=False)
+            logger.info("✓ Scheduler zastaven")
         db_manager = get_db_manager()
         await db_manager.disconnect()
         logger.info("✓ Database disconnected")
@@ -345,4 +413,94 @@ async def ruian_stats():
         "ruian_not_found": row["ruian_not_found"],
         "ruian_error": row["ruian_error"],
         "manual": row["manual"],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCHEDULER – správa naplánovaných úloh
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/v1/schedule/jobs")
+async def list_scheduled_jobs():
+    """Vrátí seznam naplánovaných úloh a jejich příští spuštění."""
+    if _scheduler is None:
+        return {"enabled": False, "jobs": []}
+
+    jobs = []
+    for job in _scheduler.get_jobs():
+        jobs.append({
+            "id": job.id,
+            "name": job.name,
+            "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+            "trigger": str(job.trigger),
+        })
+    return {
+        "enabled": _scheduler.running,
+        "timezone": "Europe/Prague",
+        "jobs": jobs,
+    }
+
+
+@app.post("/v1/schedule/trigger-now")
+async def trigger_scheduled_scrape_now(
+    background_tasks: BackgroundTasks,
+    full_rescan: bool = False,
+):
+    """
+    Okamžitě spustí naplánovaný scraping (stejně jako by ho pustil scheduler).
+    Užitečné pro ruční spuštění bez čekání na plánovaný čas.
+    """
+    background_tasks.add_task(_scheduled_scrape_all, full_rescan)
+    return {
+        "status": "started",
+        "full_rescan": full_rescan,
+        "message": f"Naplánovaný scraping spuštěn okamžitě (full_rescan={full_rescan})",
+    }
+
+
+@app.put("/v1/schedule/jobs/{job_id}/pause")
+async def pause_scheduled_job(job_id: str):
+    """Pozastaví naplánovanou úlohu (daily_scrape nebo weekly_full_rescan)."""
+    if _scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler není aktivní")
+    job = _scheduler.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' nenalezen")
+    _scheduler.pause_job(job_id)
+    return {"job_id": job_id, "status": "paused"}
+
+
+@app.put("/v1/schedule/jobs/{job_id}/resume")
+async def resume_scheduled_job(job_id: str):
+    """Obnoví pozastavenou naplánovanou úlohu."""
+    if _scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler není aktivní")
+    job = _scheduler.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' nenalezen")
+    _scheduler.resume_job(job_id)
+    return {"job_id": job_id, "status": "resumed"}
+
+
+@app.put("/v1/schedule/jobs/{job_id}/cron")
+async def update_job_cron(job_id: str, cron: str):
+    """
+    Změní cron výraz naplánované úlohy za běhu.
+    Formát: '0 3 * * *' (minuta hodina den měsíc den_týdne)
+    """
+    if _scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler není aktivní")
+    job = _scheduler.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' nenalezen")
+    try:
+        new_trigger = CronTrigger.from_crontab(cron, timezone="Europe/Prague")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Neplatný cron výraz: {e}")
+    _scheduler.reschedule_job(job_id, trigger=new_trigger)
+    updated_job = _scheduler.get_job(job_id)
+    return {
+        "job_id": job_id,
+        "cron": cron,
+        "next_run": updated_job.next_run_time.isoformat() if updated_job.next_run_time else None,
     }

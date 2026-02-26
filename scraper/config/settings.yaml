@@ -150,3 +150,17 @@ scrapers:
     fetch_details: true
     locality_district_id: 77     # Znojmo okres (locality_district_id=77, JMK/region 14)
   min_description_length: 20  # znaků
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCHEDULER – APScheduler naplánované scraping úlohy
+# ══════════════════════════════════════════════════════════════════════════════
+scheduler:
+  enabled: true
+  timezone: Europe/Prague
+
+  # Denní quick scraping – všechny zdroje, bez full_rescan
+  # Formát: "minuta hodina den měsíc den_týdne" (cron)
+  daily_cron: "0 3 * * *"      # každý den ve 3:00
+
+  # Týdenní full rescan – deaktivuje expired inzeráty
+  weekly_cron: "0 2 * * 0"     # každou neděli ve 2:00
