@@ -1,0 +1,251 @@
+@page "/my-listings"
+@implements IDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>Moje inzeráty</PageTitle>
+
+<MudStack Spacing="3" Class="pa-4">
+
+    <!-- Záhlaví -->
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudIcon Icon="@Icons.Material.Filled.Bookmarks" Color="Color.Primary" Size="Size.Large" />
+        <div>
+            <MudText Typo="Typo.h5">Moje inzeráty</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                Inzeráty, které jste si označili – k návštěvě, zajímavé, navštívené nebo nezajímavé.
+            </MudText>
+        </div>
+        <MudSpacer />
+        <MudTooltip Text="Obnovit seznam">
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                           OnClick="LoadAsync"
+                           Disabled="_loading"
+                           aria-label="Obnovit seznam" />
+        </MudTooltip>
+        <MudTooltip Text="Zobrazit vše v Inzerátech">
+            <MudButton Variant="Variant.Outlined"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.ListAlt"
+                       OnClick="@(() => Navigation.NavigateTo("/listings"))">
+                Všechny inzeráty
+            </MudButton>
+        </MudTooltip>
+    </MudStack>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_summary is null)
+    {
+        <MudAlert Severity="Severity.Error">Nepodařilo se načíst data.</MudAlert>
+    }
+    else if (_summary.Groups.Count == 0)
+    {
+        <!-- Prázdný stav -->
+        <MudPaper Class="pa-8 text-center" Elevation="0" Style="border: 2px dashed #e0e0e0; border-radius:12px;">
+            <MudIcon Icon="@Icons.Material.Outlined.BookmarkBorder" Size="Size.Large" Color="Color.Secondary" Style="font-size:3rem;opacity:0.5;" />
+            <MudText Typo="Typo.h6" Color="Color.Secondary" Class="mt-2">Zatím žádné označené inzeráty</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                Otevřete detail inzerátu a nastavte mu stav (Zajímavé, K návštěvě, apod.).
+            </MudText>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Search"
+                       OnClick="@(() => Navigation.NavigateTo("/listings"))">
+                Procházet inzeráty
+            </MudButton>
+        </MudPaper>
+    }
+    else
+    {
+        <!-- Souhrnné statistiky -->
+        <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+            @foreach (var (status, label, icon, color) in StatusDefinitions)
+            {
+                var count = _summary.CountsByStatus.GetValueOrDefault(status, 0);
+                <MudChip T="string"
+                         Color="@(count > 0 ? color : Color.Default)"
+                         Variant="@(count > 0 ? Variant.Filled : Variant.Outlined)"
+                         Size="Size.Medium"
+                         Icon="@icon"
+                         OnClick="@(() => ScrollToGroup(status))"
+                         aria-label="@($"{label}: {count} inzerátů")">
+                    @label @(count > 0 ? $"({count})" : "(0)")
+                </MudChip>
+            }
+            <MudSpacer />
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Style="align-self:center;">
+                Celkem @GetTotalCount() označených inzerátů
+            </MudText>
+        </MudStack>
+
+        <!-- Skupiny dle stavu -->
+        @foreach (var group in _summary.Groups)
+        {
+            var (status, label, icon, color) = StatusDefinitions.FirstOrDefault(s => s.Status == group.Status);
+            <div id="@($"group-{group.Status}")">
+                <MudPaper Class="pa-0" Elevation="1">
+                    <!-- Záhlaví skupiny -->
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2"
+                              Class="pa-3"
+                              Style="@GetGroupHeaderStyle(group.Status)">
+                        <MudIcon Icon="@(icon ?? Icons.Material.Filled.Label)" Style="color:white;" />
+                        <MudText Typo="Typo.h6" Style="color:white; font-weight:600;">
+                            @(label ?? group.StatusLabel)
+                        </MudText>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                                 Style="background:rgba(255,255,255,0.25); color:white; font-size:0.75rem;">
+                            @group.Count
+                        </MudChip>
+                        <MudSpacer />
+                        <MudTooltip Text="@($"Zobrazit pouze {label ?? group.StatusLabel} v Inzerátech")">
+                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                           Size="Size.Small"
+                                           Style="color:white;"
+                                           OnClick="@(() => Navigation.NavigateTo($"/listings?userStatus={group.Status}"))"
+                                           aria-label="@($"Otevřít {label ?? group.StatusLabel} v Inzerátech")" />
+                        </MudTooltip>
+                    </MudStack>
+
+                    <!-- Karty inzerátů -->
+                    <MudGrid Spacing="2" Class="pa-3">
+                        @foreach (var item in group.Listings)
+                        {
+                            <MudItem xs="12" sm="6" md="4" lg="3">
+                                <MudCard @onclick="@(() => Navigation.NavigateTo($"/listings/{item.Id}"))"
+                                         Style="cursor:pointer; height:100%;"
+                                         Elevation="1">
+                                    @if (!string.IsNullOrWhiteSpace(item.ThumbnailUrl))
+                                    {
+                                        <MudCardMedia Image="@item.ThumbnailUrl" Height="160" />
+                                    }
+                                    else
+                                    {
+                                        <div style="height:100px; background:linear-gradient(135deg,#C17F3E18 0%,#4A6FA518 100%); display:flex; align-items:center; justify-content:center; border-radius:8px 8px 0 0;">
+                                            <MudIcon Icon="@Icons.Material.Filled.House" Size="Size.Large" Color="Color.Primary" Style="opacity:0.3" />
+                                        </div>
+                                    }
+                                    <MudCardContent Class="pa-2">
+                                        <MudText Typo="Typo.subtitle2"
+                                                 Style="overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-height:2.8em;">
+                                            @item.Title
+                                        </MudText>
+                                        @if (item.Price.HasValue)
+                                        {
+                                            <MudText Typo="Typo.h6" Color="Color.Primary" Class="mt-1" Style="font-weight:600;">
+                                                @item.Price.Value.ToString("N0") Kč
+                                            </MudText>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">Cena neuvedena</MudText>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(item.LocationText))
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                <MudIcon Icon="@Icons.Material.Filled.LocationOn" Size="Size.Small" Style="vertical-align:text-bottom;" />
+                                                @item.LocationText
+                                            </MudText>
+                                        }
+                                        @if (item.HasNotes)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.StickyNote2"
+                                                     Color="Color.Warning" Variant="Variant.Text" Class="mt-1 pa-0">
+                                                Poznámky
+                                            </MudChip>
+                                        }
+                                    </MudCardContent>
+                                    <MudCardActions Class="pa-2 pt-0">
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@item.SourceName</MudText>
+                                        <MudSpacer />
+                                        @if (item.UserStatusLastUpdated.HasValue)
+                                        {
+                                            <MudTooltip Text="@($"Označeno: {item.UserStatusLastUpdated.Value:dd.MM.yyyy HH:mm}")">
+                                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                    @item.UserStatusLastUpdated.Value.ToString("dd.MM.")
+                                                </MudText>
+                                            </MudTooltip>
+                                        }
+                                    </MudCardActions>
+                                </MudCard>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </MudPaper>
+            </div>
+        }
+    }
+
+</MudStack>
+
+@code {
+    private MyListingsSummaryDto? _summary;
+    private bool _loading = true;
+    private CancellationTokenSource _cts = new();
+
+    // Definice stavů: Status, Label, Icon, Color
+    private static readonly List<(string Status, string Label, string Icon, Color Color)> StatusDefinitions =
+    [
+        ("ToVisit",  "K návštěvě",  Icons.Material.Filled.DirectionsCar,    Color.Warning),
+        ("Liked",    "Zajímavé",    Icons.Material.Filled.Favorite,          Color.Success),
+        ("Visited",  "Navštíveno",  Icons.Material.Filled.CheckCircle,       Color.Info),
+        ("Disliked", "Nezajímavé",  Icons.Material.Filled.ThumbDown,         Color.Error),
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            _summary = await Http.GetFromJsonAsync<MyListingsSummaryDto>(
+                "api/listings/my-listings", _cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Stránka opuštěna
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba při načítání: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private int GetTotalCount() =>
+        _summary?.CountsByStatus.Values.Sum() ?? 0;
+
+    private void ScrollToGroup(string status)
+    {
+        // Navigace na sekci – jednoduché scrollování přes anchor
+        Navigation.NavigateTo($"/my-listings#{$"group-{status}"}", forceLoad: false);
+    }
+
+    private static string GetGroupHeaderStyle(string status) => status switch
+    {
+        "ToVisit"  => "background: linear-gradient(135deg, #E65100, #FF9800); border-radius:4px 4px 0 0;",
+        "Liked"    => "background: linear-gradient(135deg, #1B5E20, #4CAF50); border-radius:4px 4px 0 0;",
+        "Visited"  => "background: linear-gradient(135deg, #01579B, #2196F3); border-radius:4px 4px 0 0;",
+        "Disliked" => "background: linear-gradient(135deg, #B71C1C, #F44336); border-radius:4px 4px 0 0;",
+        _          => "background: linear-gradient(135deg, #424242, #757575); border-radius:4px 4px 0 0;",
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

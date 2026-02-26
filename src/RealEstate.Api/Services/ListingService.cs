@@ -489,4 +489,58 @@ public class ListingService : IListingService
         "Visited"  => "Navštíveno",
         _          => "Nové"
     };
+
+    // =========================================================================
+    // My Listings (user-tagged)
+    // =========================================================================
+
+    // Pořadí skupin v UI (nižší číslo = výše)
+    private static readonly Dictionary<string, int> StatusOrder = new()
+    {
+        { "ToVisit",   0 },
+        { "Liked",     1 },
+        { "Visited",   2 },
+        { "Disliked",  3 },
+    };
+
+    public async Task<MyListingsSummaryDto> GetMyListingsAsync(CancellationToken cancellationToken)
+    {
+        // Inzeráty kde uživatel explicitně nastavil stav (!=New)
+        var taggedStatuses = new[] { "Liked", "Disliked", "ToVisit", "Visited" };
+
+        var listings = await _repository.Query()
+            .Where(l => l.UserStates.Any(s =>
+                s.UserId == DefaultUserId && taggedStatuses.Contains(s.Status)))
+            .OrderByDescending(l =>
+                l.UserStates
+                    .Where(s => s.UserId == DefaultUserId)
+                    .Select(s => s.LastUpdated)
+                    .FirstOrDefault())
+            .ThenBy(l => l.Title)
+            .ToListAsync(cancellationToken);
+
+        var dtos = listings.Select(MapToSummaryDto).ToList();
+
+        // Skupiny dle stavu
+        var groups = dtos
+            .GroupBy(d => d.UserStatus)
+            .Where(g => taggedStatuses.Contains(g.Key))
+            .OrderBy(g => StatusOrder.GetValueOrDefault(g.Key, 99))
+            .Select(g => new UserListingsGroupDto
+            {
+                Status = g.Key,
+                StatusLabel = TranslateUserStatus(g.Key),
+                Count = g.Count(),
+                Listings = g.ToList()
+            })
+            .ToList();
+
+        var countsByStatus = groups.ToDictionary(g => g.Status, g => g.Count);
+
+        return new MyListingsSummaryDto
+        {
+            CountsByStatus = countsByStatus,
+            Groups = groups
+        };
+    }
 }

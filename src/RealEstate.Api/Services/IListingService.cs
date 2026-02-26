@@ -22,4 +22,7 @@ public interface IListingService
 
     /// <summary>Exportuje výsledky vyhledávání jako CSV (max 5000 záznámů).</summary>
     Task<byte[]> ExportCsvAsync(ListingFilterDto filter, CancellationToken cancellationToken);
+
+    /// <summary>Vrátí všechny inzeráty tagované uživatelem (stav != New), seskupené dle stavu.</summary>
+    Task<MyListingsSummaryDto> GetMyListingsAsync(CancellationToken cancellationToken);
 }

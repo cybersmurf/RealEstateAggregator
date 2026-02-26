@@ -19,6 +19,10 @@ public static class ListingEndpoints
         group.MapGet("/stats", GetStats)
             .WithName("GetListingStats");
 
+        group.MapGet("/my-listings", GetMyListings)
+            .WithName("GetMyListings")
+            .WithSummary("Vrátí inzeráty tagované uživatelem, seskupené dle stavu");
+
         group.MapGet("/export.csv", ExportCsv)
             .WithName("ExportListingsCsv")
             .WithSummary("Exportuje výsledky vyhledávání jako CSV soubor (max 5000 záznamů, UTF-8 BOM)")
@@ -50,6 +54,14 @@ public static class ListingEndpoints
         CancellationToken cancellationToken)
     {
         var result = await listingService.GetStatsAsync(cancellationToken);
+        return TypedResults.Ok(result);
+    }
+
+    private static async Task<Ok<MyListingsSummaryDto>> GetMyListings(
+        [FromServices] IListingService listingService,
+        CancellationToken cancellationToken)
+    {
+        var result = await listingService.GetMyListingsAsync(cancellationToken);
         return TypedResults.Ok(result);
     }
 
