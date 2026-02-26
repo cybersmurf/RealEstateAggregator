@@ -32,14 +32,16 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://www.reas.cz"
 
 # (url_cesta, offer_type, segment_key, locality_hint)
-# lokality: 'okres-znojmo' = přesně Znojemský okres
+# lokality: 'jihomoravsky-kraj/cena-do-10-milionu' = JMK, prodej do 10M Kč
 # locality_hint se připojí k location_text aby prošel geo filtrem (subobce např. Oblekovice neobsahují 'znojmo')
+#   → "jihomoravsk" je v target_districts, takže "Jihomoravský kraj" filtrem projde
+#
+# POZOR: Kategorie pozemky/komerci s lokálním filtrem vracejí count=5124 (= celá ČR).
+# Lokální filtr pro tyto segmenty na reas.cz nefunguje → byly odebrány.
+# Fungující segmenty s jihomoravsky-kraj/cena-do-10-milionu:
+#   domy (count~141, ~15 stran) – byty vynechány (apartments: enabled: false v settings.yaml)
 CATEGORIES: List[Tuple[str, str, str, str]] = [
-    ("prodej/byty/okres-znojmo", "Sale", "byty", "Znojemský okres"),
-    ("prodej/domy/okres-znojmo", "Sale", "domy", "Znojemský okres"),
-    ("prodej/pozemky/okres-znojmo", "Sale", "pozemky", "Znojemský okres"),
-    ("prodej/komerci/okres-znojmo", "Sale", "komerci", "Znojemský okres"),
-    ("prodej/ostatni/okres-znojmo", "Sale", "ostatni", "Znojemský okres"),
+    ("prodej/domy/jihomoravsky-kraj/cena-do-10-milionu", "Sale", "domy", "Jihomoravský kraj"),
 ]
 
 # Mapování type/subType z reas.cz → naše DB hodnoty
@@ -151,6 +153,17 @@ class ReasScraper:
             "Reas.cz [%s]: total=%s listings on %s pages",
             category_path, total_count, total_pages,
         )
+
+        # Bezpečnostní guard: pokud count > 500, lokalitní filtr zřejmě nefunguje
+        # a URL vrací celonárodní data. Přeskočit kategorii.
+        MAX_EXPECTED_CATEGORY_COUNT = 500
+        if total_count > MAX_EXPECTED_CATEGORY_COUNT:
+            logger.error(
+                "Reas.cz [%s]: count=%s > %s – lokalitní filtr nefunguje! "
+                "Kategorie přeskočena aby nedošlo ke stahování celonárodních dat.",
+                category_path, total_count, MAX_EXPECTED_CATEGORY_COUNT,
+            )
+            return 0
 
         # Pokud ne full_rescan, omezte na 2 stránky (posledních ~20 inzerátů = novinky)
         max_pages = total_pages if full_rescan else min(2, total_pages)

@@ -17,6 +17,7 @@ Tato složka obsahuje loga realitních kanceláří použitá v aplikaci. Loga j
 | **Premiera Reality** | `PREMIAREALITY.png` | https://www.premiareality.cz/templates/premiareality/images/logo.png |
 | **Delux Reality** | `DELUXREALITY.png` | https://www.deluxreality.cz/img/logo.png |
 | **Znojmo Reality** | `ZNOJMOREALITY.png` | https://www.znojmoreality.cz/img/logo.png |
+| **Reas.cz** | `REAS.svg` | https://assets.reas.cz/p/_next/static/media/logo.99c58b2a.svg |
 
 ## Použití v Blazoru
 Loga jsou automaticky mapována v komponentách pomocí `@($"/images/logos/{context.SourceCode}.png")`.

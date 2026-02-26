@@ -476,7 +476,7 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 ### ✅ Dokončeno v Session 8 (2026-02-27)
 - [x] **APScheduler naplánovaný scraping** – `scraper/api/main.py`: `AsyncIOScheduler`, `daily_scrape` (3:00 denně) + `weekly_full_rescan` (neděle 2:00); 5 endpointů `/v1/schedule/jobs|trigger-now|pause|resume|cron`; `settings.yaml` scheduler sekce
 - [x] **Fine-tuning guide** – `fine-tuning/` adresář: `README.md` (Unsloth+QLoRA+SFTTrainer workflow), `finetune_unsloth.py`, `prepare_dataset.py`, `export_to_ollama.sh`, `requirements.txt`
-- [x] **REAS scraper oprava** – REAS.cz (1672+ inzerátů celostátně) filtroval 100% výsledků na geo filtru `target_districts=[Znojmo]`; opraveno přidáním `okres-znojmo` do URL kategorií (`CATEGORIES` tuple 3-prvkové); `prodej/byty/okres-znojmo` → ~49 lokálních inz.
+- [x] **REAS scraper oprava** – REAS.cz filtroval 100% výsledků na geo filtru; opraveno URL filtrem `jihomoravsky-kraj/cena-do-10-milionu` (141 domů, ~15 strán); `locality_hint="Jihomoravský kraj"` pro subobce; guard count>500 pro nefunkční segmenty; logo `REAS.svg` přidáno
 - [x] **Scraper analýza** – ZNOJMOREALITY (5), DELUXREALITY (5), LEXAMO (4): ověřeno živě, scrapers fungují správně; weby jsou malé lokální realitky s omezeným portfoliem (max 7|10|8 inz. celkem)
 
 ### High Priority (zbývá)
@@ -486,7 +486,11 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 
 ### Scraper kvalita
 - [x] ZNOJMOREALITY/DELUXREALITY/LEXAMO – ověřeno: nízké počty = malé lokální realitky se skutečně omezeným portfoliem, ne chyba scraperu ✅
-- [x] REAS – opraveno: `okres-znojmo` URL filtr ✅
+- [x] REAS – opraveno: `jihomoravsky-kraj/cena-do-10-milionu` URL filtr + `locality_hint` pro subobce + guard (count > 500 = skip) ✅
+  - Pouze `domy` (count=141) funguje s JMK lokálním filtrem + cenovým stropem
+  - `pozemky/komerci/ostatni` s lokálním filtrem vrátí count=5124 (= celá ČR) – odebráno z CATEGORIES
+  - `MAX_EXPECTED_CATEGORY_COUNT = 500` guard v `_scrape_category` chrání před přetížením
+  - Logo `REAS.svg` staženo a přidáno do Listings.razor + Home.razor
 - [ ] Playwright fallback – pro JS-heavy weby
 
 ### Medium Priority
@@ -598,7 +602,7 @@ A explicitně vyjmenovat `<Compile Include="Subdir/*.cs" />` bez `**` rekurze. H
 - **Database Schema:** /scripts/init-db.sql
 - **PostGIS migrace:** /scripts/migrate_postgis.sql
 - **Katastr migrace:** /scripts/migrate_cadastre.sql
-- **Loga zdrojů:** /src/RealEstate.App/wwwroot/images/logos/ (12 souborů SVG/PNG)
+- **Loga zdrojů:** /src/RealEstate.App/wwwroot/images/logos/ (13 souborů SVG/PNG)
 
 ---
 
@@ -626,6 +630,6 @@ Include upsert to database via get_db_manager().
 
 **Last Updated:** 27. února 2026 (Session 8)  
 **Current Commit:** session 8 – APScheduler naplánovaný scraping + REAS okres-znojmo fix + fine-tuning guide
-**DB stav:** ~1 383 aktivních inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, …), REAS opravena a aktivní
+**DB stav:** ~1 400 aktivních inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=~14+ rostoucí, …), REAS aktivní (domy/jihomoravsky-kraj/cena-do-10-milionu ~141 inz.)
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
 **Unit testy:** 141 testů zelených (`dotnet test tests/RealEstate.Tests`)
