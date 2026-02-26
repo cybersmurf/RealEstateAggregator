@@ -70,7 +70,16 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
         });
 
-        // 📍 PostGIS Spatial service
+        // � Photo download service
+        services.AddScoped<IPhotoDownloadService, PhotoDownloadService>();
+        services.AddHttpClient("PhotoDownload", client =>
+        {
+            client.DefaultRequestHeaders.Add("User-Agent",
+                "Mozilla/5.0 (compatible; RealEstateAggregator/1.0; +https://github.com/cybersmurf/RealEstateAggregator)");
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        // �📍 PostGIS Spatial service
         services.AddScoped<ISpatialService, SpatialService>();
 
         // 🏛️ ČÚZK/RUIAN Katastr service

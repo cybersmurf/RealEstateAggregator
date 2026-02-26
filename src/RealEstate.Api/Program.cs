@@ -105,6 +105,7 @@ app.MapOneDriveAuthEndpoints();
 app.MapRagEndpoints();
 app.MapSpatialEndpoints();
 app.MapCadastreEndpoints();
+app.MapPhotoEndpoints();
 
 // ─── Scraping endpoints – chráněno API klíčem ─────────────────────────────────
 app.MapScrapingEndpoints()
