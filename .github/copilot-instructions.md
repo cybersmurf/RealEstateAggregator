@@ -2,7 +2,7 @@
 
 **Project:** Real Estate Aggregator with Semantic Search & AI Analysis  
 **Stack:** .NET 10, Blazor Server, PostgreSQL 15 + **PostGIS 3.4** + pgvector, Python FastAPI scrapers  
-**Last Updated:** 27. února 2026 (Session 8)
+**Last Updated:** 26. února 2026 (Session 9)
 
 ---
 
@@ -479,10 +479,16 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **REAS scraper oprava** – REAS.cz filtroval 100% výsledků na geo filtru; opraveno URL filtrem `jihomoravsky-kraj/cena-do-10-milionu` (141 domů, ~15 strán); `locality_hint="Jihomoravský kraj"` pro subobce; guard count>500 pro nefunkční segmenty; logo `REAS.svg` přidáno
 - [x] **Scraper analýza** – ZNOJMOREALITY (5), DELUXREALITY (5), LEXAMO (4): ověřeno živě, scrapers fungují správně; weby jsou malé lokální realitky s omezeným portfoliem (max 7|10|8 inz. celkem)
 
+### ✅ Dokončeno v Session 9 (2026-02-26)
+- [x] **Bulk geocoding endpoint** – `POST /api/spatial/bulk-geocode?batchSize=N`; EF Core LINQ SELECT + `ExecuteSqlRawAsync` UPDATE; Nominatim 1.1s rate limit; `ExtractCityFromLocationText()` heuristika (čárka, číslo pattern); výsledek: 748/1403 inzerátů geocodováno (728 via Nominatim, 20 ze scraperu → 53% GPS pokrytí, 741 bodů na mapě)
+- [x] **Prostorové filtrování kompletní** – `SpatialService.cs`: `BuildCorridorAsync` (OSRM + `ST_Buffer` EPSG:5514), `SearchInAreaAsync` (`ST_Intersects`), `GetAllMapPointsAsync`; `Map.razor`: koridor UI (start/end/buffer/OSRM toggle/save), barevné markery dle typu/nabídky, Leaflet popup (foto+cena+link), GPS coverage panel s one-click geocodingem; `leaflet-interop.js`: init/setMarkers/drawCorridor/clearCorridor/fitMarkers/destroy
+- [x] **Saved areas panel** – Map.razor zobrazuje uložené koridory jako kliknutelné chipy; klik naplní formulář a znovu postaví koridor přes API; `LoadSavedAreasAsync` + `LoadSavedAreaAsync` metody
+- [x] **Kontejnerizace Blazor App** – `realestate-app` Docker kontejner běží v docker-compose.yml (port 5002, healthy) → TODO splněno
+
 ### High Priority (zbývá)
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
-- [ ] Kontejnerizace Blazor App – přidat do docker-compose nebo přejít na .NET Aspire
-- [ ] Prostorové filtrování – `ST_Buffer` koridor (PostGIS), `/api/spatial/corridor` endpoint, Leaflet mapa v Blazor
+- [x] Kontejnerizace Blazor App – `realestate-app` Docker kontejner hotov ✅
+- [x] Prostorové filtrování – `ST_Buffer` koridor (PostGIS) + Leaflet mapa + bulk geocoding ✅
 
 ### Scraper kvalita
 - [x] ZNOJMOREALITY/DELUXREALITY/LEXAMO – ověřeno: nízké počty = malé lokální realitky se skutečně omezeným portfoliem, ne chyba scraperu ✅
@@ -628,8 +634,8 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 27. února 2026 (Session 8)  
-**Current Commit:** session 8 – APScheduler naplánovaný scraping + REAS okres-znojmo fix + fine-tuning guide
-**DB stav:** ~1 400 aktivních inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=~14+ rostoucí, …), REAS aktivní (domy/jihomoravsky-kraj/cena-do-10-milionu ~141 inz.)
+**Last Updated:** 26. února 2026 (Session 9)  
+**Current Commit:** session 9 – Prostorové filtrování kompletní (bulk geocoding, Leaflet, koridor, saved areas)
+**DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20 rostoucí, …), **GPS: 748/1403 geocodováno (728 Nominatim, 741 bodů na mapě)**
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
 **Unit testy:** 141 testů zelených (`dotnet test tests/RealEstate.Tests`)

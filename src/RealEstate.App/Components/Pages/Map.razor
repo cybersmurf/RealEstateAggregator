@@ -62,6 +62,32 @@
     </MudGrid>
 </MudPaper>
 
+<!-- Uložené oblasti -->
+@if (_savedAreas is { Count: > 0 })
+{
+    <MudPaper Class="pa-2 mb-3" Elevation="1">
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">
+            <MudIcon Icon="@Icons.Material.Filled.Bookmarks" Size="Size.Small" Class="mr-1" />
+            Uložené oblasti
+        </MudText>
+        <div class="d-flex flex-wrap gap-1">
+            @foreach (var area in _savedAreas)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined"
+                         OnClick="@(() => LoadSavedAreaAsync(area))"
+                         aria-label="@($"Načíst oblast: {area.Name}")"
+                         title="@($"{area.StartCity} → {area.EndCity}, buffer {area.BufferMeters / 1000.0:F0} km")">
+                    @area.Name
+                    @if (area.ListingCount > 0)
+                    {
+                        <span class="ml-1 mud-text-disabled">(@area.ListingCount)</span>
+                    }
+                </MudChip>
+            }
+        </div>
+    </MudPaper>
+}
+
 <!-- Sekce koridoru -->
 <MudExpansionPanels Class="mb-3">
     <MudExpansionPanel Text="🗺️ Vyhledávání v koridoru (buffer kolem trasy)" IsInitiallyExpanded="@_corridorExpanded">
@@ -204,6 +230,9 @@
     private bool _isGeocoding;
     private BulkGeocodeResultApiDto? _lastGeocodeResult;
 
+    // Uložené oblasti
+    private List<SavedAreaApiDto>? _savedAreas;
+
     // ─────────────────────────────────────────────────────────────────────
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -214,6 +243,7 @@
             await JS.InvokeVoidAsync("leafletMap.init", _mapId, 49.0, 16.6, 8);
             await LoadMapPointsAsync();
             await LoadGeocodeStatsAsync();
+            await LoadSavedAreasAsync();
         }
     }
 
@@ -336,6 +366,34 @@
         await LoadMapPointsAsync();
     }
 
+    private async Task LoadSavedAreasAsync()
+    {
+        try
+        {
+            _savedAreas = await Http.GetFromJsonAsync<List<SavedAreaApiDto>>("api/spatial/areas");
+        }
+        catch { /* neblokující */ }
+        StateHasChanged();
+    }
+
+    private async Task LoadSavedAreaAsync(SavedAreaApiDto area)
+    {
+        if (string.IsNullOrEmpty(area.StartCity) || string.IsNullOrEmpty(area.EndCity))
+        {
+            Snackbar.Add("Tato oblast nelze obnovit – chybí startovní/cílové město.", Severity.Warning);
+            return;
+        }
+
+        _corridorStart = area.StartCity;
+        _corridorEnd = area.EndCity;
+        _corridorBufferM = area.BufferMeters ?? 5000;
+        _corridorUseRoute = true;
+        _corridorExpanded = true;
+        StateHasChanged();
+
+        await BuildCorridorAsync();
+    }
+
     private async Task LoadGeocodeStatsAsync()
     {
         try
@@ -426,4 +484,9 @@
     private sealed record BulkGeocodeResultApiDto(
         int Processed, int Succeeded, int Failed,
         int RemainingWithoutGps, int AvgMsPerRequest);
+
+    private sealed record SavedAreaApiDto(
+        Guid Id, string Name, string? Description, string AreaType,
+        string? StartCity, string? EndCity, int? BufferMeters,
+        bool IsActive, DateTime CreatedAt, int ListingCount = 0);
 }
