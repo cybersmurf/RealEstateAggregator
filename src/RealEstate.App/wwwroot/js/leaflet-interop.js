@@ -10,6 +10,7 @@ window.leafletMap = (() => {
 
     /**
      * Inicializuje Leaflet mapu v elementu s daným ID.
+     * Leaflet je načten lokálně (wwwroot/lib/leaflet/leaflet.js) – L je vždy dostupné.
      * @param {string} mapId - ID HTML elementu
      * @param {number} centerLat - Defaultní střed (lat)
      * @param {number} centerLon - Defaultní střed (lon)
