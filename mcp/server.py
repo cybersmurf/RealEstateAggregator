@@ -147,17 +147,20 @@ async def search_listings(
 @mcp.tool()
 async def get_listing(listing_id: str) -> str:
     """
-    Vrátí KOMPLETNÍ detail inzerátu. Obsahuje:
+    Vrátí KOMPLETNÍ detail inzerátu včetně ZÁPISU Z PROHLÍDKY.
+    
+    Vrací:
     - Základní data: cena, plocha, dispozice, lokalita, URL inzerátu
-    - Stav & ZÁPIS Z PROHLÍDKY: status (Visited/Liked/...) + plný text poznámek
-      které uživatel zapsal po návštěvě nemovitosti
-    - Google Drive URL: odkaz na složku s exportovanou analýzou a fotkami
+    - 📋 ZÁPIS Z PROHLÍDKY: plný text poznámek které uživatel zapsal po osobní návštěvě
+    - Status: Visited/Liked/ToVisit/Disliked
+    - Google Drive URL: odkaz na složku s exportovanou analýzou
     - Fotky z inzerátu: seznam URL stažených fotek
     - Fotky z prohlídky: vlastní fotky nahrané uživatelem
     - Popis inzerátu
 
-    VŽDY volej get_listing před vytvářením analýzy – zápis z prohlídky
-    obsahuje klíčové postřehy z osobní návštěvy nemovitosti!
+    ⚡ DŮLEŽITÉ: Zápis z prohlídky je součástí get_listing dat!
+    Vždy si ho přečti před tvorbou analýzy – obsahuje klíčové postřehy
+    z osobní návštěvy nemovitosti, která nejde vidět z fotek!
 
     Args:
         listing_id: UUID inzerátu (získáš ho ze search_listings)
