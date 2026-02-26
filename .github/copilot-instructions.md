@@ -2,7 +2,7 @@
 
 **Project:** Real Estate Aggregator with Semantic Search & AI Analysis  
 **Stack:** .NET 10, Blazor Server, PostgreSQL 15 + **PostGIS 3.4** + pgvector, Python FastAPI scrapers  
-**Last Updated:** 26. února 2026 (Session 9)
+**Last Updated:** 26. února 2026 (Session 10)
 
 ---
 
@@ -485,6 +485,12 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **Saved areas panel** – Map.razor zobrazuje uložené koridory jako kliknutelné chipy; klik naplní formulář a znovu postaví koridor přes API; `LoadSavedAreasAsync` + `LoadSavedAreaAsync` metody
 - [x] **Kontejnerizace Blazor App** – `realestate-app` Docker kontejner běží v docker-compose.yml (port 5002, healthy) → TODO splněno
 
+### ✅ Dokončeno v Session 10 (2026-02-26)
+- [x] **Geocoding 97%** – 7 batchí → 1366/1403 geocodováno (1346 via Nominatim, 20 ze scraperu); 32 zbývajících nelze geocódovat (špatné lokality)
+- [x] **UserStatus filtr v UI** – `MudSelect "Můj stav"` v Listings.razor filtru; quick filtry ❤️ Oblíbené + 🚗 K návštěvě; `ListingsPageState` rozšíren o `UserStatus`; SessionStorage persist
+- [x] **Export CSV** – `GET /api/listings/export.csv`; `IListingService.ExportCsvAsync` + `ListingService` implementace (pageSize=5000); UTF-8 BOM (Excel), semicolony, česky; MudIconButton v toolbaru; `BuildCsvExportUrl()` z `Http.BaseAddress`
+- [x] **REAS full_rescan** – job úspěšný (20 inzerátů = správně, JMK lokální filtr)
+
 ### High Priority (zbývá)
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
 - [x] Kontejnerizace Blazor App – `realestate-app` Docker kontejner hotov ✅
@@ -634,8 +640,8 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 26. února 2026 (Session 9)  
-**Current Commit:** session 9 – Prostorové filtrování kompletní (bulk geocoding, Leaflet, koridor, saved areas)
-**DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20 rostoucí, …), **GPS: 748/1403 geocodováno (728 Nominatim, 741 bodů na mapě)**
+**Last Updated:** 26. února 2026 (Session 10)  
+**Current Commit:** session 10 – UserStatus filtr, CSV export, geocoding 97%
+**DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20, …), **GPS: 1366/1403 geocodováno (1346 Nominatim, 20 scraper = 97% pokrytí)**
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
 **Unit testy:** 141 testů zelených (`dotnet test tests/RealEstate.Tests`)
