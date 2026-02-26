@@ -485,6 +485,9 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **Saved areas panel** – Map.razor zobrazuje uložené koridory jako kliknutelné chipy; klik naplní formulář a znovu postaví koridor přes API; `LoadSavedAreasAsync` + `LoadSavedAreaAsync` metody
 - [x] **Kontejnerizace Blazor App** – `realestate-app` Docker kontejner běží v docker-compose.yml (port 5002, healthy) → TODO splněno
 
+### ✅ Dokončeno v Session 11 (2026-02-26)
+- [x] **Python scraper unit testy (83/83)** – `scraper/tests/test_parsers.py`: ProdejmeToScraper (_parse_price 5×, _parse_area 5×, _normalize_offer_type 6×, _infer_property_type 9×), RemaxScraper mock HTML (_parse_list_page 5×, _parse_detail_page 6×), ReasScraper (_extract_ads_list 5×, _parse_description 3×, PROPERTY_TYPE_MAP 8×), ZnojmoRealityScraper (_parse_listing 4×, _extract_price_from_context 2×); `scraper/tests/test_filters.py`: FilterManager quality filtry (6×), geo filtr (5×), cenové limity House (4×) + Land (2×), kombinované (3×), default config (4×); `scraper/pytest.ini` + `scraper/tests/__init__.py`
+
 ### ✅ Dokončeno v Session 10 (2026-02-26)
 - [x] **Geocoding 97%** – 7 batchí → 1366/1403 geocodováno (1346 via Nominatim, 20 ze scraperu); 32 zbývajících nelze geocódovat (špatné lokality)
 - [x] **UserStatus filtr v UI** – `MudSelect "Můj stav"` v Listings.razor filtru; quick filtry ❤️ Oblíbené + 🚗 K návštěvě; `ListingsPageState` rozšíren o `UserStatus`; SessionStorage persist
@@ -514,7 +517,7 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] Background scheduled scraping – APScheduler `AsyncIOScheduler` v `scraper/api/main.py`, cron 3:00 denně + neděle 2:00 ✅
 
 ### Low Priority
-- [ ] Unit testy – scraper parsing s mock HTML
+- [x] **Unit testy scraper** – pytest 83/83 zelených; `scraper/tests/test_parsers.py` (ProdejmeToScraper, RemaxScraper, ReasScraper, ZnojmoRealityScraper) + `scraper/tests/test_filters.py` (FilterManager geo/quality/price); `scraper/pytest.ini` ✅
 - [ ] Monitoring – Prometheus/Serilog metrics
 - [ ] Export funkce (CSV/Excel) – projekt RealEstate.Export existuje
 - [ ] AI šablony – úprava sekcí dle uživatelského feedbacku z reálných analýz
@@ -642,8 +645,8 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 26. února 2026 (Session 10)  
-**Current Commit:** session 10 – UserStatus filtr, CSV export, geocoding 97%
+**Last Updated:** 26. února 2026 (Session 11)  
+**Current Commit:** session 11 – Python scraper unit testy 83/83 zelených
 **DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20, …), **GPS: 1366/1403 geocodováno (1346 Nominatim, 20 scraper = 97% pokrytí)**
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
-**Unit testy:** 141 testů zelených (`dotnet test tests/RealEstate.Tests`)
+**Unit testy:** 141 C# testů zelených (`dotnet test tests/RealEstate.Tests`) + 83 Python testů zelených (`scraper/.venv/bin/pytest scraper/tests/`)
