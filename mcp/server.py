@@ -160,7 +160,7 @@ async def get_listing(listing_id: str) -> str:
         raise
 
     photos = listing.get("photos", [])
-    photo_info = f"📸 {len(photos)} fotek" if photos else "Žádné fotky"
+    user_state = listing.get("userState") or {}
 
     result_lines = [
         f"# {listing['title']}",
@@ -177,17 +177,48 @@ async def get_listing(listing_id: str) -> str:
         result_lines.append(f"**Plocha pozemku:** {listing['areaLand']:.0f} m²")
     if listing.get("disposition"):
         result_lines.append(f"**Dispozice:** {listing['disposition']}")
+    if listing.get("constructionType"):
+        result_lines.append(f"**Konstrukce:** {listing['constructionType']}")
+    if listing.get("condition"):
+        result_lines.append(f"**Stav:** {listing['condition']}")
 
+    result_lines.append(f"**URL:** {listing.get('sourceUrl') or listing.get('url', '')}")
+
+    # ── Stav a zápis z prohlídky ─────────────────────────────────────────────
+    if user_state:
+        status = user_state.get("status", "New")
+        notes = user_state.get("notes", "")
+        updated = (user_state.get("lastUpdated") or "")[:10]
+        result_lines += [
+            "",
+            "## 📋 Stav & zápis z prohlídky",
+            f"**Stav:** {status} ({updated})",
+        ]
+        if notes:
+            result_lines += [
+                "**Poznámky / zápis z prohlídky:**",
+                notes,
+            ]
+        else:
+            result_lines.append("_Žádné poznámky._")
+
+    # ── Fotky (URL) ──────────────────────────────────────────────────────────
+    result_lines += ["", f"## 📸 Fotky ({len(photos)})"]
+    if photos:
+        for p in photos:
+            url = p.get("storedUrl") or p.get("originalUrl") or ""
+            result_lines.append(f"- {url}")
+    else:
+        result_lines.append("_Žádné fotky._")
+
+    # ── Popis ────────────────────────────────────────────────────────────────
     result_lines += [
-        f"**Fotky:** {photo_info}",
-        f"**URL:** {listing.get('url', '')}",
         "",
         "## Popis",
-        listing.get("description", "Bez popisu")[:2000],
+        listing.get("description", "Bez popisu")[:3000],
     ]
-
-    if listing.get("description", "") and len(listing["description"]) > 2000:
-        result_lines.append("_[popis zkrácen na 2000 znaků]_")
+    if listing.get("description", "") and len(listing["description"]) > 3000:
+        result_lines.append("_[popis zkrácen na 3000 znaků]_")
 
     return "\n".join(result_lines)
 
