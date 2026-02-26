@@ -147,20 +147,29 @@ async def search_listings(
 @mcp.tool()
 async def get_listing(listing_id: str) -> str:
     """
-    Vrátí KOMPLETNÍ detail inzerátu včetně ZÁPISU Z PROHLÍDKY.
+    🔍 Vrátí KOMPLETNÍ detail inzerátu včetně ZÁPISU Z PROHLÍDKY.
     
-    Vrací:
-    - Základní data: cena, plocha, dispozice, lokalita, URL inzerátu
-    - 📋 ZÁPIS Z PROHLÍDKY: plný text poznámek které uživatel zapsal po osobní návštěvě
+    Co vrací:
+    ─────────
+    - 📋 ZÁPIS Z PROHLÍDKY: plný text poznámek z osobní návštěvy
+    - 💰 Cena, plocha, dispozice, lokalita
+    - 🏠 Typ nemovitosti + typ nabídky (prodej/pronájem/dražba)
+    - 🌍 GPS + okres + okres katastr
+    - 📸 FOTKY Z INZERÁTU: seznam všech staženého fotek
+    - 📷 FOTKY Z PROHLÍDKY: vlastní fotky nahrané během prohlídky
+    - ☁️ GOOGLE DRIVE ODKAZ: přímý link na složku s analýzami
     - Status: Visited/Liked/ToVisit/Disliked
-    - Google Drive URL: odkaz na složku s exportovanou analýzou
-    - Fotky z inzerátu: seznam URL stažených fotek
-    - Fotky z prohlídky: vlastní fotky nahrané uživatelem
-    - Popis inzerátu
-
-    ⚡ DŮLEŽITÉ: Zápis z prohlídky je součástí get_listing dat!
-    Vždy si ho přečti před tvorbou analýzy – obsahuje klíčové postřehy
-    z osobní návštěvy nemovitosti, která nejde vidět z fotek!
+    
+    Typické workflow:
+    ──────────────────
+    1. get_listing(id) → přečti si ZÁPIS Z PROHLÍDKY
+    2. get_analyses(id) → vidíš co se už napsalo
+    3. Vytvoř novou analýzu
+    4. save_analysis(id, content) → uloží se do DB + vytvoří embedding
+    
+    ⚡ KRITICKÉ: Zápis z prohlídky je ZCELA ODLIŠNÝ od popisu na webu!
+    Obsahuje osobní pozorování, měření, kvalitativní posouzení.
+    Vždy si to přečti PŘED tvorbou analýzy!
 
     Args:
         listing_id: UUID inzerátu (získáš ho ze search_listings)
@@ -292,10 +301,20 @@ async def get_inspection_photos(listing_id: str) -> str:
 @mcp.tool()
 async def get_analyses(listing_id: str) -> str:
     """
-    Vrátí všechny uložené analýzy pro konkrétní inzerát.
+    📊 Vrátí VŠECHNY uložené analýzy pro konkrétní inzerát.
+    
+    Obsahuje:
+    - Plný obsah každé analýzy (bez zkrácení!)
+    - Nadpis a zdroj (claude | mcp | manual | ai | ...)
+    - Dátu vytvoření analýzy
+    - Status embeddingu (zda je prohledávatelná přes RAG)
+    - ID analýzy (pro případné smazání)
+    
+    DŮLEŽITÉ: Jsou tu VŠECHNY analýzy které kdy byly uloženy, 
+    ne jen ty nejnovější! Skrz historii vidíš evoluci posouzení.
 
     Args:
-        listing_id: UUID inzerátu
+        listing_id: UUID inzerátu (získáš ho ze search_listings nebo get_listing)
     """
     try:
         analyses = await _call_api("get", f"/api/listings/{listing_id}/analyses")
@@ -327,17 +346,28 @@ async def save_analysis(
     listing_id: str,
     content: str,
     title: Optional[str] = None,
-    source: str = "mcp",
+    source: str = "claude",
 ) -> str:
     """
-    Uloží analýzu inzerátu do databáze. Automaticky se vygeneruje pgvector embedding
-    (pokud je nakonfigurován OpenAI klíč), takže text bude prohledatelný přes RAG.
+    💾 Uloží NOVOU analýzu inzerátu do databáze.
+    
+    Automaticky se vygeneruje pgvector embedding (pokud je OpenAI klíč nakonfigurován),
+    takže text bude prohledatelný přes RAG a bude dostupný pro budoucí dotazy.
+    
+    Workflow:
+    1. Zavolej get_listing() → přečti si všechna data (ZÁPIS Z PROHLÍDKY!)
+    2. Zavolej get_analyses() → vidíš všechny dosavadní analýzy
+    3. Vytvoř novou analýzu v Markdown formátu
+    4. Zavolej save_analysis() → uloží se a bude prohledávatelná
+    
+    POZOR: Uložené analýzy jsou vidět všem nástrojům (RAG dotazování, 
+    další analýzy, UI). Neukládej sem draft či nejisté věci!
 
     Args:
         listing_id: UUID inzerátu
-        content: Text analýzy (markdown, plain text – libovolná délka)
-        title: Volitelný nadpis (např. "Analýza z prohlídky 25.2.2026")
-        source: Původ analýzy: mcp | claude | perplexity | manual | ai
+        content: Plný text analýzy (markdown, plain text – libovolná délka)
+        title: Volitelný nadpis (např. "Analýza z prohlídky 26.2.2026")
+        source: Původ: "claude" (default) | "mcp" | "manual" | "ai" | "perplexity"
     """
     payload = {
         "content": content,
