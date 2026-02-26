@@ -519,7 +519,7 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 
 ### Low Priority
 - [x] **Unit testy scraper** – pytest 83/83 zelených; `scraper/tests/test_parsers.py` (ProdejmeToScraper, RemaxScraper, ReasScraper, ZnojmoRealityScraper) + `scraper/tests/test_filters.py` (FilterManager geo/quality/price); `scraper/pytest.ini` ✅
-- [ ] Monitoring – Prometheus/Serilog metrics
+- [x] **Monitoring – Serilog structured logging** – `Serilog.AspNetCore` 9 + `CompactJsonFormatter` + Enrichers (Environment/Process/Thread); bootstrap logger; `UseSerilogRequestLogging()` (HTTP metoda/path/status/čas); `appsettings.json` MinimumLevel overrides ✅
 - [x] Export funkce (CSV/Excel) – CSV export implementován v Session 10 (`GET /api/listings/export.csv`, UTF-8 BOM, semicolony) ✅
 - [ ] AI šablony – úprava sekcí dle uživatelského feedbacku z reálných analýz
 
@@ -646,8 +646,11 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 26. února 2026 (Session 12)
-**Current Commit:** session 12 – Moje inzeráty stránka, GetMyListingsAsync
+### ✅ Dokončeno v Session 13 (2026-02-26)
+- [x] **Serilog structured logging** – `Serilog.AspNetCore` 9 + `CompactJsonFormatter` + Enrichers (Environment/Process/Thread); bootstrap logger pro zachycení chyb před DI; `UseSerilog` s `ReadFrom.Configuration` + `ReadFrom.Services`; Development: obarvenÿ console output s SourceContext; Production: CompactJsonFormatter (JSON) pro log aggregaci; `UseSerilogRequestLogging()` – HTTP metoda, cesta, status, čas obsluhy; `appsettings.json` MinimumLevel overrides (EF Core/Microsoft → Warning); `try/catch/finally` wrapper s `Log.Fatal` + `Log.CloseAndFlush()`
+
+**Last Updated:** 26. února 2026 (Session 13)
+**Current Commit:** session 13 – Serilog structured logging
 **DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20, …), **GPS: 1366/1403 geocodováno (1346 Nominatim, 20 scraper = 97% pokrytí)**
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
 **Unit testy:** 141 C# testů zelených (`dotnet test tests/RealEstate.Tests`) + 83 Python testů zelených (`scraper/.venv/bin/pytest scraper/tests/`)
