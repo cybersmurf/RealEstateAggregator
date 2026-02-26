@@ -216,13 +216,25 @@ async def get_listing(listing_id: str) -> str:
             result_lines.append("_Žádné poznámky._")
 
     # ── Fotky (URL) ──────────────────────────────────────────────────────────
-    result_lines += ["", f"## 📸 Fotky ({len(photos)})"]
+    result_lines += ["", f"## 📸 Fotky z inzerátu ({len(photos)})"]
     if photos:
         for p in photos:
             url = p.get("storedUrl") or p.get("originalUrl") or ""
             result_lines.append(f"- {url}")
     else:
         result_lines.append("_Žádné fotky._")
+
+    # ── Fotky z prohlídky (lokálně uložené) ──────────────────────────────────
+    try:
+        insp_photos = await _call_api("get", f"/api/listings/{listing['id']}/inspection-photos")
+        if insp_photos:
+            result_lines += ["", f"## 📷 Fotky z prohlídky ({len(insp_photos)} – vlastní)"]
+            for p in insp_photos:
+                result_lines.append(f"- {p.get('storedUrl', '')}  _{p.get('originalFileName', '')}_")
+        else:
+            result_lines += ["", "## 📷 Fotky z prohlídky", "_Žádné vlastní fotky z prohlídky._"]
+    except Exception:
+        pass  # endpoint neexistuje nebo vrátil chybu – ignoruj
 
     # ── Popis ────────────────────────────────────────────────────────────────
     result_lines += [
@@ -234,6 +246,34 @@ async def get_listing(listing_id: str) -> str:
         result_lines.append("_[popis zkrácen na 3000 znaků]_")
 
     return "\n".join(result_lines)
+
+
+@mcp.tool()
+async def get_inspection_photos(listing_id: str) -> str:
+    """
+    Vrátí seznam fotek z prohlídky (vlastní fotky uložené uživatelem).
+    Fotky jsou dostupné jako lokální URL pro přímé zobrazení nebo analýzu.
+
+    Args:
+        listing_id: UUID inzerátu
+    """
+    try:
+        photos = await _call_api("get", f"/api/listings/{listing_id}/inspection-photos")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    if not photos:
+        return f"Pro inzerát {listing_id} nejsou uloženy žádné vlastní fotky z prohlídky.\n\nFotky se uloží automaticky při příštím nahrání přes UI → 'Nahrát fotky z prohlídky'."
+
+    lines = [f"**{len(photos)} fotek z prohlídky** pro inzerát `{listing_id}`:\n"]
+    for i, p in enumerate(photos, 1):
+        lines.append(f"{i}. **{p.get('originalFileName', 'foto')}** ({p.get('fileSizeBytes', 0) // 1024} KB)")
+        lines.append(f"   URL: {p.get('storedUrl', '')}")
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 @mcp.tool()

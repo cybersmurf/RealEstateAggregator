@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Api.Services;
+using RealEstate.Domain.Entities;
 using RealEstate.Infrastructure;
 
 namespace RealEstate.Api.Endpoints;
@@ -35,10 +36,16 @@ public static class ExportEndpoints
             .WithTags("Export");
 
         // Nahraje fotky z prohlídky do podsložky Moje_fotky_z_prohlidky (Drive nebo OneDrive)
+        // + uloží lokální kopii do uploads/listings/{id}/inspection/ pro MCP/AI analýzu
         group.MapPost("/{id:guid}/upload-inspection-photos", UploadInspectionPhotos)
             .WithName("UploadInspectionPhotos")
             .WithTags("Export")
             .DisableAntiforgery();
+
+        // Vrátí seznam lokálně uložených fotek z prohlídky (pro MCP/AI analýzu)
+        group.MapGet("/{id:guid}/inspection-photos", GetInspectionPhotos)
+            .WithName("GetInspectionPhotos")
+            .WithTags("Export");
 
         return app;
     }
@@ -184,6 +191,7 @@ public static class ExportEndpoints
         [FromServices] IGoogleDriveExportService driveService,
         [FromServices] IOneDriveExportService oneDriveService,
         [FromServices] RealEstateDbContext db,
+        [FromServices] IWebHostEnvironment env,
         HttpRequest req,
         CancellationToken ct)
     {
@@ -228,10 +236,63 @@ public static class ExportEndpoints
             else
                 await driveService.UploadInspectionPhotosAsync(inspectionFolderId, files, ct);
 
+            // ── Lokální kopie pro MCP/AI analýzu ──────────────────────────────
+            var photosBaseUrl = Environment.GetEnvironmentVariable("PHOTOS_PUBLIC_BASE_URL")
+                ?? $"{req.Scheme}://{req.Host}";
+            var inspDir = Path.Combine(env.WebRootPath, "uploads", "listings", id.ToString(), "inspection");
+            Directory.CreateDirectory(inspDir);
+
+            // Smažeme staré lokální kopie před uložením nových
+            foreach (var old in Directory.GetFiles(inspDir))
+                File.Delete(old);
+
+            var existingRecords = await db.UserListingPhotos
+                .Where(p => p.ListingId == id)
+                .ToListAsync(ct);
+            db.UserListingPhotos.RemoveRange(existingRecords);
+
+            var now = DateTime.UtcNow;
+            for (int i = 0; i < files.Count; i++)
+            {
+                var (name, data, _) = files[i];
+                var ext = Path.GetExtension(name).ToLowerInvariant();
+                if (string.IsNullOrEmpty(ext)) ext = ".jpg";
+                var fileName = $"{i:D3}_{Path.GetFileNameWithoutExtension(name)}{ext}";
+                var fullPath = Path.Combine(inspDir, fileName);
+                await File.WriteAllBytesAsync(fullPath, data, ct);
+
+                var relUrl = $"{photosBaseUrl}/uploads/listings/{id}/inspection/{fileName}";
+                db.UserListingPhotos.Add(new UserListingPhoto
+                {
+                    Id = Guid.NewGuid(),
+                    ListingId = id,
+                    StoredUrl = relUrl,
+                    OriginalFileName = name,
+                    FileSizeBytes = data.Length,
+                    TakenAt = now,
+                    UploadedAt = now
+                });
+            }
+            await db.SaveChangesAsync(ct);
+
             return Results.Ok(new { uploaded = files.Count, message = $"Nahráno {files.Count} fotek z prohlídky." });
         }
         catch (Exception ex)
         {
             return Results.Problem(title: "Chyba při nahrávání fotek z prohlídky", detail: ex.Message, statusCode: 500);
         }
+    }
+
+    private static async Task<IResult> GetInspectionPhotos(
+        Guid id,
+        [FromServices] RealEstateDbContext db,
+        CancellationToken ct)
+    {
+        var photos = await db.UserListingPhotos
+            .Where(p => p.ListingId == id)
+            .OrderBy(p => p.UploadedAt)
+            .Select(p => new { p.Id, p.StoredUrl, p.OriginalFileName, p.FileSizeBytes, p.UploadedAt })
+            .ToListAsync(ct);
+
+        return Results.Ok(photos);
     }}
