@@ -201,6 +201,53 @@
     </MudPaper>
 }
 
+<!-- Statistiky stažených fotek -->
+@if (_photoStats != null)
+{
+    <MudPaper Class="pa-3 mt-2" Elevation="1">
+        <MudGrid Spacing="1" AlignItems="Center">
+            <MudItem xs="12" sm="8">
+                <MudText Typo="Typo.body2">
+                    <MudIcon Icon="@Icons.Material.Filled.Photo" Size="Size.Small" Class="mr-1" />
+                    Fotky uloženy:
+                    <strong>@_photoStats.WithStoredUrl / @_photoStats.Total fotek</strong>
+                    (@_photoStats.PercentStored %)
+                    @if (_photoStats.WithoutStoredUrl > 0)
+                    {
+                        <MudChip T="string" Color="Color.Info" Size="Size.Small" Class="ml-2">
+                            @_photoStats.WithoutStoredUrl ke stažení
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Color="Color.Success" Size="Size.Small" Class="ml-2">Vše staženo ✓</MudChip>
+                    }
+                </MudText>
+                @if (_lastPhotoResult != null)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-1">
+                        Poslední batch: @_lastPhotoResult.Succeeded staženo, @_lastPhotoResult.Failed selhalo,
+                        zbývá @_lastPhotoResult.RemainingWithoutStored · ~@(_lastPhotoResult.AvgMsPerPhoto) ms/fotka
+                    </MudText>
+                }
+            </MudItem>
+            @if (_photoStats.WithoutStoredUrl > 0)
+            {
+                <MudItem xs="12" sm="4" Class="d-flex justify-end">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Info"
+                               OnClick="RunPhotoDownloadBatchAsync"
+                               Disabled="_isDownloadingPhotos"
+                               StartIcon="@Icons.Material.Filled.CloudDownload"
+                               Size="Size.Small"
+                               aria-label="Stáhnout dávku fotek lokálně">
+                        @(_isDownloadingPhotos ? "Stahuji 100 fotek..." : "Stáhnout 100 fotek")
+                    </MudButton>
+                </MudItem>
+            }
+        </MudGrid>
+    </MudPaper>
+}
+
 @code {
     private const string _mapId = "realestateMap";
     private DotNetObjectReference<Map>? _dotNetRef;
@@ -230,6 +277,11 @@
     private bool _isGeocoding;
     private BulkGeocodeResultApiDto? _lastGeocodeResult;
 
+    // Statistiky fotek
+    private PhotoStatsApiDto? _photoStats;
+    private bool _isDownloadingPhotos;
+    private PhotoDownloadResultApiDto? _lastPhotoResult;
+
     // Uložené oblasti
     private List<SavedAreaApiDto>? _savedAreas;
 
@@ -243,6 +295,7 @@
             await JS.InvokeVoidAsync("leafletMap.init", _mapId, 49.0, 16.6, 8);
             await LoadMapPointsAsync();
             await LoadGeocodeStatsAsync();
+            await LoadPhotoStatsAsync();
             await LoadSavedAreasAsync();
         }
     }
@@ -437,11 +490,47 @@
             StateHasChanged();
         }
     }
+    private async Task LoadPhotoStatsAsync()
+    {
+        try
+        {
+            _photoStats = await Http.GetFromJsonAsync<PhotoStatsApiDto>("api/photos/stats");
+        }
+        catch { /* neblokující */ }
+        StateHasChanged();
+    }
 
+    private async Task RunPhotoDownloadBatchAsync()
+    {
+        _isDownloadingPhotos = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync("api/photos/bulk-download?batchSize=100", null);
+            if (response.IsSuccessStatusCode)
+            {
+                _lastPhotoResult = await response.Content.ReadFromJsonAsync<PhotoDownloadResultApiDto>();
+                Snackbar.Add($"Staženo: {_lastPhotoResult?.Succeeded} fotek ✓, zbývá {_lastPhotoResult?.RemainingWithoutStored}", Severity.Success);
+                await LoadPhotoStatsAsync();
+            }
+            else
+            {
+                Snackbar.Add("Stahování fotek selhalo – zkuste znovu", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba stahování fotek: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isDownloadingPhotos = false;
+            StateHasChanged();
+        }
+    }
     private string BuildMapPointsUrl()
     {
         var parts = new List<string>();
-        if (!string.IsNullOrEmpty(_selectedPropertyType)) parts.Add($"propertyType={Uri.EscapeDataString(_selectedPropertyType)}");
         if (!string.IsNullOrEmpty(_selectedOfferType)) parts.Add($"offerType={Uri.EscapeDataString(_selectedOfferType)}");
         if (_priceMax.HasValue) parts.Add($"priceMax={_priceMax.Value}");
         var qs = parts.Count > 0 ? "?" + string.Join("&", parts) : "";
@@ -489,4 +578,11 @@
         Guid Id, string Name, string? Description, string AreaType,
         string? StartCity, string? EndCity, int? BufferMeters,
         bool IsActive, DateTime CreatedAt, int ListingCount = 0);
+
+    private sealed record PhotoStatsApiDto(
+        int Total, int WithStoredUrl, int WithoutStoredUrl, double PercentStored);
+
+    private sealed record PhotoDownloadResultApiDto(
+        int Processed, int Succeeded, int Failed,
+        int RemainingWithoutStored, double AvgMsPerPhoto);
 }
