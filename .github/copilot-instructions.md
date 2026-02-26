@@ -2,7 +2,7 @@
 
 **Project:** Real Estate Aggregator with Semantic Search & AI Analysis  
 **Stack:** .NET 10, Blazor Server, PostgreSQL 15 + **PostGIS 3.4** + pgvector, Python FastAPI scrapers  
-**Last Updated:** 26. února 2026 (Session 7)
+**Last Updated:** 27. února 2026 (Session 8)
 
 ---
 
@@ -25,6 +25,7 @@ Full-stack aplikace pro agregaci realitních inzerátů z českých webů. Aktu�
 | LEXAMO | Lexamo | lexamo_scraper.py |
 | ZNOJMOREALITY | Znojmo Reality | znojmoreality_scraper.py |
 | NEMZNOJMO | Nemovitosti Znojmo | nemovitostiznojmo_scraper.py |
+| REAS | Reas.cz | reas_scraper.py |
 
 ## Persistent Rules (Always Apply)
 
@@ -472,20 +473,27 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **ARM64 collation fix** – `ALTER DATABASE realestate_dev REFRESH COLLATION VERSION` po přechodu na ARM64 postgres image
 - [x] **Unit testy 111 → 141** (+30 testů): `CadastreTests.cs` – `PreferMunicipality` (10 variant přes reflection), `ListingCadastreData` defaults, `ListingCadastreDto` record equality, `BulkRuianResultDto`, `SaveCadastreDataRequest`, RUIAN URL formát (3 InlineData), `RuianFindUrl` konstanta přes reflection
 
+### ✅ Dokončeno v Session 8 (2026-02-27)
+- [x] **APScheduler naplánovaný scraping** – `scraper/api/main.py`: `AsyncIOScheduler`, `daily_scrape` (3:00 denně) + `weekly_full_rescan` (neděle 2:00); 5 endpointů `/v1/schedule/jobs|trigger-now|pause|resume|cron`; `settings.yaml` scheduler sekce
+- [x] **Fine-tuning guide** – `fine-tuning/` adresář: `README.md` (Unsloth+QLoRA+SFTTrainer workflow), `finetune_unsloth.py`, `prepare_dataset.py`, `export_to_ollama.sh`, `requirements.txt`
+- [x] **REAS scraper oprava** – REAS.cz (1672+ inzerátů celostátně) filtroval 100% výsledků na geo filtru `target_districts=[Znojmo]`; opraveno přidáním `okres-znojmo` do URL kategorií (`CATEGORIES` tuple 3-prvkové); `prodej/byty/okres-znojmo` → ~49 lokálních inz.
+- [x] **Scraper analýza** – ZNOJMOREALITY (5), DELUXREALITY (5), LEXAMO (4): ověřeno živě, scrapers fungují správně; weby jsou malé lokální realitky s omezeným portfoliem (max 7|10|8 inz. celkem)
+
 ### High Priority (zbývá)
 - [ ] Photo download pipeline – original_url → stored_url (S3/local)
 - [ ] Kontejnerizace Blazor App – přidat do docker-compose nebo přejít na .NET Aspire
 - [ ] Prostorové filtrování – `ST_Buffer` koridor (PostGIS), `/api/spatial/corridor` endpoint, Leaflet mapa v Blazor
 
-### Scraper kvalita (zdroje s málo výsledky)
-- [ ] ZNOJMOREALITY (5 inz.), DELUXREALITY (5), PRODEJMETO (4), LEXAMO (4) – ověřit selektory
+### Scraper kvalita
+- [x] ZNOJMOREALITY/DELUXREALITY/LEXAMO – ověřeno: nízké počty = malé lokální realitky se skutečně omezeným portfoliem, ne chyba scraperu ✅
+- [x] REAS – opraveno: `okres-znojmo` URL filtr ✅
 - [ ] Playwright fallback – pro JS-heavy weby
 
 ### Medium Priority
 - [x] Semantic search – RAG service s pgvector (Ollama `nomic-embed-text` 768D, OpenAI 1536D), `FindSimilarAsync` přes `embedding <->` L2 distance ✅
 - [x] Analysis jobs – `AnalysisService` + `RagService.SaveAnalysisAsync` + `BulkEmbedDescriptionsAsync` ✅
 - [ ] User listing states – uložit/archivovat/kontakt tracking (základ hotov, rozšíření zbývá)
-- [ ] Background scheduled scraping – pravidelný re-run (APScheduler/Hangfire)
+- [x] Background scheduled scraping – APScheduler `AsyncIOScheduler` v `scraper/api/main.py`, cron 3:00 denně + neděle 2:00 ✅
 
 ### Low Priority
 - [ ] Unit testy – scraper parsing s mock HTML
@@ -616,8 +624,8 @@ Include upsert to database via get_db_manager().
 
 ---
 
-**Last Updated:** 26. února 2026 (Session 7)  
-**Current Commit:** session 7 – PostGIS spatial + RUIAN/cadastre integrace, +30 unit testů
-**DB stav:** ~1 383 aktivních inzerátů, 12 zdrojů (SREALITY=880, IDNES=168, PREMIAREALITY=51, REMAX=38, …)
+**Last Updated:** 27. února 2026 (Session 8)  
+**Current Commit:** session 8 – APScheduler naplánovaný scraping + REAS okres-znojmo fix + fine-tuning guide
+**DB stav:** ~1 383 aktivních inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, …), REAS opravena a aktivní
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní)
 **Unit testy:** 141 testů zelených (`dotnet test tests/RealEstate.Tests`)

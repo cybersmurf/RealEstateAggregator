@@ -31,13 +31,15 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.reas.cz"
 
-# (url_cesta, offer_type) – reas.cz nabízí pouze prodej (pronájem sekce neexistuje)
-CATEGORIES: List[Tuple[str, str]] = [
-    ("prodej/byty", "Sale"),
-    ("prodej/domy", "Sale"),
-    ("prodej/pozemky", "Sale"),
-    ("prodej/komerci", "Sale"),
-    ("prodej/ostatni", "Sale"),
+# (url_cesta, offer_type, segment_key, locality_hint)
+# lokality: 'okres-znojmo' = přesně Znojemský okres
+# locality_hint se připojí k location_text aby prošel geo filtrem (subobce např. Oblekovice neobsahují 'znojmo')
+CATEGORIES: List[Tuple[str, str, str, str]] = [
+    ("prodej/byty/okres-znojmo", "Sale", "byty", "Znojemský okres"),
+    ("prodej/domy/okres-znojmo", "Sale", "domy", "Znojemský okres"),
+    ("prodej/pozemky/okres-znojmo", "Sale", "pozemky", "Znojemský okres"),
+    ("prodej/komerci/okres-znojmo", "Sale", "komerci", "Znojemský okres"),
+    ("prodej/ostatni/okres-znojmo", "Sale", "ostatni", "Znojemský okres"),
 ]
 
 # Mapování type/subType z reas.cz → naše DB hodnoty
@@ -104,10 +106,10 @@ class ReasScraper:
             ) as client:
                 self._http_client = client
 
-                for category_path, offer_type in CATEGORIES:
+                for category_path, offer_type, segment_key, locality_hint in CATEGORIES:
                     try:
                         count = await self._scrape_category(
-                            category_path, offer_type, full_rescan, metrics
+                            category_path, offer_type, segment_key, locality_hint, full_rescan, metrics
                         )
                         total += count
                         logger.info(
@@ -129,11 +131,13 @@ class ReasScraper:
         self,
         category_path: str,
         offer_type: str,
+        segment_key: str,
+        locality_hint: str,
         full_rescan: bool,
         metrics: Any,
     ) -> int:
         """Projde všechny stránky dané kategorie a uloží inzeráty."""
-        segment = category_path.split("/")[-1]  # byty / domy / pozemky …
+        segment = segment_key  # byty / domy / pozemky …
 
         # Zjisti počet stránek z první stránky
         first_page_data = await self._fetch_listing_page(category_path, 1)
@@ -168,7 +172,7 @@ class ReasScraper:
                 # Fetch detailů paralelně (po dávkách)
                 sem = asyncio.Semaphore(self.detail_concurrency)
                 tasks = [
-                    self._process_ad_with_detail(ad, offer_type, segment, sem, metrics)
+                    self._process_ad_with_detail(ad, offer_type, segment, locality_hint, sem, metrics)
                     for ad in ads
                 ]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -180,7 +184,7 @@ class ReasScraper:
             else:
                 for ad in ads:
                     try:
-                        listing = self._build_listing(ad, offer_type, segment, description=None)
+                        listing = self._build_listing(ad, offer_type, segment, description=None, locality_hint=locality_hint)
                         await self._save_listing(listing)
                         scraped += 1
                         metrics.increment_scraped()
@@ -195,6 +199,7 @@ class ReasScraper:
         ad: Dict[str, Any],
         offer_type: str,
         segment: str,
+        locality_hint: str,
         sem: asyncio.Semaphore,
         metrics: Any,
     ) -> bool:
@@ -211,7 +216,7 @@ class ReasScraper:
                     logger.debug("Reas.cz detail %s: %s", detail_url, exc)
 
             try:
-                listing = self._build_listing(ad, offer_type, segment, description)
+                listing = self._build_listing(ad, offer_type, segment, description, locality_hint=locality_hint)
                 await self._save_listing(listing)
                 metrics.increment_scraped()
                 return True
@@ -305,8 +310,14 @@ class ReasScraper:
         offer_type: str,
         segment: str,
         description: Optional[str],
+        locality_hint: str = "",
     ) -> Dict[str, Any]:
-        """Sestaví normalizovaný dict inzerátu z SSR dat."""
+        """Sestaví normalizovaný dict inzerátu z SSR dat.
+        
+        locality_hint: volitelný suffix přidaný k location_text (např. 'Znojemský okres')
+            pro zajištění průchodu geografickým filtrem v database.py.
+            Sub-obce jako 'Oblekovice' neobsahují 'znojmo' a filtrem by neprošly.
+        """
         external_id: str = ad["_id"]
         link: str = ad.get("link", f"{BASE_URL}/inzerat/{external_id}")
 
@@ -347,12 +358,14 @@ class ReasScraper:
             except (ValueError, TypeError):
                 pass
 
-        # Lokace
+        # Lokace – přidej locality_hint pokud subobec neobsahuje klíčové slovo
         location_text = (
             ad.get("formattedLocation")
             or ad.get("formattedAddress")
             or ad.get("municipalitySlug", "").replace("-", " ").title()
         )
+        if locality_hint and locality_hint.lower() not in (location_text or "").lower():
+            location_text = f"{location_text}, {locality_hint}" if location_text else locality_hint
 
         # GPS souřadnice [lng, lat] → latitude, longitude
         latitude: Optional[float] = None
