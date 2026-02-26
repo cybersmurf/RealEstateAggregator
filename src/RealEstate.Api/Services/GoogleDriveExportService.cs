@@ -6,6 +6,7 @@ using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Drive.v3;
 using Google.Apis.Drive.v3.Data;
 using Google.Apis.Services;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Api.Contracts.Export;
 using RealEstate.Domain.Entities;
@@ -18,6 +19,7 @@ public sealed class GoogleDriveExportService(
     RealEstateDbContext dbContext,
     IConfiguration configuration,
     IHttpClientFactory httpClientFactory,
+    IWebHostEnvironment env,
     ILogger<GoogleDriveExportService> logger) : IGoogleDriveExportService
 {
     public async Task<DriveExportResultDto> ExportListingToDriveAsync(Guid listingId, CancellationToken ct = default)
@@ -243,23 +245,44 @@ public sealed class GoogleDriveExportService(
 
         for (int i = 0; i < photos.Count; i++)
         {
-            var url = photos[i].OriginalUrl;
-            if (string.IsNullOrWhiteSpace(url)) continue;
+            var photo = photos[i];
 
             try
             {
-                // Retry 3× s exponenciálním backoffem pro nestabilní CDN
-                byte[] bytes = null!;
-                for (int attempt = 1; attempt <= 3; attempt++)
+                byte[] bytes;
+
+                // 1. Preferujeme lokální stored_url – přežije expiraci CDN
+                var localBytes = await TryReadStoredPhotoFromDiskAsync(photo.StoredUrl, ct);
+                if (localBytes is not null)
                 {
-                    try { bytes = await http.GetByteArrayAsync(url, ct); break; }
-                    catch (Exception ex) when (attempt < 3)
+                    bytes = localBytes;
+                    logger.LogDebug("Fotka #{Idx}: načtena z lokálního úložiště", i + 1);
+                }
+                else
+                {
+                    // 2. Fallback: stáhneme z original_url (CDN)
+                    var url = photo.OriginalUrl;
+                    if (string.IsNullOrWhiteSpace(url))
                     {
-                        logger.LogWarning("Stahování fotky {Url} pokus {A}/3: {Msg}", url, attempt, ex.Message);
-                        await Task.Delay(TimeSpan.FromSeconds(attempt * 2), ct);
+                        logger.LogWarning("Přeskočena fotka #{Idx}: nemá ani stored_url ani original_url", i + 1);
+                        continue;
+                    }
+
+                    // Retry 3× s exponenciálním backoffem pro nestabilní CDN
+                    bytes = null!;
+                    for (int attempt = 1; attempt <= 3; attempt++)
+                    {
+                        try { bytes = await http.GetByteArrayAsync(url, ct); break; }
+                        catch (Exception ex) when (attempt < 3)
+                        {
+                            logger.LogWarning("Stahování fotky {Url} pokus {A}/3: {Msg}", url, attempt, ex.Message);
+                            await Task.Delay(TimeSpan.FromSeconds(attempt * 2), ct);
+                        }
                     }
                 }
-                var rawExt = Path.GetExtension(url.Split('?')[0]).ToLowerInvariant();
+
+                var urlForExt = photo.StoredUrl ?? photo.OriginalUrl ?? "";
+                var rawExt = Path.GetExtension(urlForExt.Split('?')[0]).ToLowerInvariant();
                 var ext = rawExt is ".jpg" or ".jpeg" or ".png" or ".webp" ? rawExt : ".jpg";
                 var name = $"foto_{i + 1:D2}{ext}";
                 var fileId = await UploadBytesAsync(drive, name, bytes, folderId, ct);
@@ -269,9 +292,33 @@ public sealed class GoogleDriveExportService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Přeskočena fotka #{Idx} {Url}", i + 1, url);
+                logger.LogWarning(ex, "Přeskočena fotka #{Idx}", i + 1);
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// Pokusí se načíst fotku přímo z lokálního disku místo HTTP downloadem.
+    /// stored_url formát: {base}/uploads/listings/{id}/photos/{file}
+    /// → soubor: {WebRootPath}/uploads/listings/{id}/photos/{file}
+    /// Vrátí null pokud stored_url není nastavena nebo soubor neexistuje.
+    /// </summary>
+    private async Task<byte[]?> TryReadStoredPhotoFromDiskAsync(string? storedUrl, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(storedUrl) || string.IsNullOrWhiteSpace(env.WebRootPath))
+            return null;
+
+        const string uploadsMarker = "/uploads/";
+        var idx = storedUrl.IndexOf(uploadsMarker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return null;
+
+        // "/uploads/listings/{id}/photos/{file}" → www root relative path
+        var relativePart = storedUrl[(idx + 1)..]; // "uploads/listings/..."
+        var fullPath = Path.Combine(env.WebRootPath, relativePart.Replace('/', Path.DirectorySeparatorChar));
+
+        if (!System.IO.File.Exists(fullPath)) return null;
+
+        return await System.IO.File.ReadAllBytesAsync(fullPath, ct);
     }
 }

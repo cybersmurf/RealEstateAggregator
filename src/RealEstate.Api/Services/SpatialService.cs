@@ -165,8 +165,9 @@ public sealed class SpatialService(
         var sql = """
             SELECT l.id, l.title, l.price, l.location_text,
                    l.latitude, l.longitude,
-                   l.property_type, l.offer_type, l.source_code,
-                   p.original_url AS main_photo_url
+                   l.property_type, l.offer_type,
+                   p.original_url AS main_photo_url,
+                   l.source_code
             FROM re_realestate.listings l
             LEFT JOIN re_realestate.listing_photos p
                 ON p.listing_id = l.id AND p.order_index = 0
@@ -462,8 +463,9 @@ public sealed class SpatialService(
         var sql = $"""
             SELECT l.id, l.title, l.price, l.location_text,
                    l.latitude, l.longitude,
-                   l.property_type, l.offer_type, l.source_code,
-                   p.original_url AS main_photo_url
+                   l.property_type, l.offer_type,
+                   p.original_url AS main_photo_url,
+                   l.source_code
             FROM re_realestate.listings l
             LEFT JOIN re_realestate.listing_photos p
                 ON p.listing_id = l.id AND p.order_index = 0
@@ -538,8 +540,8 @@ public sealed class SpatialService(
                 reader.GetDouble(5),
                 reader.GetString(6),
                 reader.GetString(7),
-                reader.GetString(8),
-                reader.IsDBNull(9) ? null : reader.GetString(9)
+                reader.IsDBNull(8) ? null : reader.GetString(8),  // main_photo_url (nullable – LEFT JOIN)
+                reader.GetString(9)                                 // source_code (NOT NULL)
             ));
         }
 
