@@ -147,7 +147,17 @@ async def search_listings(
 @mcp.tool()
 async def get_listing(listing_id: str) -> str:
     """
-    Vrátí kompletní detail inzerátu včetně popisu, fotek a uložených analýz.
+    Vrátí KOMPLETNÍ detail inzerátu. Obsahuje:
+    - Základní data: cena, plocha, dispozice, lokalita, URL inzerátu
+    - Stav & ZÁPIS Z PROHLÍDKY: status (Visited/Liked/...) + plný text poznámek
+      které uživatel zapsal po návštěvě nemovitosti
+    - Google Drive URL: odkaz na složku s exportovanou analýzou a fotkami
+    - Fotky z inzerátu: seznam URL stažených fotek
+    - Fotky z prohlídky: vlastní fotky nahrané uživatelem
+    - Popis inzerátu
+
+    VŽDY volej get_listing před vytvářením analýzy – zápis z prohlídky
+    obsahuje klíčové postřehy z osobní návštěvy nemovitosti!
 
     Args:
         listing_id: UUID inzerátu (získáš ho ze search_listings)
@@ -303,7 +313,7 @@ async def get_analyses(listing_id: str) -> str:
         lines.append(f"*{a.get('createdAt', '')[:10]}*")
         lines.append(f"`ID: {a['id']}`")
         content = a.get("content", "")
-        lines.append(content[:500] + ("…" if len(content) > 500 else ""))
+        lines.append(content)  # plný obsah bez zkrácení
         lines.append("")
 
     return "\n".join(lines)
