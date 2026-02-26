@@ -38,4 +38,9 @@ public sealed class ListingDetailDto
     public IReadOnlyList<ListingPhotoDto> Photos { get; set; } = Array.Empty<ListingPhotoDto>();
 
     public ListingUserStateDto UserState { get; set; } = new();
+
+    // Google Drive / OneDrive export info
+    public string? DriveFolderUrl { get; set; }
+    public string? DriveInspectionFolderUrl { get; set; }
+    public bool HasOneDriveExport { get; set; }
 }

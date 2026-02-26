@@ -149,7 +149,14 @@ public class ListingService : IListingService
                     Notes = userState.Notes,
                     LastUpdated = userState.LastUpdated
                 }
-                : new ListingUserStateDto()
+                : new ListingUserStateDto(),
+            DriveFolderUrl = entity.DriveFolderId is not null
+                ? $"https://drive.google.com/drive/folders/{entity.DriveFolderId}"
+                : null,
+            DriveInspectionFolderUrl = entity.DriveInspectionFolderId is not null
+                ? $"https://drive.google.com/drive/folders/{entity.DriveInspectionFolderId}"
+                : null,
+            HasOneDriveExport = entity.OneDriveFolderId is not null
         };
     }
 
