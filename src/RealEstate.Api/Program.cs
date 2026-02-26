@@ -2,8 +2,38 @@ using Microsoft.EntityFrameworkCore;
 using RealEstate.Api;
 using RealEstate.Api.Endpoints;
 using RealEstate.Infrastructure;
+using Serilog;
+using Serilog.Formatting.Compact;
+
+// Bootstrap logger pro zachycení chyb při startu (před konfigurací DI)
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
+
+try
+{
+    Log.Information("Spouštění RealEstate API …");
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ─── Serilog ──────────────────────────────────────────────────────────────────
+builder.Host.UseSerilog((ctx, services, config) =>
+{
+    config
+        .ReadFrom.Configuration(ctx.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .Enrich.WithMachineName()
+        .Enrich.WithProcessId()
+        .Enrich.WithThreadId();
+
+    if (ctx.HostingEnvironment.IsDevelopment())
+        config.WriteTo.Console(
+            outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}");
+    else
+        config.WriteTo.Console(new CompactJsonFormatter());
+});
 
 // Zvýšínmá limit tela požadavku pro upload fotek z prohlídky (výchozí 30 MB nestací)
 builder.WebHost.ConfigureKestrel(opts => opts.Limits.MaxRequestBodySize = 500_000_000);
@@ -21,7 +51,7 @@ var dbUser = Environment.GetEnvironmentVariable("DB_USER") ?? "postgres";
 var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "dev";
 var scraperApiBaseUrl = Environment.GetEnvironmentVariable("SCRAPER_API_BASE_URL") ?? "http://localhost:8001";
 
-Console.WriteLine($"[STARTUP] SCRAPER_API_BASE_URL={scraperApiBaseUrl}");
+Log.Information("SCRAPER_API_BASE_URL={ScraperApiBaseUrl}", scraperApiBaseUrl);
 
 var connectionString = $"Host={dbHost};Port={dbPort};Database={dbName};Username={dbUser};Password={dbPassword}";
 builder.Configuration["ConnectionStrings:RealEstate"] = connectionString;
@@ -90,6 +120,9 @@ app.UseStaticFiles();
 
 app.UseCors();
 
+// HTTP request logging – metoda, cesta, status, čas obsluhy
+app.UseSerilogRequestLogging();
+
 // ─── Endpoints ────────────────────────────────────────────────────────────────
 // Health check – veřejně přístupný (používá Docker healthcheck a monitoring)
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
@@ -122,4 +155,15 @@ app.MapScrapingEndpoints()
         return await next(ctx);
     });
 
-app.Run();
+    Log.Information("RealEstate API úspěšně spuštěno");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "RealEstate API selhalo při startu");
+    throw;
+}
+finally
+{
+    Log.CloseAndFlush();
+}
