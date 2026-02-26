@@ -1,3 +1,4 @@
+using System.Text;
 using LinqKit;
 using Microsoft.EntityFrameworkCore;
 using NpgsqlTypes;
@@ -409,4 +410,83 @@ public class ListingService : IListingService
             UserStatusLastUpdated = userState?.LastUpdated
         };
     }
+
+    // =========================================================================
+    // CSV Export
+    // =========================================================================
+
+    public async Task<byte[]> ExportCsvAsync(ListingFilterDto filter, CancellationToken cancellationToken)
+    {
+        // Využijeme stávající SearchAsync (maxPageSize interně omezeno na 5000)
+        filter.Page = 1;
+        filter.PageSize = 5000;
+        var result = await SearchAsync(filter, cancellationToken);
+
+        var sb = new StringBuilder();
+
+        // BOM pro Excel (UTF-8 s BOM = spрávné české znaky v Excelu bez import wizardu)
+        sb.Append('\uFEFF');
+
+        // Hlavička
+        sb.AppendLine("ID;Zdroj;Název;Typ;Nabídka;Dispozice;Cena (Kč);Užitná plocha (m2);Pozemek (m2);Lokalita;Kraj;Okres;Obec;Datum nalezení;Můj stav");
+
+        foreach (var l in result.Items)
+        {
+            sb.Append(CsvField(l.Id.ToString())).Append(';');
+            sb.Append(CsvField(l.SourceName)).Append(';');
+            sb.Append(CsvField(l.Title)).Append(';');
+            sb.Append(CsvField(TranslatePropertyType(l.PropertyType))).Append(';');
+            sb.Append(CsvField(TranslateOfferType(l.OfferType))).Append(';');
+            sb.Append(CsvField(l.Disposition ?? "")).Append(';');
+            sb.Append(l.Price.HasValue ? l.Price.Value.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) : "").Append(';');
+            sb.Append(l.AreaBuiltUp.HasValue ? l.AreaBuiltUp.Value.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) : "").Append(';');
+            sb.Append(l.AreaLand.HasValue ? l.AreaLand.Value.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) : "").Append(';');
+            sb.Append(CsvField(l.LocationText)).Append(';');
+            sb.Append(CsvField(l.Region ?? "")).Append(';');
+            sb.Append(CsvField(l.District ?? "")).Append(';');
+            sb.Append(CsvField(l.Municipality ?? "")).Append(';');
+            sb.Append(l.FirstSeenAt.ToString("yyyy-MM-dd")).Append(';');
+            sb.AppendLine(CsvField(TranslateUserStatus(l.UserStatus)));
+        }
+
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    private static string CsvField(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        // Obal pole do uvozovek pokud obsahuje středník, nový řádek, nebo uvozovky
+        if (value.Contains(';') || value.Contains('\n') || value.Contains('"'))
+            return '"' + value.Replace("\"", "\"\"") + '"';
+        return value;
+    }
+
+    private static string TranslatePropertyType(string? t) => t switch
+    {
+        "House"      => "Dům",
+        "Apartment"  => "Byt",
+        "Land"       => "Pozemek",
+        "Cottage"    => "Chata/chalupa",
+        "Commercial" => "Komercí",
+        "Industrial" => "Průmyslový",
+        "Garage"     => "Garáž",
+        _            => t ?? "-"
+    };
+
+    private static string TranslateOfferType(string? t) => t switch
+    {
+        "Sale"    => "Prodej",
+        "Rent"    => "Pronájem",
+        "Auction" => "Dražba",
+        _         => t ?? "-"
+    };
+
+    private static string TranslateUserStatus(string? s) => s switch
+    {
+        "Liked"    => "Zajímavé",
+        "Disliked" => "Nezajímavé",
+        "ToVisit"  => "K návštěvě",
+        "Visited"  => "Navštíveno",
+        _          => "Nové"
+    };
 }

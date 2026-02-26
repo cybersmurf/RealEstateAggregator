@@ -19,4 +19,7 @@ public interface IListingService
         CancellationToken cancellationToken);
 
     Task<ListingStatsDto> GetStatsAsync(CancellationToken cancellationToken);
+
+    /// <summary>Exportuje výsledky vyhledávání jako CSV (max 5000 záznámů).</summary>
+    Task<byte[]> ExportCsvAsync(ListingFilterDto filter, CancellationToken cancellationToken);
 }

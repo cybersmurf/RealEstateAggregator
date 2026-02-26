@@ -216,6 +216,17 @@
             {
                 <MudChip T="string" Size="Size.Small" Color="Color.Primary" Class="mr-1">@_totalCount celkem</MudChip>
             }
+            @if (_totalCount > 0)
+            {
+                <MudTooltip Text="Stáhnout výsledky jako CSV (max 5000)">
+                    <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                   Size="Size.Small"
+                                   Color="Color.Success"
+                                   Href="@BuildCsvExportUrl()"
+                                   Target="_blank"
+                                   aria-label="Exportovat do CSV" />
+                </MudTooltip>
+            }
             <MudTooltip Text="@(_cardView ? "Tabulkový pohled" : "Kartový pohled")">
                 <MudIconButton Icon="@(_cardView ? Icons.Material.Filled.TableRows : Icons.Material.Filled.GridView)"
                                Size="Size.Small"
@@ -837,6 +848,30 @@
             _cardPage = 1;
             await LoadCardsAsync();
         }
+    }
+
+    private string BuildCsvExportUrl()
+    {
+        var baseUrl = Http.BaseAddress?.ToString().TrimEnd('/') ?? "http://localhost:5001";
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(_filter.SearchText))      parts.Add($"searchText={Uri.EscapeDataString(_filter.SearchText)}");
+        if (!string.IsNullOrEmpty(_filter.PropertyType))    parts.Add($"propertyType={Uri.EscapeDataString(_filter.PropertyType)}");
+        if (!string.IsNullOrEmpty(_filter.OfferType))       parts.Add($"offerType={Uri.EscapeDataString(_filter.OfferType)}");
+        if (_filter.PriceMin.HasValue)                      parts.Add($"priceMin={_filter.PriceMin.Value}");
+        if (_filter.PriceMax.HasValue)                      parts.Add($"priceMax={_filter.PriceMax.Value}");
+        if (_filter.AreaBuiltUpMin.HasValue)                parts.Add($"areaBuiltUpMin={_filter.AreaBuiltUpMin.Value}");
+        if (_filter.AreaBuiltUpMax.HasValue)                parts.Add($"areaBuiltUpMax={_filter.AreaBuiltUpMax.Value}");
+        if (_filter.AreaLandMin.HasValue)                   parts.Add($"areaLandMin={_filter.AreaLandMin.Value}");
+        if (_filter.AreaLandMax.HasValue)                   parts.Add($"areaLandMax={_filter.AreaLandMax.Value}");
+        if (!string.IsNullOrEmpty(_filter.Region))          parts.Add($"region={Uri.EscapeDataString(_filter.Region)}");
+        if (!string.IsNullOrEmpty(_filter.District))        parts.Add($"district={Uri.EscapeDataString(_filter.District)}");
+        if (!string.IsNullOrEmpty(_filter.Municipality))    parts.Add($"municipality={Uri.EscapeDataString(_filter.Municipality)}");
+        if (!string.IsNullOrEmpty(_filter.UserStatus))      parts.Add($"userStatus={Uri.EscapeDataString(_filter.UserStatus)}");
+        if (!string.IsNullOrEmpty(_filter.SortBy))          parts.Add($"sortBy={Uri.EscapeDataString(_filter.SortBy)}");
+        if (_filter.SortDescending)                         parts.Add("sortDescending=true");
+
+        var qs = parts.Count > 0 ? "?" + string.Join("&", parts) : "";
+        return $"{baseUrl}/api/listings/export.csv{qs}";
     }
 
     private async Task OnTableRowClicked(TableRowClickEventArgs<ListingSummaryDto> args)
