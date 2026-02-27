@@ -718,11 +718,16 @@ Include upsert to database via get_db_manager().
 ### ✅ Dokončeno v Session 13 (2026-02-26)
 - [x] **Serilog structured logging** – `Serilog.AspNetCore` 9 + `CompactJsonFormatter` + Enrichers (Environment/Process/Thread); bootstrap logger pro zachycení chyb před DI; `UseSerilog` s `ReadFrom.Configuration` + `ReadFrom.Services`; Development: obarvenÿ console output s SourceContext; Production: CompactJsonFormatter (JSON) pro log aggregaci; `UseSerilogRequestLogging()` – HTTP metoda, cesta, status, čas obsluhy; `appsettings.json` MinimumLevel overrides (EF Core/Microsoft → Warning); `try/catch/finally` wrapper s `Log.Fatal` + `Log.CloseAndFlush()`
 
-**Last Updated:** 27. února 2026 (Session 19)
-**Current Commit:** session 19 – KN OCR screenshot (Ollama Vision), bulk-normalize pokračování
-**DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20, …), **GPS: 1366/1403 geocodováno (1346 Nominatim, 20 scraper = 97% pokrytí)**
+### ✅ Dokončeno v Session 20 (2026-02-27)
+- [x] **ARCHITECTURE.md kompletní přepis** – 53 205 znaků, 16 sekcí, Mermaid diagramy všude (Docker Compose architektura, scraping flow, FilterManager, APScheduler, RAG ingestion/retrieval/generation + plný sekvenční diagram, KN OCR end-to-end, koridor PostGIS pipeline, geocoding pipeline, robustní JSON parsování); RAG matematika (cosine similarity vzorec), EPSG:5514 vysvětlení, ERD se všemi tabulkami, indexová strategie tabulkou, embedding batch sizes
+- [x] **bulk-download `?onlyMyListings=true`** – `PhotoDownloadService.DownloadBatchAsync()` + `IPhotoDownloadService` interface + `PhotoEndpoints` rozšířeny o filtr `Liked/ToVisit/Visited` přes `EXISTS` subquery na `user_listing_states`; šetří disk (nestahuje 15k fotek pro nezajímavé inzeráty)
+
+**Last Updated:** 27. února 2026 (Session 20)
+**Current Commit:** session 20 – ARCHITECTURE.md přepis, bulk-download onlyMyListings
+**DB stav:** ~1 416 inzerátů, 13 zdrojů, **GPS: 1366/1416 geocodováno (97 % pokrytí)**, fotek staženo 1 786/15 891 (1.8 GB / ~16 GB odhadováno)
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní), **MCP Server (Claude Desktop integration)**
 **Unit testy:** 141 C# testů zelených (`dotnet test tests/RealEstate.Tests`) + 83 Python testů zelených (`scraper/.venv/bin/pytest scraper/tests/`)
+**AI zpracování:** normalizace 450/1416 (32 %), smart tags 0 %, price signal ~0 % – zbývá spustit bulk joby
 
 ### ✅ Dokončeno v Session 14 (2026-02-26)
 - [x] **MCP Tools vylepšení** – `get_listing` docstring: zdůrazní workflow (1. load data, 2. read analyses, 3. save new); kompletní popis všech polí (ZÁPIS Z PROHLÍDKY, Drive URL, fotky); `get_analyses` docstring: zdůrazní že vrací VŠECHNY analýzy v historii (plný obsah bez zkrácení); `save_analysis` docstring: workflow uložení + auto `source="claude"`; zvýšen upload limit na 150 fotek (Kestrel 1GB, FormOptions 1GB, MudFileUpload MaximumFileCount=150); local inspection photo storage + API endpoint `GET /api/listings/{id}/inspection-photos`; `ListingDetailDto`: přidány `DriveFolderUrl`, `DriveInspectionFolderUrl`, `HasOneDriveExport`; Google Drive MCP credentials setup (`~/.gdrive-server-credentials.json`)
