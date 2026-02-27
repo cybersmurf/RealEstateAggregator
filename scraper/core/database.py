@@ -2,6 +2,7 @@
 Database utilities for scraper.
 Provides async connection pool and CRUD operations for listings.
 """
+import re
 import asyncpg
 import logging
 from typing import Optional, Dict, Any, List
@@ -10,6 +11,58 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 from .filters import get_filter_manager
+
+
+# ── Regex enrichment ──────────────────────────────────────────────────────────
+_RE_DISPOSITION = re.compile(r'(\d+\+(?:\d+|kk))', re.IGNORECASE)
+_RE_CONDITION_MAP = [
+    (re.compile(r'novostavb|ve v\xfdstavb|pod kl\xed\u010d|developersk\xfd projekt', re.IGNORECASE), 'Novostavba'),
+    (re.compile(r'po kompletn\xed rekonstrukci|po celkov\xe9 rekonstrukci|po rekonstrukci|kompletn\u011b zrekon', re.IGNORECASE), 'Po rekonstrukci'),
+    (re.compile(r'p\u0159ed rekonstrukc\xed|k rekonstrukci|vy\u017eaduje rekonstrukci|pot\u0159ebuje rekonstrukci', re.IGNORECASE), 'P\u0159ed rekonstrukc\xed'),
+    (re.compile(r'k demolici|velmi \u0161patn\xfd stav|havarijní', re.IGNORECASE), 'K demolici'),
+    (re.compile(r'zachoval\xfd stav|dobr\xfd stav|udr\u017eovan\xfd stav|v dobr\xe9m stavu', re.IGNORECASE), 'Dobr\xfd stav'),
+]
+_RE_CONSTRUCTION_MAP = [
+    (re.compile(r'cihlová|cihlový|ciheln|cihla|z cihel', re.IGNORECASE), 'Cihla'),
+    (re.compile(r'panel[oá]|panelový d\u016fm|panelová budova', re.IGNORECASE), 'Panel'),
+    (re.compile(r'd\u0159ev\u011bn|d\u0159evosta|srubov|rouben|ze d\u0159eva', re.IGNORECASE), 'D\u0159evo'),
+    (re.compile(r'montovan|prefabrik\xe1t|skelet', re.IGNORECASE), 'Montovaná'),
+    (re.compile(r'\bzd\u011bn[a\xe1\xe9\xfd]\b', re.IGNORECASE), 'Zděná'),
+]
+
+
+def _enrich_listing_fields(data: Dict[str, Any]) -> None:
+    """
+    Doplní chybějící sémantická pole (disposition, rooms, condition, construction_type)
+    regex extrakcí z title + description.
+    Volá se automaticky v upsert_listing() pro všechny scrapers.
+    Pokud scraper pole už vyplnil, ponechá stávající hodnotu.
+    """
+    text = ' '.join(filter(None, [data.get('title', ''), data.get('description', '')]))
+
+    # disposition + rooms
+    if not data.get('disposition'):
+        m = _RE_DISPOSITION.search(text)
+        if m:
+            data['disposition'] = m.group(1).upper().replace('KK', 'KK')
+    if not data.get('rooms') and data.get('disposition'):
+        rm = re.match(r'^(\d+)', data['disposition'])
+        if rm:
+            data['rooms'] = int(rm.group(1))
+
+    # condition
+    if not data.get('condition'):
+        for pattern, value in _RE_CONDITION_MAP:
+            if pattern.search(text):
+                data['condition'] = value
+                break
+
+    # construction_type
+    if not data.get('construction_type'):
+        for pattern, value in _RE_CONSTRUCTION_MAP:
+            if pattern.search(text):
+                data['construction_type'] = value
+                break
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +185,9 @@ class DatabaseManager:
         Returns:
             UUID listingu (nového nebo existujícího) nebo None pokud je vyloučen filtry
         """
+        # Doplň chybějící sémantická pole regex extrakcí
+        _enrich_listing_fields(listing_data)
+
         # 🔥 Kontrola filtrů
         filter_mgr = get_filter_manager()
         should_include, exclusion_reason = filter_mgr.should_include_listing(listing_data)
@@ -197,23 +253,28 @@ class DatabaseManager:
                 INSERT INTO re_realestate.listings (
                     id, source_id, source_code, source_name, external_id, url,
                     title, description, property_type, offer_type, price,
-                    location_text, area_built_up, area_land, disposition,
+                    location_text, area_built_up, area_land,
+                    disposition, rooms, condition, construction_type,
                     latitude, longitude, geocoded_at, geocode_source,
                     first_seen_at, last_seen_at, is_active
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, true)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, true)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
-                    url = EXCLUDED.url,
-                    title = EXCLUDED.title,
-                    description = EXCLUDED.description,
-                    property_type = EXCLUDED.property_type,
-                    offer_type = EXCLUDED.offer_type,
-                    price = EXCLUDED.price,
-                    location_text = EXCLUDED.location_text,
-                    area_built_up = EXCLUDED.area_built_up,
-                    area_land = EXCLUDED.area_land,
-                    disposition = EXCLUDED.disposition,
+                    url               = EXCLUDED.url,
+                    title             = EXCLUDED.title,
+                    description       = EXCLUDED.description,
+                    property_type     = EXCLUDED.property_type,
+                    offer_type        = EXCLUDED.offer_type,
+                    price             = EXCLUDED.price,
+                    location_text     = EXCLUDED.location_text,
+                    area_built_up     = EXCLUDED.area_built_up,
+                    area_land         = EXCLUDED.area_land,
+                    disposition       = COALESCE(EXCLUDED.disposition, re_realestate.listings.disposition),
+                    rooms             = COALESCE(EXCLUDED.rooms,       re_realestate.listings.rooms),
+                    condition         = COALESCE(EXCLUDED.condition,   re_realestate.listings.condition),
+                    construction_type = COALESCE(EXCLUDED.construction_type, re_realestate.listings.construction_type),
                     latitude = COALESCE(EXCLUDED.latitude, re_realestate.listings.latitude),
                     longitude = COALESCE(EXCLUDED.longitude, re_realestate.listings.longitude),
                     geocoded_at = CASE
@@ -225,7 +286,7 @@ class DatabaseManager:
                         ELSE re_realestate.listings.geocode_source
                     END,
                     last_seen_at = EXCLUDED.last_seen_at,
-                    is_active = true
+                    is_active    = true
                 RETURNING id
                 """,
                 listing_id,
@@ -243,6 +304,9 @@ class DatabaseManager:
                 listing_data.get("area_built_up"),
                 listing_data.get("area_land"),
                 listing_data.get("disposition"),
+                listing_data.get("rooms"),
+                listing_data.get("condition"),
+                listing_data.get("construction_type"),
                 listing_data.get("latitude"),
                 listing_data.get("longitude"),
                 now if listing_data.get("latitude") is not None else None,

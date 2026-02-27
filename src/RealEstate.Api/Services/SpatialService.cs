@@ -113,6 +113,34 @@ public sealed class SpatialService(
             savedAreaId);
     }
 
+    public async Task<CorridorResultDto> BuildCorridorFromLineStringAsync(
+        string lineStringWkt,
+        int bufferMeters,
+        double startLat, double startLon,
+        double endLat, double endLon,
+        string? saveName,
+        CancellationToken ct = default)
+    {
+        var (polygonWkt, listingCount) = await BuildCorridorAndCountAsync(lineStringWkt, bufferMeters, ct);
+
+        Guid? savedAreaId = null;
+        if (!string.IsNullOrEmpty(saveName))
+        {
+            var area = await SaveAreaAsync(
+                saveName, polygonWkt, "gpx-corridor",
+                null, null, bufferMeters, ct);
+            savedAreaId = area.Id;
+        }
+
+        return new CorridorResultDto(
+            polygonWkt,
+            startLat, startLon,
+            endLat, endLon,
+            bufferMeters,
+            listingCount,
+            savedAreaId);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // SPATIAL SEARCH
     // ═══════════════════════════════════════════════════════════════════════════
@@ -198,7 +226,7 @@ public sealed class SpatialService(
             """
             INSERT INTO re_realestate.spatial_areas
                 (id, name, area_type, geom, start_city, end_city, buffer_m, created_at, updated_at)
-            VALUES ($1, $2, $3, ST_GeomFromText($4, 4326), $5, $6, $7, $8, $8)
+            VALUES ({0}, {1}, {2}, ST_GeomFromText({3}, 4326), {4}, {5}, {6}, {7}, {7})
             """,
             [id, name, areaType, polygonWkt, startCity!, endCity!, bufferMeters!, now],
             ct);
@@ -221,34 +249,42 @@ public sealed class SpatialService(
 
     public async Task<object> GetGeocodeStatsAsync(CancellationToken ct = default)
     {
-        await using var conn = db.Database.GetDbConnection();
-        await conn.OpenAsync(ct);
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE latitude IS NOT NULL) AS with_coords,
-                COUNT(*) FILTER (WHERE latitude IS NULL AND is_active = true) AS active_without_coords,
-                COUNT(*) FILTER (WHERE geocode_source = 'scraper') AS from_scraper,
-                COUNT(*) FILTER (WHERE geocode_source = 'nominatim') AS from_nominatim
-            FROM re_realestate.listings
-            """;
-
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        if (await reader.ReadAsync(ct))
+        var conn = db.Database.GetDbConnection();
+        var wasOpen = conn.State == System.Data.ConnectionState.Open;
+        try
         {
-            return new
-            {
-                total = (int)(long)reader.GetValue(0),
-                withCoords = (int)(long)reader.GetValue(1),
-                activeWithoutCoords = (int)(long)reader.GetValue(2),
-                fromScraper = (int)(long)reader.GetValue(3),
-                fromNominatim = (int)(long)reader.GetValue(4),
-            };
-        }
+            if (!wasOpen) await conn.OpenAsync(ct);
 
-        return new { total = 0, withCoords = 0, activeWithoutCoords = 0, fromScraper = 0, fromNominatim = 0 };
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE latitude IS NOT NULL) AS with_coords,
+                    COUNT(*) FILTER (WHERE latitude IS NULL AND is_active = true) AS active_without_coords,
+                    COUNT(*) FILTER (WHERE geocode_source = 'scraper') AS from_scraper,
+                    COUNT(*) FILTER (WHERE geocode_source = 'nominatim') AS from_nominatim
+                FROM re_realestate.listings
+                """;
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                return new
+                {
+                    total = (int)(long)reader.GetValue(0),
+                    withCoords = (int)(long)reader.GetValue(1),
+                    activeWithoutCoords = (int)(long)reader.GetValue(2),
+                    fromScraper = (int)(long)reader.GetValue(3),
+                    fromNominatim = (int)(long)reader.GetValue(4),
+                };
+            }
+
+            return new { total = 0, withCoords = 0, activeWithoutCoords = 0, fromScraper = 0, fromNominatim = 0 };
+        }
+        finally
+        {
+            if (!wasOpen) await conn.CloseAsync();
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -412,46 +448,54 @@ public sealed class SpatialService(
     private async Task<(string PolygonWkt, int Count)> BuildCorridorAndCountAsync(
         string lineWkt, int bufferMeters, CancellationToken ct)
     {
-        await using var conn = db.Database.GetDbConnection();
-        await conn.OpenAsync(ct);
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            WITH corridor AS (
-                SELECT ST_Transform(
-                    ST_Buffer(
-                        ST_Transform(ST_GeomFromText($1, 4326), 5514),
-                        $2
-                    ),
-                    4326
-                ) AS geom
-            )
-            SELECT
-                ST_AsText(c.geom) AS polygon_wkt,
-                COUNT(l.id) AS listing_count
-            FROM corridor c
-            LEFT JOIN re_realestate.listings l
-                ON l.is_active = true
-               AND l.location_point IS NOT NULL
-               AND ST_Intersects(l.location_point, c.geom)
-            GROUP BY c.geom
-            """;
-
-        // Pozicové parametry $1, $2 – Npgsql mapuje dle pořadí, ParameterName nenastavujeme
-        var p1 = cmd.CreateParameter(); p1.Value = lineWkt;
-        var p2 = cmd.CreateParameter(); p2.Value = bufferMeters;
-        cmd.Parameters.Add(p1);
-        cmd.Parameters.Add(p2);
-
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        if (await reader.ReadAsync(ct))
+        var conn = db.Database.GetDbConnection();
+        var wasOpen = conn.State == System.Data.ConnectionState.Open;
+        try
         {
-            var wkt = reader.GetString(0);
-            var count = (int)(long)reader.GetValue(1);
-            return (wkt, count);
-        }
+            if (!wasOpen) await conn.OpenAsync(ct);
 
-        return ("POLYGON EMPTY", 0);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                WITH corridor AS (
+                    SELECT ST_Transform(
+                        ST_Buffer(
+                            ST_Transform(ST_GeomFromText($1, 4326), 5514),
+                            $2
+                        ),
+                        4326
+                    ) AS geom
+                )
+                SELECT
+                    ST_AsText(c.geom) AS polygon_wkt,
+                    COUNT(l.id) AS listing_count
+                FROM corridor c
+                LEFT JOIN re_realestate.listings l
+                    ON l.is_active = true
+                   AND l.location_point IS NOT NULL
+                   AND ST_Intersects(l.location_point, c.geom)
+                GROUP BY c.geom
+                """;
+
+            // Pozicové parametry $1, $2 – Npgsql mapuje dle pořadí, ParameterName nenastavujeme
+            var p1 = cmd.CreateParameter(); p1.Value = lineWkt;
+            var p2 = cmd.CreateParameter(); p2.Value = bufferMeters;
+            cmd.Parameters.Add(p1);
+            cmd.Parameters.Add(p2);
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                var wkt = reader.GetString(0);
+                var count = (int)(long)reader.GetValue(1);
+                return (wkt, count);
+            }
+
+            return ("POLYGON EMPTY", 0);
+        }
+        finally
+        {
+            if (!wasOpen) await conn.CloseAsync();
+        }
     }
 
     private async Task<IReadOnlyList<ListingMapPointDto>> ExecuteMapPointsQueryAsync(
@@ -512,40 +556,48 @@ public sealed class SpatialService(
     private async Task<IReadOnlyList<ListingMapPointDto>> RawQueryMapPoints(
         string sql, object[] sqlParams, CancellationToken ct)
     {
-        await using var conn = db.Database.GetDbConnection();
-        await conn.OpenAsync(ct);
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = sql;
-
-        for (int i = 0; i < sqlParams.Length; i++)
+        var conn = db.Database.GetDbConnection();
+        var wasOpen = conn.State == System.Data.ConnectionState.Open;
+        try
         {
-            var p = cmd.CreateParameter();
-            // Pozicové parametry $1, $2, ... – Npgsql mapuje dle pořadí přidání, NE dle ParameterName
-            p.Value = sqlParams[i] ?? DBNull.Value;
-            cmd.Parameters.Add(p);
+            if (!wasOpen) await conn.OpenAsync(ct);
+
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+
+            for (int i = 0; i < sqlParams.Length; i++)
+            {
+                var p = cmd.CreateParameter();
+                // Pozicové parametry $1, $2, ... – Npgsql mapuje dle pořadí přidání, NE dle ParameterName
+                p.Value = sqlParams[i] ?? DBNull.Value;
+                cmd.Parameters.Add(p);
+            }
+
+            var results = new List<ListingMapPointDto>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+
+            while (await reader.ReadAsync(ct))
+            {
+                results.Add(new ListingMapPointDto(
+                    reader.GetGuid(0),
+                    reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                    reader.GetString(3),
+                    reader.GetDouble(4),
+                    reader.GetDouble(5),
+                    reader.GetString(6),
+                    reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8),  // main_photo_url (nullable – LEFT JOIN)
+                    reader.GetString(9)                                 // source_code (NOT NULL)
+                ));
+            }
+
+            return results;
         }
-
-        var results = new List<ListingMapPointDto>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-
-        while (await reader.ReadAsync(ct))
+        finally
         {
-            results.Add(new ListingMapPointDto(
-                reader.GetGuid(0),
-                reader.GetString(1),
-                reader.IsDBNull(2) ? null : reader.GetDecimal(2),
-                reader.GetString(3),
-                reader.GetDouble(4),
-                reader.GetDouble(5),
-                reader.GetString(6),
-                reader.GetString(7),
-                reader.IsDBNull(8) ? null : reader.GetString(8),  // main_photo_url (nullable – LEFT JOIN)
-                reader.GetString(9)                                 // source_code (NOT NULL)
-            ));
+            if (!wasOpen) await conn.CloseAsync();
         }
-
-        return results;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

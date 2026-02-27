@@ -7,7 +7,8 @@
 @inject HttpClient Http
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
-@inject ProtectedSessionStorage SessionStorage
+@inject ProtectedLocalStorage LocalStorage
+@inject IConfiguration Configuration
 
 <MudStack Spacing="3" Class="pa-4">
 
@@ -292,7 +293,7 @@
             @foreach (var item in _cardItems)
             {
                 <MudItem xs="12" sm="6" md="4" lg="3">
-                    <MudCard @onclick="@(() => Navigation.NavigateTo($"/listings/{item.Id}"))"
+                    <MudCard @onclick="@(async () => await NavigateToDetailAsync(item.Id))"  
                              Style="cursor:pointer; height:100%;"
                              Elevation="2">
                         @if (!string.IsNullOrWhiteSpace(item.ThumbnailUrl))
@@ -326,6 +327,38 @@
                                     <MudIcon Icon="@Icons.Material.Filled.LocationOn" Size="Size.Small" Style="vertical-align:text-bottom;" />
                                     @item.LocationText
                                 </MudText>
+                            }
+                            @{
+                                bool hasBadges = !string.IsNullOrWhiteSpace(item.Disposition)
+                                             || !string.IsNullOrWhiteSpace(item.Condition)
+                                             || !string.IsNullOrWhiteSpace(item.ConstructionType);
+                            }
+                            @if (hasBadges)
+                            {
+                                <MudStack Row="true" Spacing="1" Class="mt-1" Style="flex-wrap:wrap; gap:2px;">
+                                    @if (!string.IsNullOrWhiteSpace(item.Disposition))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined"
+                                                 Style="height:20px; font-size:11px; padding:0 6px;">
+                                            @item.Disposition
+                                        </MudChip>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(item.Condition))
+                                    {
+                                        var (condColor, condIcon) = ConditionBadge(item.Condition);
+                                        <MudChip T="string" Size="Size.Small" Color="@condColor" Variant="Variant.Outlined"
+                                                 Icon="@condIcon" Style="height:20px; font-size:11px; padding:0 6px;">
+                                            @item.Condition
+                                        </MudChip>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(item.ConstructionType))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined"
+                                                 Style="height:20px; font-size:11px; padding:0 6px;">
+                                            @item.ConstructionType
+                                        </MudChip>
+                                    }
+                                </MudStack>
                             }
                         </MudCardContent>
                         <MudCardActions Class="pa-2 pt-0">
@@ -454,7 +487,7 @@
 @code {
     private MudTable<ListingSummaryDto>? _table;
     private int _tableCurrentPage = 0; // 0-indexed, vizuální CurrentPage binding pro MudTable
-    private int _overridePage = -1;    // při restore z SessionStorage: stránka pro první LoadServerData
+    private int _overridePage = -1;    // při restore z LocalStorage: stránka pro první LoadServerData
     private bool _loading;
     private int _totalCount;
 
@@ -529,18 +562,18 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // ⚠️ DŮLEŽITÉ POŘADÍ: SessionStorage PŘED Http.GetFromJsonAsync.
+        // ⚠️ DŮLEŽITÉ POŘADÍ: LocalStorage PŘED Http.GetFromJsonAsync.
         //
         // Blazor Server renderuje komponent po každém await. Pokud by HTTP
         // volání pro zdroje proběhlo jako první, MudTable by se inicializoval
-        // s _tableCurrentPage=0 (SessionStorage ještě nepřečtena) → strana 1.
-        // Čtením SessionStorage jako první zajistíme, že _tableCurrentPage je
+        // s _tableCurrentPage=0 (LocalStorage ještě nepřečtena) → strana 1.
+        // Čtením LocalStorage jako první zajistíme, že _tableCurrentPage je
         // správně nastaven ještě před tím, než MudTable poprvé zavolá LoadServerData.
 
         ListingsPageState? restoredState = null;
         try
         {
-            var saved = await SessionStorage.GetAsync<ListingsPageState>(FilterStateKey);
+            var saved = await LocalStorage.GetAsync<ListingsPageState>(FilterStateKey);
             if (saved.Success && saved.Value is { } s)
             {
                 restoredState = s;
@@ -574,13 +607,11 @@
                 // (MudTable v ServerData módu vždy začíná s state.Page=0, CurrentPage je jen vizuální)
                 _overridePage         = s.TablePage > 0 ? s.TablePage : 1;
                 _tableCurrentPage     = Math.Max(0, s.TablePage - 1); // vizuální paginator
-
-                await SessionStorage.DeleteAsync(FilterStateKey);
             }
         }
         catch
         {
-            // SessionStorage nemusí být dostupná (prerendering, standalone WASM apod.)
+            // LocalStorage nemusí být dostupná (prerendering, standalone WASM apod.)
         }
 
         // Teprve teď načíst zdroje – _tableCurrentPage je již správně nastaven,
@@ -608,7 +639,7 @@
         }
     }
 
-    /// <summary>Uloží aktuální stav stránky do SessionStorage před navigací na detail.</summary>
+    /// <summary>Uloží aktuální stav stránky do LocalStorage (trvalé napříč refreshi).</summary>
     private async Task SaveStateAsync()
     {
         try
@@ -636,7 +667,7 @@
                 SortDescending:    _filter.SortDescending,
                 UserStatus:        _filter.UserStatus
             );
-            await SessionStorage.SetAsync(FilterStateKey, state);
+            await LocalStorage.SetAsync(FilterStateKey, state);
         }
         catch
         {
@@ -649,7 +680,7 @@
         _loading = true;
         try
         {
-            // Pokud máme override stránku z SessionStorage (návrat z detailu), použijeme ji
+            // Pokud máme override stránku z LocalStorage (návrat z detailu), použijeme ji
             // právě jednou – MudTable totiž vždy volá první LoadServerData s state.Page=0.
             if (_overridePage > 0)
             {
@@ -669,7 +700,7 @@
                 : null;
             
             // Třídění: vždy aktualizuj z UI state (jinak se směr nikdy nepřepne).
-            // SessionStorage restore: _filter.SortBy je nastaven, ale state.SortLabel je prázdný
+            // LocalStorage restore: _filter.SortBy je nastaven, ale state.SortLabel je prázdný
             // (MudTable první volání má SortLabel="") → podmínka ochrání uložený sort.
             if (!string.IsNullOrEmpty(state.SortLabel))
             {
@@ -682,6 +713,7 @@
 
             var result = await response.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>(ct);
             _totalCount = result?.TotalCount ?? 0;
+            await SaveStateAsync();
             return new TableData<ListingSummaryDto>
             {
                 Items = result?.Items ?? Array.Empty<ListingSummaryDto>(),
@@ -738,6 +770,7 @@
             _totalCount = result?.TotalCount ?? 0;
             _cardItems = result?.Items?.ToList() ?? new();
             _cardTotalPages = (int)Math.Ceiling((double)_totalCount / _cardPageSize);
+            await SaveStateAsync();
         }
         catch (OperationCanceledException)
         {
@@ -852,7 +885,7 @@
 
     private string BuildCsvExportUrl()
     {
-        var baseUrl = Http.BaseAddress?.ToString().TrimEnd('/') ?? "http://localhost:5001";
+        var baseUrl = (Configuration["ApiPublicUrl"] ?? Http.BaseAddress?.ToString() ?? "http://localhost:5001").TrimEnd('/');
         var parts = new List<string>();
         if (!string.IsNullOrEmpty(_filter.SearchText))      parts.Add($"searchText={Uri.EscapeDataString(_filter.SearchText)}");
         if (!string.IsNullOrEmpty(_filter.PropertyType))    parts.Add($"propertyType={Uri.EscapeDataString(_filter.PropertyType)}");
@@ -968,6 +1001,16 @@
         "Industrial" => (Color.Error,     Icons.Material.Filled.Factory),
         "Garage"     => (Color.Dark,      Icons.Material.Filled.Garage),
         _            => (Color.Default,   Icons.Material.Filled.Home)
+    };
+
+    private static (Color Color, string Icon) ConditionBadge(string? condition) => condition switch
+    {
+        "Novostavba"        => (Color.Success,   Icons.Material.Filled.FiberNew),
+        "Po rekonstrukci"   => (Color.Primary,   Icons.Material.Filled.AutoFixHigh),
+        "Před rekonstrukcí" => (Color.Warning,   Icons.Material.Filled.Construction),
+        "Dobrý stav"        => (Color.Info,      Icons.Material.Filled.CheckCircle),
+        "K demolici"        => (Color.Error,     Icons.Material.Filled.Warning),
+        _                   => (Color.Default,   Icons.Material.Filled.Info)
     };
 
     private static readonly Dictionary<string, string> _sourceLogoMap = new(StringComparer.OrdinalIgnoreCase)

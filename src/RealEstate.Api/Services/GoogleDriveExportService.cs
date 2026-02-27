@@ -101,6 +101,127 @@ public sealed class GoogleDriveExportService(
 
     // ── Google Drive helpers ────────────────────────────────────────────────
 
+    public async Task<DriveScanResultDto> ScanDriveInspectionFolderAsync(Guid listingId, CancellationToken ct = default)
+    {
+        var listing = await dbContext.Listings
+            .AsNoTracking()
+            .Select(l => new { l.Id, l.DriveInspectionFolderId })
+            .FirstOrDefaultAsync(l => l.Id == listingId, ct)
+            ?? throw new KeyNotFoundException($"Inzerát {listingId} nenalezen");
+
+        if (string.IsNullOrWhiteSpace(listing.DriveInspectionFolderId))
+            throw new InvalidOperationException(
+                "Inzerát nemá DriveInspectionFolderId – nejprve proveďte export na Google Drive.");
+
+        var driveService = await CreateDriveServiceAsync();
+
+        // ── Načti seznam souborů z GD složky ─────────────────────────────
+        var listReq = driveService.Files.List();
+        listReq.Q = $"'{listing.DriveInspectionFolderId}' in parents " +
+                    $"and mimeType != 'application/vnd.google-apps.folder' " +
+                    $"and trashed = false";
+        listReq.Fields = "files(id,name,size,createdTime,mimeType)";
+        listReq.PageSize = 1000;
+        var listResult = await listReq.ExecuteAsync(ct);
+        var driveFiles = listResult.Files ?? [];
+
+        if (driveFiles.Count == 0)
+            return new DriveScanResultDto(0, 0, 0, "Složka na Google Drive je prázdná.");
+
+        // ── Existující záznamy v DB – deduplikace dle OriginalFileName ────
+        var existingNames = await dbContext.UserListingPhotos
+            .Where(p => p.ListingId == listingId)
+            .Select(p => p.OriginalFileName)
+            .ToHashSetAsync(ct);
+
+        var photosBaseUrl = configuration["PHOTOS_PUBLIC_BASE_URL"]
+            ?? Environment.GetEnvironmentVariable("PHOTOS_PUBLIC_BASE_URL")
+            ?? "http://localhost:5001";
+        var inspDir = Path.Combine(env.WebRootPath, "uploads", "listings", listingId.ToString(), "inspection");
+        Directory.CreateDirectory(inspDir);
+
+        // Zjisti aktuální max index pro číslování souborů (nepřepisuj existující)
+        var existingCount = await dbContext.UserListingPhotos
+            .CountAsync(p => p.ListingId == listingId, ct);
+
+        int imported = 0, skipped = 0, fileIndex = existingCount;
+        var now = DateTime.UtcNow;
+
+        foreach (var gdf in driveFiles)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            // Přeskoč soubory, které už máme (dle jména)
+            if (existingNames.Contains(gdf.Name))
+            {
+                skipped++;
+                continue;
+            }
+
+            // Stáhni soubor z GD
+            try
+            {
+                using var ms = new MemoryStream();
+                var dlReq = driveService.Files.Get(gdf.Id);
+                dlReq.MediaDownloader.ProgressChanged += progress =>
+                {
+                    if (progress.Status == Google.Apis.Download.DownloadStatus.Failed)
+                        logger.LogWarning("GD download failed for {Name}: {Ex}", gdf.Name, progress.Exception?.Message);
+                };
+                await dlReq.DownloadAsync(ms, ct);
+                var data = ms.ToArray();
+                if (data.Length == 0)
+                {
+                    logger.LogWarning("GD soubor {Name} je prázdný, přeskahuji", gdf.Name);
+                    skipped++;
+                    continue;
+                }
+
+                var rawExt = Path.GetExtension(gdf.Name).ToLowerInvariant();
+                var ext = rawExt is ".jpg" or ".jpeg" or ".png" or ".heic" or ".heif" or ".webp"
+                    ? rawExt : ".jpg";
+                var safeBase = Path.GetFileNameWithoutExtension(gdf.Name)
+                    .Replace(" ", "_")
+                    .Replace("/", "_")
+                    .Replace("\\", "_");
+                var localFileName = $"{fileIndex:D3}_{safeBase}{ext}";
+                var fullPath = Path.Combine(inspDir, localFileName);
+                await System.IO.File.WriteAllBytesAsync(fullPath, data, ct);
+
+                var storedUrl = $"{photosBaseUrl.TrimEnd('/')}/uploads/listings/{listingId}/inspection/{localFileName}";
+
+                dbContext.UserListingPhotos.Add(new UserListingPhoto
+                {
+                    Id = Guid.NewGuid(),
+                    ListingId = listingId,
+                    StoredUrl = storedUrl,
+                    OriginalFileName = gdf.Name,
+                    FileSizeBytes = data.Length,
+                    TakenAt = gdf.CreatedTimeDateTimeOffset?.UtcDateTime ?? now,
+                    UploadedAt = now
+                });
+
+                existingNames.Add(gdf.Name);
+                fileIndex++;
+                imported++;
+
+                logger.LogInformation("GD scan import: {Name} → {LocalFile}", gdf.Name, localFileName);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "GD scan: nelze stáhnout soubor {Id} ({Name})", gdf.Id, gdf.Name);
+                skipped++;
+            }
+        }
+
+        if (imported > 0)
+            await dbContext.SaveChangesAsync(ct);
+
+        var msg = $"Importováno {imported} nových fotek z Google Drive, přeskočeno {skipped} (již existují nebo chyba).";
+        logger.LogInformation("GD inspection scan pro {ListingId}: {Msg}", listingId, msg);
+        return new DriveScanResultDto(imported, skipped, driveFiles.Count, msg);
+    }
+
     private async Task<DriveService> CreateDriveServiceAsync()
     {
         // Preferujeme OAuth UserToken (soubory vlastní uživatel, má storage quota)

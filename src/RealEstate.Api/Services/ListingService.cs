@@ -139,7 +139,13 @@ public class ListingService : IListingService
                     Id = p.Id,
                     OriginalUrl = p.OriginalUrl,
                     StoredUrl = p.StoredUrl,   // null when not yet stored locally
-                    Order = p.Order
+                    Order = p.Order,
+                    AiDescription = p.AiDescription,
+                    PhotoCategory = p.PhotoCategory,
+                    PhotoDescription = p.PhotoDescription,
+                    PhotoLabels = p.PhotoLabels,
+                    DamageDetected = p.DamageDetected,
+                    ClassificationConfidence = p.ClassificationConfidence,
                 })
                 .ToList(),
             UserState = userState is not null
@@ -401,6 +407,9 @@ public class ListingService : IListingService
             PropertyType = entity.PropertyType.ToString(),
             OfferType = entity.OfferType.ToString(),
             Disposition = entity.Disposition,
+            Rooms = entity.Rooms,
+            Condition = entity.Condition,
+            ConstructionType = entity.ConstructionType,
             Price = entity.Price,
             PriceNote = entity.PriceNote,
             AreaBuiltUp = (double?)entity.AreaBuiltUp,

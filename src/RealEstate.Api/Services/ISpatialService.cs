@@ -46,4 +46,16 @@ public interface ISpatialService
     /// Respektuje rate limit 1 req/s. Vrátí počet úspěšně geokódovaných.
     /// </summary>
     Task<BulkGeocodeResultDto> BulkGeocodeListingsAsync(int batchSize = 50, CancellationToken ct = default);
+
+    /// <summary>
+    /// Vytvoří WKT polygon koridoru (buffer) kolem předpředané WKT LINESTRING.
+    /// Používá PostGIS ST_Buffer v EPSG:5514 (S-JTSK). Vhodné pro GPX import.
+    /// </summary>
+    Task<CorridorResultDto> BuildCorridorFromLineStringAsync(
+        string lineStringWkt,
+        int bufferMeters,
+        double startLat, double startLon,
+        double endLat, double endLon,
+        string? saveName,
+        CancellationToken ct = default);
 }

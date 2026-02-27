@@ -27,6 +27,7 @@
     <Compile Include="Contracts/Cadastre/*.cs" />
     <Compile Include="Contracts/UserPhotos/*.cs" />
     <Compile Include="Endpoints/*.cs" />
+    <Compile Include="Helpers/*.cs" />
     <Compile Include="Services/*.cs" />
   </ItemGroup>
 

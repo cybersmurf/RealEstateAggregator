@@ -10,5 +10,6 @@ public record UserListingPhotoDto(
     long FileSizeBytes,
     DateTime TakenAt,
     DateTime UploadedAt,
-    string? Notes
+    string? Notes,
+    string? AiDescription
 );

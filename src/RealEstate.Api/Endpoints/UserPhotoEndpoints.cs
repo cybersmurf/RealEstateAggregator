@@ -125,7 +125,8 @@ public static class UserPhotoEndpoints
                 photo.FileSizeBytes,
                 photo.TakenAt,
                 photo.UploadedAt,
-                photo.Notes
+                photo.Notes,
+                photo.AiDescription
             ));
         }
 
@@ -158,7 +159,8 @@ public static class UserPhotoEndpoints
                 photo.FileSizeBytes,
                 photo.TakenAt,
                 photo.UploadedAt,
-                photo.Notes
+                photo.Notes,
+                photo.AiDescription
             ));
         }
 

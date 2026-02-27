@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using RealEstate.Api.Contracts.Spatial;
+using RealEstate.Api.Helpers;
 using RealEstate.Api.Services;
 
 namespace RealEstate.Api.Endpoints;
@@ -44,6 +45,12 @@ public static class SpatialEndpoints
         group.MapPost("/bulk-geocode", BulkGeocode)
             .WithName("BulkGeocode")
             .WithSummary("Geokóduje dávku inzerátů bez GPS přes Nominatim (max batchSize, ~1.1s/req)");
+
+        // ── GPX upload ────────────────────────────────────────────────────────
+        group.MapPost("/corridor-from-gpx", BuildCorridorFromGpx)
+            .WithName("BuildCorridorFromGpx")
+            .WithSummary("Nahraje GPX soubor a postaví koridor (buffer) kolem trasy")
+            .DisableAntiforgery();
 
         return app;
     }
@@ -128,5 +135,50 @@ public static class SpatialEndpoints
     {
         var result = await service.BulkGeocodeListingsAsync(batchSize, ct);
         return TypedResults.Ok(result);
+    }
+
+    private static async Task<Results<Ok<CorridorResultDto>, BadRequest<string>>> BuildCorridorFromGpx(
+        IFormFile gpxFile,
+        [FromServices] ISpatialService service,
+        CancellationToken ct,
+        [FromQuery] int bufferMeters = 5000,
+        [FromQuery] string? saveName = null)
+    {
+        if (gpxFile is null || gpxFile.Length == 0)
+            return TypedResults.BadRequest("Žádný GPX soubor nebyl nahrán.");
+
+        if (!gpxFile.FileName.EndsWith(".gpx", StringComparison.OrdinalIgnoreCase))
+            return TypedResults.BadRequest("Soubor musí mít příponu .gpx");
+
+        if (bufferMeters is < 100 or > 50_000)
+            return TypedResults.BadRequest("bufferMeters musí být mezi 100 a 50 000 metry.");
+
+        GpxParseResult gpx;
+        try
+        {
+            await using var stream = gpxFile.OpenReadStream();
+            gpx = GpxParser.Parse(stream);
+        }
+        catch (InvalidDataException ex)
+        {
+            return TypedResults.BadRequest($"Chyba při parsování GPX: {ex.Message}");
+        }
+
+        try
+        {
+            var result = await service.BuildCorridorFromLineStringAsync(
+                gpx.LineStringWkt,
+                bufferMeters,
+                gpx.StartLat, gpx.StartLon,
+                gpx.EndLat, gpx.EndLon,
+                saveName,
+                ct);
+
+            return TypedResults.Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.BadRequest($"Chyba při stavbě koridoru: {ex.Message}");
+        }
     }
 }

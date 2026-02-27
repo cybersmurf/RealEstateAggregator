@@ -142,6 +142,57 @@
                     </MudAlert>
                 </MudItem>
             }
+
+            <!-- ── GPX upload ───────────────────────────────────────────────── -->
+            <MudItem xs="12">
+                <MudDivider Class="my-1" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">
+                    nebo nahraj GPX soubor trasy
+                </MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                               FilesChanged="@OnGpxFilesChanged"
+                               Accept=".gpx"
+                               MaximumFileCount="1"
+                               aria-label="Nahrát GPX soubor trasy">
+                    <ActivatorContent>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true"
+                                   StartIcon="@Icons.Material.Filled.Route">
+                            @if (_gpxFile != null)
+                            {
+                                <span>@_gpxFile.Name – změnit</span>
+                            }
+                            else
+                            {
+                                <span>Vybrat GPX soubor</span>
+                            }
+                        </MudButton>
+                    </ActivatorContent>
+                </MudFileUpload>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudButton Variant="Variant.Filled" Color="Color.Tertiary"
+                           OnClick="BuildCorridorFromGpxAsync"
+                           Disabled="@(_gpxFile == null || _isCorridorLoading)"
+                           FullWidth="true"
+                           StartIcon="@Icons.Material.Filled.Upload">
+                    @(_isCorridorLoading ? "Počítám..." : "Hledat v GPX koridoru")
+                </MudButton>
+            </MudItem>
+            @if (_gpxCorridorResult != null)
+            {
+                <MudItem xs="12">
+                    <MudAlert Severity="Severity.Success" Dense="true">
+                        GPX koridor: <b>@_gpxFile?.Name</b> · buffer @((_gpxCorridorResult.BufferMeters / 1000.0).ToString("F1")) km ·
+                        <b>@_gpxCorridorResult.ListingCount inzerátů</b> uvnitř koridoru
+                        @if (_gpxCorridorResult.SavedAreaId.HasValue)
+                        {
+                            <span> · Oblast uložena ✓</span>
+                        }
+                    </MudAlert>
+                </MudItem>
+            }
         </MudGrid>
     </MudExpansionPanel>
 </MudExpansionPanels>
@@ -272,6 +323,10 @@
     private CorridorResultApiDto? _corridorResult;
     private string? _corridorWkt;
 
+    // GPX koridor
+    private IBrowserFile? _gpxFile;
+    private CorridorResultApiDto? _gpxCorridorResult;
+
     // Statistiky geocodingu
     private GeocodeStatsDto? _geocodeStats;
     private bool _isGeocoding;
@@ -367,6 +422,63 @@
                 // Nakresli koridor + vyhledej inzeráty uvnitř
                 await JS.InvokeVoidAsync("leafletMap.drawCorridor", _mapId, _corridorWkt);
                 await SearchInCorridorAsync(_corridorWkt);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isCorridorLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OnGpxFilesChanged(IReadOnlyList<IBrowserFile>? files)
+    {
+        _gpxFile = files?.FirstOrDefault();
+        _gpxCorridorResult = null;
+    }
+
+    private async Task BuildCorridorFromGpxAsync()
+    {
+        if (_gpxFile == null)
+        {
+            Snackbar.Add("Vyberte GPX soubor.", Severity.Warning);
+            return;
+        }
+
+        _isCorridorLoading = true;
+        _gpxCorridorResult = null;
+        StateHasChanged();
+
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var stream = _gpxFile.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            content.Add(new StreamContent(stream), "gpxFile", _gpxFile.Name);
+
+            var saveName = string.IsNullOrWhiteSpace(_corridorSaveName) ? null : _corridorSaveName;
+            var url = $"api/spatial/corridor-from-gpx?bufferMeters={_corridorBufferM}" +
+                      (saveName != null ? $"&saveName={Uri.EscapeDataString(saveName)}" : "");
+
+            var response = await Http.PostAsync(url, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                Snackbar.Add($"Chyba GPX koridoru: {err}", Severity.Error);
+                return;
+            }
+
+            _gpxCorridorResult = await response.Content.ReadFromJsonAsync<CorridorResultApiDto>();
+            _corridorWkt = _gpxCorridorResult?.PolygonWkt;
+
+            if (!string.IsNullOrEmpty(_corridorWkt))
+            {
+                await JS.InvokeVoidAsync("leafletMap.drawCorridor", _mapId, _corridorWkt);
+                await SearchInCorridorAsync(_corridorWkt);
+                if (saveName != null) await LoadSavedAreasAsync();
             }
         }
         catch (Exception ex)

@@ -58,6 +58,12 @@ public sealed class LocalStorageService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storedUrl);
 
+        // If already a full URL (from cloud provider), return as-is
+        if (storedUrl.StartsWith("http://") || storedUrl.StartsWith("https://"))
+        {
+            return Task.FromResult<string?>(storedUrl);
+        }
+
         // Local files served via static files middleware
         // Return path with leading slash for absolute URL
         var publicUrl = storedUrl.StartsWith('/') ? storedUrl : $"/{storedUrl}";

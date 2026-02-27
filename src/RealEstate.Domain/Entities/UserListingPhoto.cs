@@ -49,6 +49,31 @@ public class UserListingPhoto
     /// </summary>
     public string? Notes { get; set; }
 
+    /// <summary>
+    /// AI-generated description of the photo content (llava vision model).
+    /// Null = not yet analyzed.
+    /// </summary>
+    public string? AiDescription { get; set; }
+
+    // ── AI Classification (Ollama Vision) ──────────────────────────────────
+    /// <summary>
+    /// Photo category: exterior, interior, kitchen, bathroom, living_room, bedroom,
+    /// attic, basement, garage, land, floor_plan, damage, other
+    /// </summary>
+    public string? PhotoCategory { get; set; }
+
+    /// <summary>JSON array of labels, e.g. ["mold","water_damage"]</summary>
+    public string? PhotoLabels { get; set; }
+
+    /// <summary>True if Ollama detected visible damage/defects.</summary>
+    public bool DamageDetected { get; set; }
+
+    /// <summary>Ollama confidence 0.0–1.0</summary>
+    public decimal? ClassificationConfidence { get; set; }
+
+    /// <summary>When this photo was classified. Null = not yet classified.</summary>
+    public DateTime? ClassifiedAt { get; set; }
+
     // Navigation property
     public Listing Listing { get; set; } = null!;
 }

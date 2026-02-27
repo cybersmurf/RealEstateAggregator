@@ -71,8 +71,13 @@ public static class ServiceCollectionExtensions
         });
 
         // � Photo download service
-        services.AddScoped<IPhotoDownloadService, PhotoDownloadService>();
-        services.AddHttpClient("PhotoDownload", client =>
+        services.AddScoped<IPhotoDownloadService, PhotoDownloadService>();        // 🔍 Photo classification service (Ollama Vision)
+        services.AddScoped<IPhotoClassificationService, PhotoClassificationService>();
+        services.AddHttpClient("OllamaVision", client =>
+        {
+            // Vision model může trvat 10–60s na fotku – velký timeout
+            client.Timeout = TimeSpan.FromMinutes(5);
+        });        services.AddHttpClient("PhotoDownload", client =>
         {
             client.DefaultRequestHeaders.Add("User-Agent",
                 "Mozilla/5.0 (compatible; RealEstateAggregator/1.0; +https://github.com/cybersmurf/RealEstateAggregator)");

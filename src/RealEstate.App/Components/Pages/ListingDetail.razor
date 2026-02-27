@@ -434,6 +434,21 @@
                                             }
                                         </MudButton>
                                     }
+                                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary"
+                                               StartIcon="@Icons.Material.Filled.Sync"
+                                               Disabled="@_scanningDriveInspection"
+                                               OnClick="ScanDriveInspectionAsync"
+                                               aria-label="Importovat nové fotky z Google Drive složky Moje_fotky_z_prohlidky">
+                                        @if (_scanningDriveInspection)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                            <span>Scanuji GD…</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Sync z GD</span>
+                                        }
+                                    </MudButton>
                                 </MudStack>
                             }
                         </MudStack>
@@ -715,6 +730,7 @@
     private IReadOnlyList<IBrowserFile> _driveInspectionFiles = [];
     private IReadOnlyList<IBrowserFile> _oneDriveInspectionFiles = [];
     private bool _uploadingDrivePhotos = false;
+    private bool _scanningDriveInspection = false;
     private bool _uploadingOneDrivePhotos = false;
 
     // Export state z DB (trvalý, přežívá refresh stránky)
@@ -1161,6 +1177,36 @@
             _uploadingDrivePhotos = false;
         }
     }
+
+    private async Task ScanDriveInspectionAsync()
+    {
+        _scanningDriveInspection = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync(
+                $"api/listings/{Id}/scan-drive-inspection", null, _cts.Token);
+            if (response.IsSuccessStatusCode) // 202 Accepted
+            {
+                Snackbar.Add("🔄 Scan GD spuštěn na pozadí. Fotky budou dostupné za 1–5 minut — pak obnovte stránku.", Severity.Info, cfg => cfg.VisibleStateDuration = 8000);
+            }
+            else
+            {
+                var err = await response.Content.ReadAsStringAsync(_cts.Token);
+                Snackbar.Add($"Chyba: {err}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _scanningDriveInspection = false;
+        }
+    }
+
+    private record DriveScanResult(int Imported, int Skipped, int TotalInFolder, string Message);
 
     private async Task UploadOneDriveInspectionPhotosAsync()
     {

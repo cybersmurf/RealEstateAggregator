@@ -26,9 +26,50 @@ Konfigurace Claude Desktop (~/.config/claude/claude_desktop_config.json):
 import os
 import json
 import logging
+import base64
+import io
+from PIL import Image
 from typing import Optional
 import httpx
 from fastmcp import FastMCP
+from mcp.types import ImageContent, TextContent
+
+
+def _cap_output(text: str, max_chars: int = 0) -> str:
+    """Zkrátí textový výstup nástroje na max_chars znaků, aby se nepřekročil kontext."""
+    if max_chars <= 0:
+        max_chars = MAX_OUTPUT_CHARS
+    if len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars]
+    # Odsekni na poslední celý řádek
+    last_newline = truncated.rfind("\n")
+    if last_newline > max_chars // 2:
+        truncated = truncated[:last_newline]
+    used_pct = len(truncated) * 100 // len(text)
+    return (
+        truncated
+        + f"\n\n---\n⚠️ **Výstup zkrácen na {MAX_OUTPUT_CHARS:,} znaků** "
+        + f"({used_pct}% z {len(text):,}). "
+        + "Použij stránkování (page=N) pro zobrazení dalšího obsahu."
+    )
+
+
+def _resize_image(raw_bytes: bytes, max_width: int = 1200, quality: int = 72) -> bytes:
+    """Resize image to max_width keeping aspect ratio, compress to JPEG."""
+    try:
+        img = Image.open(io.BytesIO(raw_bytes))
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        w, h = img.size
+        if w > max_width:
+            new_h = int(h * max_width / w)
+            img = img.resize((max_width, new_h), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        return buf.getvalue()
+    except Exception:
+        return raw_bytes  # fallback: original
 
 # ─── Konfigurace ──────────────────────────────────────────────────────────────
 
@@ -36,6 +77,11 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:5001")
 API_TIMEOUT = float(os.getenv("API_TIMEOUT_SECONDS", "30"))
 TRANSPORT = os.getenv("TRANSPORT", "stdio")   # "stdio" nebo "sse"
 PORT = int(os.getenv("PORT", "8002"))
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava:7b")
+
+# Max znaků které jeden MCP tool vrátí – omezuje výši kontextu a kreditů Claude
+MAX_OUTPUT_CHARS = int(os.getenv("MCP_MAX_OUTPUT_CHARS", "200000"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("realestate-mcp")
@@ -50,7 +96,11 @@ Máš přístup k databázi realitních inzerátů (1 200+ aktivních) a uložen
 
 Dostupné nástroje:
 - search_listings: Vyhledávání inzerátů (text + filtry ceny, typu, nabídky)
-- get_listing: Detailní informace o konkrétním inzerátu včetně fotek
+- get_listing: Detailní informace o konkrétním inzerátu (text + metadata + fotky jako URL)
+- get_listing_photos: 📸 Fotky Z INZERÁTU jako obrázky viditelné v chatu
+- get_inspection_photos: 📷 Fotky Z PROHLÍDKY jako obrázky viditelné v chatu
+- analyze_inspection_photos: 🔍 AI analýza fotek z prohlídky (llava vision) – místnost, stav, popis, nedostatky
+- analyze_listing_photos: 🔍 AI analýza fotek z inzerátu (llava vision) – přehled před prohlídkou
 - get_analyses: Zobrazení uložených analýz pro inzerát
 - save_analysis: Uložení nové analýzy textu (automaticky se vygeneruje embedding)
 - ask_listing: RAG dotaz nad analýzami konkrétního inzerátu
@@ -141,7 +191,7 @@ async def search_listings(
         lines.append(_fmt_listing(listing))
         lines.append("")
 
-    return "\n".join(lines)
+    return _cap_output("\n".join(lines))
 
 
 @mcp.tool()
@@ -237,25 +287,27 @@ async def get_listing(listing_id: str) -> str:
         else:
             result_lines.append("_Žádné poznámky._")
 
-    # ── Fotky (URL) ──────────────────────────────────────────────────────────
+    # ── Fotky z inzerátu – jako URL seznam (Claude si je vyžádá přes get_listing_photos) ──
     result_lines += ["", f"## 📸 Fotky z inzerátu ({len(photos)})"]
     if photos:
-        for p in photos:
+        for i, p in enumerate(photos):
             url = p.get("storedUrl") or p.get("originalUrl") or ""
             result_lines.append(f"- {url}")
+        result_lines.append("")
+        result_lines.append(f"💡 Pro zobrazení fotek zavolej: `get_listing_photos(listing_id='{listing_id}')`")
     else:
         result_lines.append("_Žádné fotky._")
 
-    # ── Fotky z prohlídky (lokálně uložené) ──────────────────────────────────
+    # ── Fotky z prohlídky – počet a odkaz na dedicated tool ─────────────────
     try:
         insp_photos = await _call_api("get", f"/api/listings/{listing['id']}/inspection-photos")
         if insp_photos:
             result_lines += ["", f"## 📷 Fotky z prohlídky ({len(insp_photos)} – vlastní)"]
-            for p in insp_photos:
-                result_lines.append(f"- {p.get('storedUrl', '')}  _{p.get('originalFileName', '')}_")
+            result_lines.append(f"💡 Pro zobrazení fotek zavolej: `get_inspection_photos(listing_id='{listing['id']}')`")
         else:
             result_lines += ["", "## 📷 Fotky z prohlídky", "_Žádné vlastní fotky z prohlídky._"]
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to fetch inspection photos: {e}")
         pass  # endpoint neexistuje nebo vrátil chybu – ignoruj
 
     # ── Popis ────────────────────────────────────────────────────────────────
@@ -267,18 +319,142 @@ async def get_listing(listing_id: str) -> str:
     if listing.get("description", "") and len(listing["description"]) > 3000:
         result_lines.append("_[popis zkrácen na 3000 znaků]_")
 
-    return "\n".join(result_lines)
+    return _cap_output("\n".join(result_lines))
 
 
 @mcp.tool()
-async def get_inspection_photos(listing_id: str) -> str:
+async def get_inspection_photos(listing_id: str, page: int = 1, page_size: int = 10) -> list:
     """
-    Vrátí seznam fotek z prohlídky (vlastní fotky uložené uživatelem).
-    Fotky jsou dostupné jako lokální URL pro přímé zobrazení nebo analýzu.
+    📷 Vrátí fotky z prohlídky jako OBRÁZKY (ne URL).
+    Claude je vidí přímo v chatu! Fotky jsou automaticky zmenšeny na max 1200px.
 
     Args:
         listing_id: UUID inzerátu
+        page: Stránka (začíná 1, default 1)
+        page_size: Počet fotek na stránku (default 10, max 20)
     """
+    try:
+        photos = await _call_api("get", f"/api/listings/{listing_id}/inspection-photos")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return [TextContent(type="text", text=f"Inzerát {listing_id} nenalezen.")]
+        raise
+
+    if not photos:
+        return [TextContent(type="text", text=f"Pro inzerát {listing_id} nejsou uloženy žádné vlastní fotky z prohlídky.")]
+
+    page_size = min(max(1, page_size), 20)
+    total = len(photos)
+    total_pages = (total + page_size - 1) // page_size
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = min(start + page_size, total)
+    page_photos = photos[start:end]
+
+    result = [TextContent(type="text", text=
+        f"**Fotky z prohlídky** – stránka {page}/{total_pages} "
+        f"({start+1}–{end} z {total} fotek):\n"
+        + (f"➡️ Další: `get_inspection_photos(listing_id='{listing_id}', page={page+1})`" if page < total_pages else "")
+    )]
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        for i, p in enumerate(page_photos, start + 1):
+            filename = p.get('originalFileName', f'photo-{i}.jpg')
+            filesize_kb = p.get('fileSizeBytes', 0) // 1024
+            url = p.get('url', '')
+            result.append(TextContent(type="text", text=f"**{i}. {filename}** (orig. {filesize_kb} KB)"))
+            try:
+                if url:
+                    r = await client.get(url)
+                    r.raise_for_status()
+                    resized = _resize_image(r.content)
+                    b64_data = base64.b64encode(resized).decode()
+                    result.append(ImageContent(type="image", data=b64_data, mimeType="image/jpeg"))
+            except Exception as e:
+                logger.warning(f"Failed to fetch photo {filename}: {e}")
+                result.append(TextContent(type="text", text=f"❌ {url} (selhalo: {e})"))
+
+    return result
+
+
+@mcp.tool()
+async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 10) -> list:
+    """
+    📸 Vrátí fotky z inzerátu jako OBRÁZKY (ne URL).
+    Claude je vidí přímo v chatu! Fotky jsou automaticky zmenšeny na max 1200px.
+
+    Args:
+        listing_id: UUID inzerátu
+        page: Stránka (začíná 1, default 1)
+        page_size: Počet fotek na stránku (default 10, max 20)
+    """
+    try:
+        listing = await _call_api("get", f"/api/listings/{listing_id}")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return [TextContent(type="text", text=f"Inzerát {listing_id} nenalezen.")]
+        raise
+
+    photos = listing.get("photos", [])
+    if not photos:
+        return [TextContent(type="text", text="Žádné fotky z inzerátu.")]
+
+    page_size = min(max(1, page_size), 20)
+    total = len(photos)
+    total_pages = (total + page_size - 1) // page_size
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = min(start + page_size, total)
+    page_photos = photos[start:end]
+
+    result = [TextContent(type="text", text=
+        f"**Fotky z inzerátu** – stránka {page}/{total_pages} "
+        f"({start+1}–{end} z {total} fotek):\n"
+        + (f"➡️ Další: `get_listing_photos(listing_id='{listing_id}', page={page+1})`" if page < total_pages else "")
+    )]
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        for i, p in enumerate(page_photos, start + 1):
+            url = p.get("storedUrl") or p.get("originalUrl") or ""
+            if not url:
+                continue
+            result.append(TextContent(type="text", text=f"**{i}.**"))
+            try:
+                r = await client.get(url)
+                r.raise_for_status()
+                resized = _resize_image(r.content)
+                b64_data = base64.b64encode(resized).decode()
+                result.append(ImageContent(type="image", data=b64_data, mimeType="image/jpeg"))
+            except Exception as e:
+                logger.warning(f"Failed to fetch listing photo {url}: {e}")
+                result.append(TextContent(type="text", text=f"❌ {url} (selhalo)"))
+
+    return result
+
+
+@mcp.tool()
+async def analyze_inspection_photos(listing_id: str, page: int = 1, page_size: int = 10, force: bool = False) -> str:
+    """
+    🔍 Analyzuje fotky z prohlídky pomocí AI vision modelu (llava:7b).
+    Výsledky jsou ULOŽENY DO DB – příště se načtou z cache (rychlé).
+    Fotky zpracovává po stránkách (default 10 fotek/stránka).
+
+    Args:
+        listing_id: UUID inzerátu
+        page: Stránka fotek (začíná 1)
+        page_size: Počet fotek na stránku (default 10, max 15)
+        force: True = přeanalyzuj i fotky co už mají popis (default False)
+    """
+    PROMPT = (
+        "Jsi expert na nemovitosti. Popiš tuto fotografii z prohlídky nemovitosti. "
+        "Odpověz VÝHRADNĚ v tomto formátu (každý bod na nový řádek):\n"
+        "MÍSTNOST: [typ místnosti – kuchyně/obývací pokoj/ložnice/koupelna/WC/chodba/sklep/garáž/zahrada/exteriér/jiné]\n"
+        "STAV: [výborný/dobrý/průměrný/špatný/hrubá stavba]\n"
+        "POPIS: [1-2 věty o tom co vidíš – materiály, vybavení, světlo, rozměry]\n"
+        "POZOR: [případné nedostatky nebo věci k řešení, nebo 'Žádné']\n"
+        "Odpovídej česky."
+    )
+
     try:
         photos = await _call_api("get", f"/api/listings/{listing_id}/inspection-photos")
     except httpx.HTTPStatusError as e:
@@ -287,15 +463,360 @@ async def get_inspection_photos(listing_id: str) -> str:
         raise
 
     if not photos:
-        return f"Pro inzerát {listing_id} nejsou uloženy žádné vlastní fotky z prohlídky.\n\nFotky se uloží automaticky při příštím nahrání přes UI → 'Nahrát fotky z prohlídky'."
+        return f"Pro inzerát {listing_id} nejsou uloženy žádné fotky z prohlídky."
 
-    lines = [f"**{len(photos)} fotek z prohlídky** pro inzerát `{listing_id}`:\n"]
-    for i, p in enumerate(photos, 1):
-        lines.append(f"{i}. **{p.get('originalFileName', 'foto')}** ({p.get('fileSizeBytes', 0) // 1024} KB)")
-        lines.append(f"   URL: {p.get('storedUrl', '')}")
-        lines.append("")
+    page_size = min(max(1, page_size), 15)
+    total = len(photos)
+    total_pages = (total + page_size - 1) // page_size
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = min(start + page_size, total)
+    page_photos = photos[start:end]
 
-    return "\n".join(lines)
+    cached_count = sum(1 for p in page_photos if p.get("aiDescription") and not force)
+    lines = [
+        f"## 🔍 AI analýza fotek z prohlídky – stránka {page}/{total_pages} ({start+1}–{end} z {total})",
+        f"Model: `{OLLAMA_VISION_MODEL}` | Inzerát: `{listing_id}` | 💾 Cache: {cached_count}/{len(page_photos)}\n",
+    ]
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        for i, p in enumerate(page_photos, start + 1):
+            photo_id = p.get("id", "")
+            filename = p.get("originalFileName", f"photo-{i}.jpg")
+            url = p.get("url", "")
+            cached = p.get("aiDescription")
+            lines.append(f"\n---\n### Fotka {i}: `{filename}`")
+
+            if not url:
+                lines.append("_URL chybí – přeskočeno._")
+                continue
+
+            if cached and not force:
+                lines.append(f"_(z cache)_\n{cached}")
+                continue
+
+            try:
+                r = await client.get(url)
+                r.raise_for_status()
+                resized = _resize_image(r.content, max_width=800, quality=80)
+                b64 = base64.b64encode(resized).decode()
+
+                ollama_resp = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/chat",
+                    json={
+                        "model": OLLAMA_VISION_MODEL,
+                        "messages": [{"role": "user", "content": PROMPT, "images": [b64]}],
+                        "stream": False,
+                        "options": {"temperature": 0.1},
+                    },
+                    timeout=60,
+                )
+                ollama_resp.raise_for_status()
+                answer = ollama_resp.json()["message"]["content"].strip()
+                lines.append(answer)
+
+                # Ulož do DB
+                if photo_id:
+                    try:
+                        await client.patch(
+                            f"{API_BASE_URL}/api/listings/{listing_id}/inspection-photos/{photo_id}/ai-description",
+                            json={"description": answer},
+                            timeout=10,
+                        )
+                    except Exception as save_err:
+                        logger.warning(f"Failed to save ai_description for photo {photo_id}: {save_err}")
+
+            except Exception as e:
+                logger.warning(f"Ollama analysis failed for {filename}: {e}")
+                lines.append(f"❌ Analýza selhala: {e}")
+
+    if page < total_pages:
+        lines.append(
+            f"\n---\n➡️ Další stránka: "
+            f"`analyze_inspection_photos(listing_id='{listing_id}', page={page + 1})`"
+        )
+
+    return _cap_output("\n".join(lines))
+
+
+@mcp.tool()
+async def analyze_listing_photos(listing_id: str, page: int = 1, page_size: int = 10, force: bool = False) -> str:
+    """
+    🔍 Analyzuje fotky Z INZERÁTU pomocí AI vision modelu (llava:7b).
+    Výsledky jsou ULOŽENY DO DB – příště se načtou z cache (rychlé).
+    Hodí se pro rychlý přehled nemovitosti ještě před prohlídkou.
+
+    Args:
+        listing_id: UUID inzerátu
+        page: Stránka fotek (začíná 1)
+        page_size: Počet fotek na stránku (default 10, max 15)
+        force: True = přeanalyzuj i fotky co už mají popis (default False)
+    """
+    PROMPT = (
+        "Jsi expert na nemovitosti. Popiš tuto fotografii z realitního inzerátu. "
+        "Odpověz VÝHRADNĚ v tomto formátu (každý bod na nový řádek):\n"
+        "MÍSTNOST: [typ místnosti – kuchyně/obývací pokoj/ložnice/koupelna/WC/chodba/sklep/garáž/zahrada/exteriér/jiné]\n"
+        "STAV: [výborný/dobrý/průměrný/špatný/hrubá stavba]\n"
+        "POPIS: [1-2 věty o tom co vidíš – materiály, vybavení, světlo, rozměry]\n"
+        "POZOR: [případné nedostatky nebo věci k prověření na prohlídce, nebo 'Žádné']\n"
+        "Odpovídej česky."
+    )
+
+    try:
+        listing = await _call_api("get", f"/api/listings/{listing_id}")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    photos = listing.get("photos", [])
+    if not photos:
+        return "Inzerát nemá žádné fotky."
+
+    page_size = min(max(1, page_size), 15)
+    total = len(photos)
+    total_pages = (total + page_size - 1) // page_size
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = min(start + page_size, total)
+    page_photos = photos[start:end]
+
+    title = listing.get("title", listing_id)
+    cached_count = sum(1 for p in page_photos if p.get("aiDescription") and not force)
+    lines = [
+        f"## 🔍 AI analýza fotek z inzerátu – stránka {page}/{total_pages} ({start+1}–{end} z {total})",
+        f"**{title}** | Model: `{OLLAMA_VISION_MODEL}` | 💾 Cache: {cached_count}/{len(page_photos)}\n",
+    ]
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        for i, p in enumerate(page_photos, start + 1):
+            photo_id = p.get("id", "")
+            url = p.get("storedUrl") or p.get("originalUrl") or ""
+            cached = p.get("aiDescription")
+            lines.append(f"\n---\n### Fotka {i}")
+
+            if not url:
+                lines.append("_URL chybí – přeskočeno._")
+                continue
+
+            if cached and not force:
+                lines.append(f"_(z cache)_\n{cached}")
+                continue
+
+            try:
+                r = await client.get(url)
+                r.raise_for_status()
+                resized = _resize_image(r.content, max_width=800, quality=80)
+                b64 = base64.b64encode(resized).decode()
+
+                ollama_resp = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/chat",
+                    json={
+                        "model": OLLAMA_VISION_MODEL,
+                        "messages": [{"role": "user", "content": PROMPT, "images": [b64]}],
+                        "stream": False,
+                        "options": {"temperature": 0.1},
+                    },
+                    timeout=60,
+                )
+                ollama_resp.raise_for_status()
+                answer = ollama_resp.json()["message"]["content"].strip()
+                lines.append(answer)
+
+                # Ulož do DB
+                if photo_id:
+                    try:
+                        await client.patch(
+                            f"{API_BASE_URL}/api/listings/{listing_id}/photos/{photo_id}/ai-description",
+                            json={"description": answer},
+                            timeout=10,
+                        )
+                    except Exception as save_err:
+                        logger.warning(f"Failed to save ai_description for listing photo {photo_id}: {save_err}")
+
+            except Exception as e:
+                logger.warning(f"Ollama analysis failed for listing photo {i}: {e}")
+                lines.append(f"❌ Analýza selhala: {e}")
+
+    if page < total_pages:
+        lines.append(
+            f"\n---\n➡️ Další stránka: "
+            f"`analyze_listing_photos(listing_id='{listing_id}', page={page + 1})`"
+        )
+
+    return _cap_output("\n".join(lines))
+
+
+@mcp.tool()
+async def analyze_tovisit_listings(
+    force: bool = False,
+    max_photos_per_listing: int = 10,
+) -> str:
+    """
+    🏠 Analyzuje fotky VŠECH inzerátů označených 'K návštěvě' pomocí AI vision.
+
+    Spouštěj ručně před plánovanými prohlídkami – připraví si popis
+    každé fotky z inzerátu, aby byl detail dostupný bez čekání.
+    Výsledky se ukládají do DB – příště se načtou z cache (rychlé).
+
+    Fotky z prohlídky (vlastní upload) analyzuj zvlášť přes
+    `analyze_inspection_photos`.
+
+    Args:
+        force: True = přeanalyzuj i fotky co už mají popis (default False)
+        max_photos_per_listing: Max fotek na inzerát (default 10, max 20)
+    """
+    PROMPT = (
+        "Jsi expert na nemovitosti. Popiš tuto fotografii z realitního inzerátu. "
+        "Odpověz VÝHRADNĚ v tomto formátu (každý bod na nový řádek):\n"
+        "MÍSTNOST: [typ místnosti – kuchyně/obývací pokoj/ložnice/koupelna/WC/chodba/sklep/garáž/zahrada/exteriér/jiné]\n"
+        "STAV: [výborný/dobrý/průměrný/špatný/hrubá stavba]\n"
+        "POPIS: [1-2 věty o tom co vidíš – materiály, vybavení, světlo, rozměry]\n"
+        "POZOR: [případné nedostatky nebo věci k prověření na prohlídce, nebo 'Žádné']\n"
+        "Odpovídej česky."
+    )
+
+    max_photos_per_listing = min(max(1, max_photos_per_listing), 20)
+
+    # 1. Načti všechny ToVisit inzeráty
+    result = await _call_api(
+        "post",
+        "/api/listings/search",
+        json={"userStatus": "ToVisit", "pageSize": 100, "page": 1},
+    )
+    listings = result.get("items", [])
+    total_listings = result.get("totalCount", 0)
+
+    if not listings:
+        return "✅ Žádné inzeráty označené 'K návštěvě' nebyly nalezeny."
+
+    # Pokud je stránek více, načti všechny
+    if total_listings > 100:
+        all_listings = list(listings)
+        page = 2
+        while len(all_listings) < total_listings:
+            batch = await _call_api(
+                "post",
+                "/api/listings/search",
+                json={"userStatus": "ToVisit", "pageSize": 100, "page": page},
+            )
+            batch_items = batch.get("items", [])
+            if not batch_items:
+                break
+            all_listings.extend(batch_items)
+            page += 1
+        listings = all_listings
+
+    lines = [
+        f"## 🏠 AI analýza fotek inzerátů 'K návštěvě'",
+        f"**Celkem inzerátů:** {len(listings)} | **Model:** `{OLLAMA_VISION_MODEL}`",
+        f"**Fotek max / inzerát:** {max_photos_per_listing} | **force:** {force}\n",
+    ]
+
+    total_photos = 0
+    total_cached = 0
+    total_analyzed = 0
+    total_failed = 0
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        for listing_summary in listings:
+            listing_id = listing_summary.get("id", "")
+            title = listing_summary.get("title", listing_id)
+
+            # Načti detail inzerátu (obsahuje fotky s aiDescription)
+            try:
+                listing = await _call_api("get", f"/api/listings/{listing_id}")
+            except Exception as e:
+                lines.append(f"\n### ❌ {title}\nChyba načtení: {e}")
+                continue
+
+            photos = listing.get("photos", [])
+            if not photos:
+                lines.append(f"\n### ⬜ {title}\n_Bez fotek._")
+                continue
+
+            # Omez počet fotek
+            photos_to_process = photos[:max_photos_per_listing]
+            cached = sum(1 for p in photos_to_process if p.get("aiDescription") and not force)
+            to_analyze = len(photos_to_process) - cached
+
+            lines.append(
+                f"\n### 🏡 {title}\n"
+                f"Fotek: {len(photos)} | Zpracovávám: {len(photos_to_process)} "
+                f"| 💾 Cache: {cached} | 🔍 Nové: {to_analyze}"
+            )
+
+            listing_analyzed = 0
+            listing_failed = 0
+
+            for i, p in enumerate(photos_to_process, 1):
+                photo_id = p.get("id", "")
+                url = p.get("storedUrl") or p.get("originalUrl") or ""
+                cached_desc = p.get("aiDescription")
+
+                total_photos += 1
+
+                if not url:
+                    continue
+
+                if cached_desc and not force:
+                    total_cached += 1
+                    continue
+
+                try:
+                    r = await client.get(url)
+                    r.raise_for_status()
+                    resized = _resize_image(r.content, max_width=800, quality=80)
+                    b64 = base64.b64encode(resized).decode()
+
+                    ollama_resp = await client.post(
+                        f"{OLLAMA_BASE_URL}/api/chat",
+                        json={
+                            "model": OLLAMA_VISION_MODEL,
+                            "messages": [{"role": "user", "content": PROMPT, "images": [b64]}],
+                            "stream": False,
+                            "options": {"temperature": 0.1},
+                        },
+                        timeout=90,
+                    )
+                    ollama_resp.raise_for_status()
+                    answer = ollama_resp.json()["message"]["content"].strip()
+                    listing_analyzed += 1
+                    total_analyzed += 1
+
+                    # Ulož do DB
+                    if photo_id:
+                        try:
+                            await client.patch(
+                                f"{API_BASE_URL}/api/listings/{listing_id}/photos/{photo_id}/ai-description",
+                                json={"description": answer},
+                                timeout=10,
+                            )
+                        except Exception as save_err:
+                            logger.warning(
+                                f"Failed to save ai_description for photo {photo_id}: {save_err}"
+                            )
+
+                except Exception as e:
+                    logger.warning(f"Ollama analysis failed for listing {listing_id} photo {i}: {e}")
+                    listing_failed += 1
+                    total_failed += 1
+
+            status_icon = "✅" if listing_failed == 0 else "⚠️"
+            lines.append(
+                f"{status_icon} Hotovo: {listing_analyzed} nových, "
+                f"{cached} z cache, {listing_failed} chyb"
+            )
+
+    lines.append(
+        f"\n---\n## 📊 Celkový přehled\n"
+        f"- 📷 Fotek zpracováno: **{total_photos}**\n"
+        f"- 🔍 Nově analyzováno: **{total_analyzed}**\n"
+        f"- 💾 Z cache: **{total_cached}**\n"
+        f"- ❌ Chyb: **{total_failed}**"
+    )
+
+    return _cap_output("\n".join(lines))
 
 
 @mcp.tool()
@@ -338,7 +859,7 @@ async def get_analyses(listing_id: str) -> str:
         lines.append(content)  # plný obsah bez zkrácení
         lines.append("")
 
-    return "\n".join(lines)
+    return _cap_output("\n".join(lines))
 
 
 @mcp.tool()
@@ -435,7 +956,7 @@ async def ask_listing(
     if not has_emb:
         lines.append("\n⚠️ Podobnostní vyhledávání nebylo použito (analyzy nemají embedding nebo OpenAI není nakonfigurováno).")
 
-    return "\n".join(lines)
+    return _cap_output("\n".join(lines))
 
 
 @mcp.tool()
@@ -469,7 +990,7 @@ async def ask_general(
                 f"podobnost: {sim:.2%}"
             )
 
-    return "\n".join(lines)
+    return _cap_output("\n".join(lines))
 
 
 @mcp.tool()

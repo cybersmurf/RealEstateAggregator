@@ -178,6 +178,13 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.StoredUrl).HasColumnName("stored_url");
             entity.Property(e => e.Order).HasColumnName("order_index");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+            entity.Property(e => e.AiDescription).HasColumnName("ai_description");
+            entity.Property(e => e.PhotoCategory).HasColumnName("photo_category");
+            entity.Property(e => e.PhotoDescription).HasColumnName("photo_description");
+            entity.Property(e => e.PhotoLabels).HasColumnName("photo_labels").HasColumnType("text");
+            entity.Property(e => e.DamageDetected).HasColumnName("damage_detected").HasDefaultValue(false);
+            entity.Property(e => e.ClassificationConfidence).HasColumnName("classification_confidence").HasColumnType("numeric(3,2)");
+            entity.Property(e => e.ClassifiedAt).HasColumnName("classified_at").HasColumnType("timestamptz");
             entity.HasIndex(e => new { e.ListingId, e.Order });
         });
 
@@ -260,6 +267,14 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.TakenAt).HasColumnName("taken_at").HasColumnType("timestamptz");
             entity.Property(e => e.UploadedAt).HasColumnName("uploaded_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
             entity.Property(e => e.Notes).HasColumnName("notes").HasMaxLength(1000);
+            entity.Property(e => e.AiDescription).HasColumnName("ai_description");
+
+            // AI Classification columns
+            entity.Property(e => e.PhotoCategory).HasColumnName("photo_category");
+            entity.Property(e => e.PhotoLabels).HasColumnName("photo_labels");
+            entity.Property(e => e.DamageDetected).HasColumnName("damage_detected").HasDefaultValue(false);
+            entity.Property(e => e.ClassificationConfidence).HasColumnName("classification_confidence").HasColumnType("numeric(3,2)");
+            entity.Property(e => e.ClassifiedAt).HasColumnName("classified_at").HasColumnType("timestamptz");
 
             // Foreign key to Listing (cascade delete - if listing deleted, photos deleted too)
             entity.HasOne(e => e.Listing)

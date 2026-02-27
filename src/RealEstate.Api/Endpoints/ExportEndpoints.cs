@@ -1,8 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using RealEstate.Api.Contracts.UserPhotos;
 using RealEstate.Api.Services;
 using RealEstate.Domain.Entities;
 using RealEstate.Infrastructure;
+using RealEstate.Infrastructure.Storage;
 
 namespace RealEstate.Api.Endpoints;
 
@@ -45,6 +49,22 @@ public static class ExportEndpoints
         // Vrátí seznam lokálně uložených fotek z prohlídky (pro MCP/AI analýzu)
         group.MapGet("/{id:guid}/inspection-photos", GetInspectionPhotos)
             .WithName("GetInspectionPhotos")
+            .WithTags("Export");
+
+        // Uloží AI popis k fotce z prohlídky
+        group.MapPatch("/{id:guid}/inspection-photos/{photoId:guid}/ai-description", SaveInspectionPhotoAiDescription)
+            .WithName("SaveInspectionPhotoAiDescription")
+            .WithTags("Export");
+
+        // Uloží AI popis k fotce z inzerátu
+        group.MapPatch("/{id:guid}/photos/{photoId:guid}/ai-description", SaveListingPhotoAiDescription)
+            .WithName("SaveListingPhotoAiDescription")
+            .WithTags("Export");
+
+        // Rescan GD Moje_fotky_z_prohlidky → delta import nových fotek do DB
+        group.MapPost("/{id:guid}/scan-drive-inspection", ScanDriveInspection)
+            .WithName("ScanDriveInspection")
+            .WithSummary("Prohledá GD složku s fotkami z prohlídky a importuje nové soubory lokálně + do user_listing_photos.")
             .WithTags("Export");
 
         return app;
@@ -286,13 +306,99 @@ public static class ExportEndpoints
     private static async Task<IResult> GetInspectionPhotos(
         Guid id,
         [FromServices] RealEstateDbContext db,
+        [FromServices] IStorageService storageService,
         CancellationToken ct)
     {
         var photos = await db.UserListingPhotos
             .Where(p => p.ListingId == id)
             .OrderBy(p => p.UploadedAt)
-            .Select(p => new { p.Id, p.StoredUrl, p.OriginalFileName, p.FileSizeBytes, p.UploadedAt })
             .ToListAsync(ct);
 
-        return Results.Ok(photos);
-    }}
+        var dtos = new List<UserListingPhotoDto>();
+        foreach (var photo in photos)
+        {
+            var publicUrl = await storageService.GetFileUrlAsync(photo.StoredUrl, ct);
+            
+            dtos.Add(new UserListingPhotoDto(
+                photo.Id,
+                publicUrl ?? photo.StoredUrl,
+                photo.OriginalFileName,
+                photo.FileSizeBytes,
+                photo.TakenAt,
+                photo.UploadedAt,
+                photo.Notes,
+                photo.AiDescription
+            ));
+        }
+
+        return Results.Ok(dtos);
+    }
+
+    private static async Task<IResult> SaveInspectionPhotoAiDescription(
+        Guid id,
+        Guid photoId,
+        [FromBody] SavePhotoAiDescriptionRequest req,
+        [FromServices] RealEstateDbContext db,
+        CancellationToken ct)
+    {
+        var photo = await db.UserListingPhotos
+            .FirstOrDefaultAsync(p => p.Id == photoId && p.ListingId == id, ct);
+        if (photo is null)
+            return Results.NotFound();
+
+        photo.AiDescription = req.Description;
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> SaveListingPhotoAiDescription(
+        Guid id,
+        Guid photoId,
+        [FromBody] SavePhotoAiDescriptionRequest req,
+        [FromServices] RealEstateDbContext db,
+        CancellationToken ct)
+    {
+        var photo = await db.ListingPhotos
+            .FirstOrDefaultAsync(p => p.Id == photoId && p.ListingId == id, ct);
+        if (photo is null)
+            return Results.NotFound();
+
+        photo.AiDescription = req.Description;
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static IResult ScanDriveInspection(
+        Guid id,
+        [FromServices] IServiceScopeFactory scopeFactory,
+        [FromServices] ILoggerFactory loggerFactory)
+    {
+        var logger = loggerFactory.CreateLogger("GdScan");
+        // Fire-and-forget s vlastním DI scope – DbContext nesmí sdílet scope s HTTP requestem
+        _ = Task.Run(async () =>
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var svc = scope.ServiceProvider.GetRequiredService<IGoogleDriveExportService>();
+            try
+            {
+                var result = await svc.ScanDriveInspectionFolderAsync(id, cts.Token);
+                logger.LogInformation(
+                    "GD scan background finished for {ListingId}: imported={Imported}, skipped={Skipped}, total={Total}",
+                    id, result.Imported, result.Skipped, result.TotalInFolder);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "GD scan background failed for {ListingId}", id);
+            }
+        });
+
+        return Results.Accepted(value: new
+        {
+            message = "Scan GD složky spuštěn na pozadí. Fotky budou dostupné za 1–5 minut dle jejich počtu.",
+            listingId = id
+        });
+    }
+}
+
+internal record SavePhotoAiDescriptionRequest(string Description);

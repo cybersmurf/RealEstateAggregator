@@ -43,6 +43,7 @@ services:
       - SCRAPER_API_BASE_URL=http://realestate-scraper:8001
       - API_KEY=${API_KEY:-dev-key-change-me}
       - Ollama__BaseUrl=http://host.docker.internal:11434
+      - Ollama__VisionModel=llama3.2-vision:11b
       - Embedding__Provider=ollama
       - Embedding__VectorDimensions=768
       - PHOTOS_PUBLIC_BASE_URL=http://localhost:5001  # URL přístupná z prohlížeče pro stažené fotky
@@ -54,7 +55,7 @@ services:
     volumes:
       - ./logs/api:/app/logs
       - ./secrets:/app/secrets      # Google Drive credentials (rw – callback píše token)
-      - uploads_data:/app/wwwroot/uploads  # Stažené fotky inzerátů (persistent)
+      - uploads_data:/app/wwwroot/uploads  # ALL file uploads: listing photos + inspection photos
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
@@ -74,6 +75,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       - ApiBaseUrl=http://realestate-api:8080
+      - ApiPublicUrl=http://localhost:5001
     depends_on:
       api:
         condition: service_healthy
@@ -138,6 +140,10 @@ services:
       - API_BASE_URL=http://realestate-api:8080
       - TRANSPORT=sse
       - PORT=8002
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_VISION_MODEL=llama3.2-vision:11b
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8002:8002"
     depends_on:
@@ -151,7 +157,7 @@ volumes:
   postgres_data:
     driver: local
   uploads_data:
-    driver: local   # Stažené fotky inzerátů
+    driver: local   # All file uploads: listing photos + inspection photos + exports
 
 networks:
   realestate-network:
