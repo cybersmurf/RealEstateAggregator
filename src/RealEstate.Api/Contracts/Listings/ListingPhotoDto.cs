@@ -14,5 +14,7 @@ public sealed class ListingPhotoDto
     public string? PhotoLabels { get; set; }   // JSON: ["mold","water_damage",...]
     public bool DamageDetected { get; set; }
     public decimal? ClassificationConfidence { get; set; }
+    /// <summary>Zpětná vazba uživatele: "correct" | "wrong" | null</summary>
+    public string? ClassificationFeedback { get; set; }
     public bool IsClassified => PhotoCategory != null;
 }

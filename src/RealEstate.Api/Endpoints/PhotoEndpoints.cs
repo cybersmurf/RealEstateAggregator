@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using RealEstate.Api.Services;
+using RealEstate.Infrastructure;
 
 namespace RealEstate.Api.Endpoints;
 
@@ -35,6 +36,13 @@ public static class PhotoEndpoints
             .WithName("BulkClassifyInspectionPhotos")
             .WithSummary("Klasifikuje dávku fotek z prohlídky (user_listing_photos) přes Ollama Vision.")
             .Produces<PhotoClassificationResultDto>(200);
+
+        // ── Zpětná vazba na klasifikaci ───────────────────────────────────
+        group.MapPatch("/{photoId:guid}/classification-feedback", SaveClassificationFeedback)
+            .WithName("SaveClassificationFeedback")
+            .WithSummary("Uloží zpětnou vazbu uživatele na Ollama klasifikaci fotky: correct | wrong | null (odvolat).")
+            .Produces(200)
+            .Produces(404);
 
         return app;
     }
@@ -101,5 +109,39 @@ public static class PhotoEndpoints
 
         var result = await service.ClassifyInspectionBatchAsync(batchSize, cancellationToken, listingId);
         return Results.Ok(result);
+    }
+
+    private record ClassificationFeedbackRequest(string? Feedback);
+
+    private static async Task<IResult> SaveClassificationFeedback(
+        Guid photoId,
+        [FromBody] ClassificationFeedbackRequest request,
+        [FromServices] RealEstateDbContext db,
+        CancellationToken ct)
+    {
+        if (request.Feedback is not null
+            && request.Feedback != "correct"
+            && request.Feedback != "wrong")
+        {
+            return Results.Problem(
+                title: "Neplatný feedback",
+                detail: "Hodnota musí být 'correct', 'wrong' nebo null (odvolání).",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var photo = await db.ListingPhotos.FindAsync([photoId], ct);
+        if (photo is null)
+            return Results.NotFound(new { message = $"Fotka {photoId} nenalezena." });
+
+        photo.ClassificationFeedback = request.Feedback;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new
+        {
+            id = photoId,
+            feedback = request.Feedback,
+            category = photo.PhotoCategory,
+            damageDetected = photo.DamageDetected
+        });
     }
 }

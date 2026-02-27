@@ -68,6 +68,153 @@
                 <MudAlert Severity="Severity.Info">Žádné fotografie nejsou k dispozici.</MudAlert>
             }
 
+            <!-- AI Klasifikace fotek -->
+            @if (_listing.Photos.Any())
+            {
+                <MudPaper Class="pa-4">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-3" Wrap="Wrap.Wrap">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Wrap="Wrap.Wrap">
+                            <MudText Typo="Typo.h6">📸 AI klasifikace fotek</MudText>
+                            <MudChip T="string" Size="Size.Small"
+                                     Color="@(PhotoClassifiedCount == _listing.Photos.Count ? Color.Success : Color.Default)">
+                                @PhotoClassifiedCount/@_listing.Photos.Count klasifikováno
+                            </MudChip>
+                            @if (PhotoDamageCount > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Error"
+                                         Icon="@Icons.Material.Filled.Warning">
+                                    @PhotoDamageCount poškození
+                                </MudChip>
+                            }
+                            @if (PhotoFeedbackWrongCount > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                                         Icon="@Icons.Material.Filled.ThumbDown">
+                                    @PhotoFeedbackWrongCount špatně
+                                </MudChip>
+                            }
+                        </MudStack>
+                        @if (PhotoClassifiedCount < _listing.Photos.Count)
+                        {
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary"
+                                       StartIcon="@Icons.Material.Filled.AutoFixHigh"
+                                       OnClick="TriggerPhotoClassificationAsync"
+                                       Disabled="_classifyLoading">
+                                @(_classifyLoading ? "Klasifikuji…" : $"Klasifikovat ({_listing.Photos.Count - PhotoClassifiedCount} nehotových)")
+                            </MudButton>
+                        }
+                    </MudStack>
+
+                    <MudGrid Spacing="2">
+                        @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
+                        {
+                            var pSrc = !string.IsNullOrEmpty(photo.StoredUrl) ? photo.StoredUrl : photo.OriginalUrl;
+                            var fb   = _photoFeedbacks.GetValueOrDefault(photo.Id);
+                            var borderStyle = photo.DamageDetected
+                                ? "border: 2px solid var(--mud-palette-error);"
+                                : fb == "wrong"
+                                    ? "border: 2px solid var(--mud-palette-warning);"
+                                    : fb == "correct"
+                                        ? "border: 2px solid var(--mud-palette-success);"
+                                        : "";
+                            <MudItem xs="12" sm="6" md="4" lg="3">
+                                <MudCard Outlined="true" Style="@borderStyle">
+                                    <!-- Náhled fotky s překrytnými odznaky -->
+                                    <a href="@pSrc" target="_blank" rel="noopener" style="display:block;position:relative;height:150px;overflow:hidden;background:#111;">
+                                        <img src="@pSrc" alt="@GetCategoryLabel(photo.PhotoCategory)"
+                                             style="width:100%;height:150px;object-fit:cover;"
+                                             onerror="this.style.opacity='0.15'" />
+                                        @if (photo.DamageDetected)
+                                        {
+                                            <div style="position:absolute;top:4px;left:4px;background:rgba(211,47,47,.9);color:#fff;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:600;">
+                                                ⚠ Poškození
+                                            </div>
+                                        }
+                                        @if (photo.IsClassified)
+                                        {
+                                            <div style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.65);color:#fff;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:600;">
+                                                @GetCategoryLabel(photo.PhotoCategory)
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.5);color:#aaa;border-radius:12px;padding:2px 6px;font-size:9px;">
+                                                neklasifikováno
+                                            </div>
+                                        }
+                                    </a>
+
+                                    @if (photo.IsClassified)
+                                    {
+                                        <MudCardContent Class="pa-2">
+                                            <!-- Confidence progress bar -->
+                                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-1">
+                                                <MudProgressLinear
+                                                    Value="@((double)(photo.ClassificationConfidence ?? 0) * 100)"
+                                                    Color="@GetConfidenceColor(photo.ClassificationConfidence)"
+                                                    Style="flex:1;" Size="Size.Small" Rounded="true" />
+                                                <MudText Typo="Typo.caption" Style="white-space:nowrap;min-width:28px;text-align:right;">
+                                                    @($"{(photo.ClassificationConfidence ?? 0) * 100:0}%")
+                                                </MudText>
+                                            </MudStack>
+
+                                            <!-- AI popis (2 řádky, tooltip pro plný text) -->
+                                            @if (!string.IsNullOrEmpty(photo.PhotoDescription))
+                                            {
+                                                <MudTooltip Text="@photo.PhotoDescription" Placement="Placement.Bottom">
+                                                    <MudText Typo="Typo.caption" Class="mud-text-secondary"
+                                                             Style="overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3em;cursor:help;">
+                                                        @photo.PhotoDescription
+                                                    </MudText>
+                                                </MudTooltip>
+                                            }
+
+                                            <!-- Štítky (labels) -->
+                                            @{var lbls = GetPhotoLabels(photo.PhotoLabels);}
+                                            @if (lbls.Count > 0)
+                                            {
+                                                <div class="mt-1 d-flex flex-wrap" style="gap:2px;">
+                                                    @foreach (var lbl in lbls)
+                                                    {
+                                                        var isDanger = lbl is "mold" or "water_damage" or "crack" or "damaged_roof" or "broken_windows";
+                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                                 Color="@(isDanger ? Color.Error : Color.Default)"
+                                                                 Style="height:18px;font-size:9px;margin:1px;padding:0 6px;">
+                                                            @TranslateLabel(lbl)
+                                                        </MudChip>
+                                                    }
+                                                </div>
+                                            }
+                                        </MudCardContent>
+
+                                        <!-- Feedback tlačítka -->
+                                        <MudCardActions Class="pa-1 d-flex justify-space-between align-center">
+                                            <MudText Typo="Typo.caption" Class="mud-text-disabled" Style="font-size:9px;padding-left:4px;">
+                                                @(fb == "correct" ? "✓ Správně" : fb == "wrong" ? "✗ Špatně" : "Ohodnotit")
+                                            </MudText>
+                                            <div style="display:flex;gap:0;">
+                                                <MudTooltip Text="Klasifikace sedí">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.ThumbUp" Size="Size.Small"
+                                                                   Color="@(fb == "correct" ? Color.Success : Color.Default)"
+                                                                   OnClick="() => ToggleCorrectFeedbackAsync(photo.Id)"
+                                                                   aria-label="Klasifikace sedí" />
+                                                </MudTooltip>
+                                                <MudTooltip Text="Špatná kategorie">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.ThumbDown" Size="Size.Small"
+                                                                   Color="@(fb == "wrong" ? Color.Error : Color.Default)"
+                                                                   OnClick="() => ToggleWrongFeedbackAsync(photo.Id)"
+                                                                   aria-label="Špatná kategorie" />
+                                                </MudTooltip>
+                                            </div>
+                                        </MudCardActions>
+                                    }
+                                </MudCard>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                </MudPaper>
+            }
+
             <!-- Details -->
             <MudPaper Class="pa-4">
                 <MudText Typo="Typo.h6" Class="mb-3">Detaily</MudText>
@@ -781,6 +928,133 @@
             ["Auction"] = "Dražba"
         };
 
+    // ── AI klasifikace fotek – stav a helpery ─────────────────────────────
+    private Dictionary<Guid, string?> _photoFeedbacks = new();
+    private bool _classifyLoading;
+
+    // Computed – nelze @{var=} uvnitř @if v Razor, proto computed properties v @code
+    private int PhotoClassifiedCount      => _listing?.Photos.Count(p => p.IsClassified) ?? 0;
+    private int PhotoDamageCount          => _listing?.Photos.Count(p => p.DamageDetected) ?? 0;
+    private int PhotoFeedbackWrongCount   => _photoFeedbacks.Values.Count(f => f == "wrong");
+
+    private Task ToggleCorrectFeedbackAsync(Guid photoId) =>
+        SetPhotoFeedbackAsync(photoId, _photoFeedbacks.GetValueOrDefault(photoId) == "correct" ? null : "correct");
+
+    private Task ToggleWrongFeedbackAsync(Guid photoId) =>
+        SetPhotoFeedbackAsync(photoId, _photoFeedbacks.GetValueOrDefault(photoId) == "wrong" ? null : "wrong");
+
+    private static string GetCategoryLabel(string? cat) => cat switch
+    {
+        "exterior"    => "Exteriér",
+        "interior"    => "Interiér",
+        "kitchen"     => "Kuchyň",
+        "bathroom"    => "Koupelna",
+        "living_room" => "Obývák",
+        "bedroom"     => "Ložnice",
+        "attic"       => "Půda",
+        "basement"    => "Sklep",
+        "garage"      => "Garáž",
+        "land"        => "Pozemek",
+        "floor_plan"  => "Půdorys",
+        "damage"      => "Poškození",
+        _             => cat ?? "Ostatní"
+    };
+
+    private static Color GetConfidenceColor(decimal? cf) => cf switch
+    {
+        >= 0.85m => Color.Success,
+        >= 0.65m => Color.Warning,
+        _        => Color.Error
+    };
+
+    private static List<string> GetPhotoLabels(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return new();
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private static string TranslateLabel(string label) => label switch
+    {
+        "mold"                => "plíseň",
+        "water_damage"        => "vlhkost",
+        "crack"               => "trhliny",
+        "broken_windows"      => "okna",
+        "damaged_roof"        => "střecha",
+        "renovation_needed"   => "k rekonstrukci",
+        "garden"              => "zahrada",
+        "pool"                => "bazén",
+        "fireplace"           => "krb",
+        "wooden_beams"        => "trámy",
+        "new_construction"    => "novostavba",
+        "renovated"           => "renovováno",
+        "brick_walls"         => "cihla",
+        "wooden_construction" => "dřevo",
+        "panel_building"      => "panel",
+        _                     => label
+    };
+
+    private void InitPhotoFeedbacks()
+    {
+        _photoFeedbacks = _listing?.Photos
+            .ToDictionary(p => p.Id, p => p.ClassificationFeedback)
+            ?? new();
+    }
+
+    private async Task SetPhotoFeedbackAsync(Guid photoId, string? feedback)
+    {
+        try
+        {
+            using var response = await Http.PatchAsJsonAsync(
+                $"api/photos/{photoId}/classification-feedback",
+                new { feedback },
+                _cts.Token);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _photoFeedbacks[photoId] = feedback;
+                StateHasChanged();
+            }
+            else
+            {
+                Snackbar.Add("Nepodařilo se uložit hodnocení.", Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba při ukládání hodnocení: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task TriggerPhotoClassificationAsync()
+    {
+        _classifyLoading = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync(
+                $"api/photos/bulk-classify?batchSize=20&listingId={Id}", null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadListingAsync();
+                Snackbar.Add("Klasifikace fotek dokončena.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Klasifikace selhala (Ollama běží?).", Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba klasifikace: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _classifyLoading = false;
+            StateHasChanged();
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await LoadListingAsync();
@@ -858,6 +1132,7 @@
             if (_listing != null)
             {
                 _userState = _listing.UserState ?? new();
+                InitPhotoFeedbacks();
             }
         }
         catch (Exception ex)

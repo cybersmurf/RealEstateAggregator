@@ -146,6 +146,7 @@ public class ListingService : IListingService
                     PhotoLabels = p.PhotoLabels,
                     DamageDetected = p.DamageDetected,
                     ClassificationConfidence = p.ClassificationConfidence,
+                    ClassificationFeedback = p.ClassificationFeedback,
                 })
                 .ToList(),
             UserState = userState is not null
@@ -346,6 +347,33 @@ public class ListingService : IListingService
         {
             var dispositionLower = filter.Disposition.ToLower();
             predicate = predicate.And(x => x.Disposition != null && x.Disposition.ToLower() == dispositionLower);
+        }
+
+        // Stav nemovitosti (multi-select: "Novostavba", "Po rekonstrukci", atd.)
+        if (filter.Conditions?.Count > 0)
+        {
+            var conditions = filter.Conditions;
+            predicate = predicate.And(x => x.Condition != null && conditions.Contains(x.Condition));
+        }
+
+        // Typ konstrukce (multi-select: "Cihla", "Panel", atd.)
+        if (filter.ConstructionTypes?.Count > 0)
+        {
+            var constructionTypes = filter.ConstructionTypes;
+            predicate = predicate.And(x => x.ConstructionType != null && constructionTypes.Contains(x.ConstructionType));
+        }
+
+        // Počet pokojů
+        if (filter.RoomsMin.HasValue)
+        {
+            var roomsMin = filter.RoomsMin.Value;
+            predicate = predicate.And(x => x.Rooms != null && x.Rooms >= roomsMin);
+        }
+
+        if (filter.RoomsMax.HasValue)
+        {
+            var roomsMax = filter.RoomsMax.Value;
+            predicate = predicate.And(x => x.Rooms != null && x.Rooms <= roomsMax);
         }
 
         // Only New Since

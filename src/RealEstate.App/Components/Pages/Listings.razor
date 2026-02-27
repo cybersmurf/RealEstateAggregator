@@ -93,6 +93,49 @@
                         }
                     </MudChipSet>
                 </MudItem>
+
+                <!-- Stav nemovitosti -->
+                <MudItem xs="12">
+                    <MudText Typo="Typo.caption" Class="mb-1">Stav nemovitosti</MudText>
+                    <MudChipSet T="string" @bind-SelectedValues="_selectedConditions"
+                                SelectionMode="SelectionMode.MultiSelection"
+                                CheckMark="true">
+                        @foreach (var cond in _availableConditions)
+                        {
+                            <MudChip T="string" Value="@cond" Size="Size.Small" Variant="Variant.Outlined">@cond</MudChip>
+                        }
+                    </MudChipSet>
+                </MudItem>
+
+                <!-- Typ konstrukce -->
+                <MudItem xs="12">
+                    <MudText Typo="Typo.caption" Class="mb-1">Konstrukce</MudText>
+                    <MudChipSet T="string" @bind-SelectedValues="_selectedConstructionTypes"
+                                SelectionMode="SelectionMode.MultiSelection"
+                                CheckMark="true">
+                        @foreach (var ct in _availableConstructionTypes)
+                        {
+                            <MudChip T="string" Value="@ct" Size="Size.Small" Variant="Variant.Outlined">@ct</MudChip>
+                        }
+                    </MudChipSet>
+                </MudItem>
+
+                <!-- Počet pokojů -->
+                <MudItem xs="6" sm="3">
+                    <MudNumericField T="int?" @bind-Value="_filter.RoomsMin"
+                                     Label="Pokoje od"
+                                     Variant="Variant.Outlined"
+                                     Min="1" Max="20"
+                                     Clearable="true" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudNumericField T="int?" @bind-Value="_filter.RoomsMax"
+                                     Label="Pokoje do"
+                                     Variant="Variant.Outlined"
+                                     Min="1" Max="20"
+                                     Clearable="true" />
+                </MudItem>
+
                 <!-- Cena od/do -->
                 <MudItem xs="6" md="3">
                     <MudNumericField T="decimal?" @bind-Value="_filter.PriceMin"
@@ -517,6 +560,20 @@
         "8+1", "8+2"
     };
 
+    // Stav nemovitosti
+    private IReadOnlyCollection<string>? _selectedConditions = new List<string>();
+    private static readonly List<string> _availableConditions = new()
+    {
+        "Novostavba", "Po rekonstrukci", "Před rekonstrukcí", "Dobrý stav", "Špatný stav", "K demolici"
+    };
+
+    // Typ konstrukce
+    private IReadOnlyCollection<string>? _selectedConstructionTypes = new List<string>();
+    private static readonly List<string> _availableConstructionTypes = new()
+    {
+        "Cihla", "Panel", "Dřevo", "Montovaná", "Zděná", "Smíšená", "Skelet"
+    };
+
     // Quick filtry
     private string? _activeQuickFilter;
     private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType, string? UserStatus)> _quickFilters =
@@ -554,7 +611,11 @@
         int      TablePage,  // 1-indexed číslo stránky tabulky
         string?  SortBy,     // Sloupec třídění ("Price", "Title", atd.)
         bool     SortDescending, // Sestupné třídění
-        string?  UserStatus  // Filtr dle mého stavu ("Liked", "ToVisit", ...)
+        string?  UserStatus, // Filtr dle mého stavu ("Liked", "ToVisit", ...)
+        List<string>? Conditions,         // Stav nemovitosti (multi)
+        List<string>? ConstructionTypes,  // Typ konstrukce (multi)
+        int?     RoomsMin,
+        int?     RoomsMax
     );
 
     [SupplyParameterFromQuery(Name = "source")]
@@ -597,9 +658,15 @@
                     SortBy           = s.SortBy,
                     SortDescending   = s.SortDescending,
                     UserStatus       = s.UserStatus,
+                    Conditions       = s.Conditions,
+                    ConstructionTypes = s.ConstructionTypes,
+                    RoomsMin         = s.RoomsMin,
+                    RoomsMax         = s.RoomsMax,
                 };
                 _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
                 _selectedDispositiones = s.Disposition != null ? new[] { s.Disposition } : new List<string>();
+                _selectedConditions         = s.Conditions ?? new List<string>();
+                _selectedConstructionTypes  = s.ConstructionTypes ?? new List<string>();
                 _activeQuickFilter    = s.ActiveQuickFilter;
                 _cardView             = s.CardView;
                 _cardPage             = s.CardPage;
@@ -665,7 +732,11 @@
                 TablePage:         _filter.Page,  // 1-indexed aktuální stránka tabulky
                 SortBy:            _filter.SortBy,
                 SortDescending:    _filter.SortDescending,
-                UserStatus:        _filter.UserStatus
+                UserStatus:        _filter.UserStatus,
+                Conditions:        _selectedConditions?.ToList(),
+                ConstructionTypes: _selectedConstructionTypes?.ToList(),
+                RoomsMin:          _filter.RoomsMin,
+                RoomsMax:          _filter.RoomsMax
             );
             await LocalStorage.SetAsync(FilterStateKey, state);
         }
@@ -697,6 +768,12 @@
                 : null;
             _filter.Disposition = (_selectedDispositiones?.Count ?? 0) > 0
                 ? _selectedDispositiones!.First()
+                : null;
+            _filter.Conditions = (_selectedConditions?.Count ?? 0) > 0
+                ? _selectedConditions!.ToList()
+                : null;
+            _filter.ConstructionTypes = (_selectedConstructionTypes?.Count ?? 0) > 0
+                ? _selectedConstructionTypes!.ToList()
                 : null;
             
             // Třídění: vždy aktualizuj z UI state (jinak se směr nikdy nepřepne).
@@ -859,6 +936,8 @@
         _filter = new ListingFilterDto { Page = 1, PageSize = 20 };
         _selectedSourceCodes = new List<string>(); // reset na prázdnou kolekci (ne null)
         _selectedDispositiones = new List<string>(); // reset na prázdnou kolekci
+        _selectedConditions = new List<string>();
+        _selectedConstructionTypes = new List<string>();
         _activeQuickFilter = null;
 
         if (_cardView)

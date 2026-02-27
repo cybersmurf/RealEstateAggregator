@@ -20,6 +20,15 @@ public sealed class ListingFilterDto
     public string? OfferType { get; set; }
     public string? Disposition { get; set; }    // "1+1", "2+kk", atd.
 
+    /// <summary>Multi-select stav nemovitosti: "Novostavba", "Po rekonstrukci", atd.</summary>
+    public List<string>? Conditions { get; set; }
+
+    /// <summary>Multi-select typ konstrukce: "Cihla", "Panel", "Dřevo", atd.</summary>
+    public List<string>? ConstructionTypes { get; set; }
+
+    public int? RoomsMin { get; set; }
+    public int? RoomsMax { get; set; }
+
     public string? UserStatus { get; set; }
     public DateTime? OnlyNewSince { get; set; }
 

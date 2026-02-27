@@ -23,6 +23,8 @@ public class ListingPhoto
     public decimal? ClassificationConfidence { get; set; }
     /// <summary>Čas kdy byla fotka klasifikována</summary>
     public DateTime? ClassifiedAt { get; set; }
+    /// <summary>Zpětná vazba uživatele na klasifikaci: "correct" | "wrong" | null (nehodnoceno)</summary>
+    public string? ClassificationFeedback { get; set; }
 
     // Navigation property
     public Listing Listing { get; set; } = null!;
