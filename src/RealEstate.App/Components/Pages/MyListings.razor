@@ -152,6 +152,27 @@
                                                 @item.LocationText
                                             </MudText>
                                         }
+                                        @if (!string.IsNullOrEmpty(item.PriceSignal))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Class="mt-1 mr-1"
+                                                     Color="@(item.PriceSignal == "low" ? Color.Success : item.PriceSignal == "high" ? Color.Error : Color.Warning)"
+                                                     Icon="@(item.PriceSignal == "low" ? Icons.Material.Filled.TrendingDown : item.PriceSignal == "high" ? Icons.Material.Filled.TrendingUp : Icons.Material.Filled.TrendingFlat)">
+                                                @(item.PriceSignal == "low" ? "Podhodnocená" : item.PriceSignal == "high" ? "Nadhodnocená" : "Přiměřená")
+                                            </MudChip>
+                                        }
+                                        @if (!string.IsNullOrEmpty(item.SmartTags))
+                                        {
+                                            @try
+                                            {
+                                                var tags = System.Text.Json.JsonSerializer.Deserialize<string[]>(item.SmartTags) ?? [];
+                                                foreach (var tag in tags.Take(3))
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                             Color="Color.Default" Class="mt-1 mr-1">@tag</MudChip>
+                                                }
+                                            }
+                                            catch { }
+                                        }
                                         @if (item.HasNotes)
                                         {
                                             <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.StickyNote2"

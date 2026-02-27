@@ -457,7 +457,9 @@ public class ListingService : IListingService
             UserStatus = userState?.Status.ToString() ?? "New",
             HasNotes = !string.IsNullOrWhiteSpace(userState?.Notes),
             UserStatusLastUpdated = userState?.LastUpdated,
-            AiNormalizedData = entity.AiNormalizedData
+            AiNormalizedData = entity.AiNormalizedData,
+            PriceSignal = entity.PriceSignal,
+            SmartTags = entity.SmartTags
         };
     }
 

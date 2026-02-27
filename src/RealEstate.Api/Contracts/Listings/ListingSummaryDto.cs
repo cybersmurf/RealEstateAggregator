@@ -34,4 +34,10 @@ public sealed class ListingSummaryDto
 
     /// <summary>Strukturovaná AI data z popisu (jsonb as string) – pro badge výpočet v UI.</summary>
     public string? AiNormalizedData { get; set; }
+
+    /// <summary>Price signal: "low" | "fair" | "high" – výstup AI cenové analýzy.</summary>
+    public string? PriceSignal { get; set; }
+
+    /// <summary>Smart tagy jako JSON pole stringů, např. ["Cihla","Zahrada","Garáž"].</summary>
+    public string? SmartTags { get; set; }
 }
