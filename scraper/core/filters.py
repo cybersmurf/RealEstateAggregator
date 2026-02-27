@@ -38,7 +38,7 @@ class FilterManager:
         return {
             "search_filters": {
                 "target_districts": ["Znojmo"],
-                "houses": {"enabled": True, "max_price": 7500000},
+                "houses": {"enabled": True, "max_price": 8500000},
                 "land": {"enabled": True, "max_price": 2000000},
             },
             "quality_filters": {

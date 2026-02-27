@@ -375,10 +375,40 @@
                                 bool hasBadges = !string.IsNullOrWhiteSpace(item.Disposition)
                                              || !string.IsNullOrWhiteSpace(item.Condition)
                                              || !string.IsNullOrWhiteSpace(item.ConstructionType);
+                                var goalMatch = GetGoalMatch(item);
                             }
-                            @if (hasBadges)
+                            @if (hasBadges || goalMatch.Score > 0)
                             {
                                 <MudStack Row="true" Spacing="1" Class="mt-1" Style="flex-wrap:wrap; gap:2px;">
+                                    @if (goalMatch.Score >= 4)
+                                    {
+                                        <MudTooltip Text="@goalMatch.Tooltip" Placement="Placement.Bottom">
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled"
+                                                     Icon="@Icons.Material.Filled.MyLocation"
+                                                     Style="height:20px; font-size:11px; padding:0 6px; font-weight:600;">
+                                                🎯 Náš cíl
+                                            </MudChip>
+                                        </MudTooltip>
+                                    }
+                                    else if (goalMatch.Score >= 2)
+                                    {
+                                        <MudTooltip Text="@goalMatch.Tooltip" Placement="Placement.Bottom">
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined"
+                                                     Icon="@Icons.Material.Filled.Star"
+                                                     Style="height:20px; font-size:11px; padding:0 6px;">
+                                                ✨ @goalMatch.Score/5 kritérií
+                                            </MudChip>
+                                        </MudTooltip>
+                                    }
+                                    @if (goalMatch.Score == 1 && !string.IsNullOrWhiteSpace(goalMatch.Tooltip))
+                                    {
+                                        <MudTooltip Text="@goalMatch.Tooltip" Placement="Placement.Bottom">
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined"
+                                                     Style="height:20px; font-size:11px; padding:0 6px; opacity:0.7;">
+                                                1/5 kritérií
+                                            </MudChip>
+                                        </MudTooltip>
+                                    }
                                     @if (!string.IsNullOrWhiteSpace(item.Disposition))
                                     {
                                         <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined"
@@ -576,15 +606,17 @@
 
     // Quick filtry
     private string? _activeQuickFilter;
-    private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType, string? UserStatus)> _quickFilters =
+    private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType, string? UserStatus, decimal? MaxPrice)> _quickFilters =
     [
-        ("houses-sale",  "Domy k prodeji",  "House",     "Sale", null),
-        ("apartments",   "Byty",             "Apartment", null,   null),
-        ("land-sale",    "Pozemky k prodeji","Land",      "Sale", null),
-        ("cottages",     "Chaty / chalupy",  "Cottage",   null,   null),
-        ("rent",         "Pronájem",          null,        "Rent", null),
-        ("liked",        "❤️ Oblíbené",        null,        null,   "Liked"),
-        ("to-visit",     "🚗 K návštěvě",      null,        null,   "ToVisit"),
+        ("houses-sale",  "Domy k prodeji",   "House",     "Sale", null, null),
+        ("domy-85",      "🏠 Domy do 8,5M",    "House",     "Sale", null, 8_500_000m),
+        ("domy-75",      "🏠 Domy do 7,5M",    "House",     "Sale", null, 7_500_000m),
+        ("apartments",   "Byty",              "Apartment", null,   null, null),
+        ("land-sale",    "Pozemky k prodeji", "Land",      "Sale", null, null),
+        ("cottages",     "Chaty / chalupy",   "Cottage",   null,   null, null),
+        ("rent",         "Pronájem",           null,        "Rent", null, null),
+        ("liked",        "❤️ Oblíbené",         null,        null,   "Liked",   null),
+        ("to-visit",     "🚗 K návštěvě",      null,        null,   "ToVisit", null),
     ];
 
     // --- Filter state persistence (obnovení po návratu z detailu) ---
@@ -906,6 +938,7 @@
         _filter.PropertyType = qf.PropertyType;
         _filter.OfferType    = qf.OfferType;
         _filter.UserStatus   = qf.UserStatus;
+        _filter.PriceMax     = qf.MaxPrice;  // null = bez limitu
 
         if (_cardView)
         {
@@ -1091,6 +1124,98 @@
         "K demolici"        => (Color.Error,     Icons.Material.Filled.Warning),
         _                   => (Color.Default,   Icons.Material.Filled.Info)
     };
+
+    /// <summary>
+    /// Vypočítá skóre shody s naším primárním cílem (4+1, přízemní, úložné prostory, přístavba, zahrada).
+    /// Používá Disposition ze summary + AiNormalizedData JSON (pokud ji API vrací).
+    /// </summary>
+    private static (int Score, string Tooltip) GetGoalMatch(ListingSummaryDto item)
+    {
+        int score = 0;
+        var hints = new List<string>();
+
+        // 1. Dispozice 4+x
+        var disp = item.Disposition;
+        bool is4Plus = !string.IsNullOrWhiteSpace(disp)
+            && (disp.StartsWith("4+", StringComparison.Ordinal)
+                || disp.StartsWith("5+", StringComparison.Ordinal)
+                || disp.StartsWith("6+", StringComparison.Ordinal));
+        if (is4Plus)
+        {
+            score++;
+            hints.Add("✅ Dispozice " + disp);
+        }
+
+        // Pars AI normalized data (pokud existuje)
+        bool? isSingleFloor = null;
+        bool? hasStorage    = null;
+        bool? extensionPossible = null;
+        bool? hasGarden     = null;
+        int?  floor         = null;
+        int?  totalFloors   = null;
+
+        if (!string.IsNullOrWhiteSpace(item.AiNormalizedData))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(item.AiNormalizedData);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("is_single_floor", out var v1) && v1.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    isSingleFloor = v1.GetBoolean();
+                if (root.TryGetProperty("has_storage", out var v2) && v2.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    hasStorage = v2.GetBoolean();
+                if (root.TryGetProperty("extension_possible", out var v3) && v3.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    extensionPossible = v3.GetBoolean();
+                if (root.TryGetProperty("has_garden", out var v4) && v4.ValueKind != System.Text.Json.JsonValueKind.Null)
+                    hasGarden = v4.GetBoolean();
+                if (root.TryGetProperty("floor", out var v5) && v5.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    floor = v5.GetInt32();
+                if (root.TryGetProperty("total_floors", out var v6) && v6.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    totalFloors = v6.GetInt32();
+            }
+            catch { /* ignoruj neplatný JSON */ }
+        }
+
+        // 2. Přízemní (jeden poschód)
+        bool singleFloorDetected = isSingleFloor == true
+            || (floor is 0 or 1 && (totalFloors is null or <= 1));
+        if (singleFloorDetected)
+        {
+            score++;
+            hints.Add("✅ Přízemní / bungalov");
+        }
+        else if (isSingleFloor == null && floor == null)
+        {
+            // Nímáme data – nepřipouno od score, ale upozorníme
+            hints.Add("❓ Počet podlaží neznámý");
+        }
+
+        // 3. Úbn. prostory
+        if (hasStorage == true)
+        {
+            score++;
+            hints.Add("✅ Úlohné prostory");
+        }
+
+        // 4. Možnost přístavby / vestavby
+        if (extensionPossible == true)
+        {
+            score++;
+            hints.Add("✅ Možnost rozsíření");
+        }
+
+        // 5. Zahrada
+        if (hasGarden == true)
+        {
+            score++;
+            hints.Add("✅ Zahrada");
+        }
+
+        var tooltip = hints.Count > 0
+            ? "Cílová kritéria: " + string.Join(" | ", hints)
+            : string.Empty;
+        return (score, tooltip);
+    }
 
     private static readonly Dictionary<string, string> _sourceLogoMap = new(StringComparer.OrdinalIgnoreCase)
     {

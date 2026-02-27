@@ -75,7 +75,7 @@ search_filters:
   # Filtery pro domy (Houses)
   houses:
     enabled: true
-    max_price: 7500000  # Kč
+    max_price: 8500000  # Kč
     min_price: null     # null = bez minima
     offer_types:
       - "Sale"          # Prodej

@@ -23,7 +23,7 @@ def make_fm(overrides: Optional[Dict[str, Any]] = None) -> FilterManager:
     fm.config = {
         "search_filters": {
             "target_districts": ["Znojmo"],
-            "houses": {"enabled": True, "max_price": 7_500_000},
+            "houses": {"enabled": True, "max_price": 8_500_000},
             "land": {"enabled": True, "max_price": 2_000_000},
         },
         "quality_filters": {
@@ -161,13 +161,13 @@ class TestPriceFilterHouses:
 
     def test_dum_na_limitu_projde(self):
         fm = make_fm()
-        listing = valid_listing(property_type="House", price=7_500_000)
+        listing = valid_listing(property_type="House", price=8_500_000)
         ok, _ = fm.should_include_listing(listing)
         assert ok is True
 
     def test_dum_nad_limitem_vyloucen(self):
         fm = make_fm()
-        listing = valid_listing(property_type="House", price=8_000_000)
+        listing = valid_listing(property_type="House", price=9_000_000)
         ok, reason = fm.should_include_listing(listing)
         assert ok is False
         assert reason is not None
@@ -246,7 +246,7 @@ class TestFilterManagerDefaultConfig:
     def test_default_config_max_price_house(self):
         fm = FilterManager.__new__(FilterManager)
         cfg = fm._get_default_config()
-        assert cfg["search_filters"]["houses"]["max_price"] == 7_500_000
+        assert cfg["search_filters"]["houses"]["max_price"] == 8_500_000
 
     def test_default_config_max_price_land(self):
         fm = FilterManager.__new__(FilterManager)
