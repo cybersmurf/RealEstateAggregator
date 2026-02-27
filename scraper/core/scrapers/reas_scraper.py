@@ -4,14 +4,20 @@ Reas.cz scraper (www.reas.cz).
 Site characteristics:
 - Next.js SSR aplikace → kompletní data inzerátu jsou v __NEXT_DATA__ JSON
   přímo v HTML každé listingové stránky. Není potřeba Playwright ani JS rendering.
-- Stránkování: ?page=N, limit=10 inzerátů na stránce
-- Kategorie: prodej/{byty,domy,pozemky,komerci,ostatni}
-             pronajem/{byty,domy,komerci,ostatni}
 - GPS souřadnice dostupné přímo v SSR datech (point.coordinates = [lng, lat])
 - Fotky: imagesWithMetadata[].original (Google Cloud Storage)
 - external_id: MongoDB _id pole
 
-Detail stránky jsou fetchovány pro získání popisu (popis není v listu).
+Paginace (DŮLEŽITÉ):
+- HTML stránky s ?page=N jsou CDN-cachovány → vždy vrátí stejných 10 inzerátů!
+- Fix: pro full_rescan používáme /_next/data/{buildId}/... API endpoint který
+  CDN neblokuje a vrací skutečně stránkovaná data.
+- Pro incremental: scrape page 1 přes dvě různé kategorie (recommended + newest).
+
+Anonymizované inzeráty:
+- Inzeráty s isAnonymized=true mají skrytou adresu, cenu a fotky (images:[]).
+  Tyto inzeráty se záměrně nevyskytují ve veřejném vyhledávání a nelze je
+  scrapeovat – REAS je zobrazuje pouze registrovaným uživatelům se subscripcí.
 """
 import asyncio
 import logging
@@ -32,17 +38,24 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://www.reas.cz"
 
 # (url_cesta, offer_type, segment_key, locality_hint)
-# lokality: 'jihomoravsky-kraj/cena-do-10-milionu' = JMK, prodej do 10M Kč
 # locality_hint se připojí k location_text aby prošel geo filtrem (subobce např. Oblekovice neobsahují 'znojmo')
 #   → "jihomoravsk" je v target_districts, takže "Jihomoravský kraj" filtrem projde
 #
 # POZOR: Kategorie pozemky/komerci s lokálním filtrem vracejí count=5124 (= celá ČR).
 # Lokální filtr pro tyto segmenty na reas.cz nefunguje → byly odebrány.
-# Fungující segmenty s jihomoravsky-kraj/cena-do-10-milionu:
-#   domy (count~141, ~15 stran) – byty vynechány (apartments: enabled: false v settings.yaml)
+# HTML ?page=N je CDN-cachováno → dvě kategorie s různým sort=recommended/newest
+# zajistí ~18–20 unikátních listingů na incremental run místo 10.
+# Pro full_rescan se používá /_next/data/ API endpoint (viz _scrape_category).
 CATEGORIES: List[Tuple[str, str, str, str]] = [
     ("prodej/domy/jihomoravsky-kraj/cena-do-10-milionu", "Sale", "domy", "Jihomoravský kraj"),
+    ("prodej/domy/jihomoravsky-kraj/cena-do-10-milionu?sort=newest", "Sale", "domy", "Jihomoravský kraj"),
 ]
+
+# Geografický bounding box pro Jihomoravský kraj (Znojmo district + okolí)
+# Slouží k post-filtru výsledků _next/data API (bez CDN geo filtru)
+JMK_BBOX = {"lat_min": 48.45, "lat_max": 49.65, "lng_min": 15.40, "lng_max": 17.70}
+# Bounding box pro Znojmo okres (přísnější filtr pro full_rescan)
+ZNOJMO_BBOX = {"lat_min": 48.55, "lat_max": 49.05, "lng_min": 15.55, "lng_max": 16.70}
 
 # Mapování type/subType z reas.cz → naše DB hodnoty
 PROPERTY_TYPE_MAP: Dict[str, str] = {
@@ -108,10 +121,20 @@ class ReasScraper:
             ) as client:
                 self._http_client = client
 
+                # Pro full_rescan: načti buildId pro _next/data API (bypasses CDN)
+                build_id: Optional[str] = None
+                if full_rescan:
+                    try:
+                        build_id = await self._get_build_id()
+                        logger.info("Reas.cz buildId: %s", build_id)
+                    except Exception as exc:
+                        logger.warning("Reas.cz could not get buildId: %s", exc)
+
                 for category_path, offer_type, segment_key, locality_hint in CATEGORIES:
                     try:
                         count = await self._scrape_category(
-                            category_path, offer_type, segment_key, locality_hint, full_rescan, metrics
+                            category_path, offer_type, segment_key, locality_hint,
+                            full_rescan, metrics, build_id=build_id,
                         )
                         total += count
                         logger.info(
@@ -137,11 +160,16 @@ class ReasScraper:
         locality_hint: str,
         full_rescan: bool,
         metrics: Any,
+        build_id: Optional[str] = None,
     ) -> int:
-        """Projde všechny stránky dané kategorie a uloží inzeráty."""
+        """Projde všechny stránky dané kategorie a uloží inzeráty.
+        
+        full_rescan+build_id: používá _next/data API endpoint který obchází CDN cache
+        a vrací skutečně stránkovaná data (narozdíl od HTML ?page=N který je cached).
+        """
         segment = segment_key  # byty / domy / pozemky …
 
-        # Zjisti počet stránek z první stránky
+        # Zjisti počet stránek z první stránky (HTML SSR – vždy vrací page 1)
         first_page_data = await self._fetch_listing_page(category_path, 1)
         if not first_page_data:
             logger.warning("Reas.cz [%s]: no data on page 1", category_path)
@@ -165,13 +193,24 @@ class ReasScraper:
             )
             return 0
 
-        # Pokud ne full_rescan, omezte na 2 stránky (posledních ~20 inzerátů = novinky)
-        max_pages = total_pages if full_rescan else min(2, total_pages)
+        # Pokud ne full_rescan, scrape pouze page 1 (CDN-cached, ale dvě různé kategorie
+        # recommended+newest dávají ~18-20 unikátních listingů celkem).
+        # Pro full_rescan: pokud máme buildId, použij _next/data API (skutečná paginace).
+        use_api_pagination = full_rescan and build_id is not None
+        max_pages = total_pages if full_rescan else 1
 
         scraped = 0
+        seen_ids: set = set()  # dedup across pages (API může vracet duplicity)
         for page_num in range(1, max_pages + 1):
-            if page_num == 1:
+            if page_num == 1 and not use_api_pagination:
                 page_data = first_page_data
+            elif use_api_pagination:
+                # _next/data API obchází CDN – vrací skutečně různé listingy
+                page_data = await self._fetch_listing_page_api(category_path, page_num, build_id)  # type: ignore
+                if not page_data:
+                    logger.debug("Reas.cz API [%s] page %s: no data", category_path, page_num)
+                    break
+                await asyncio.sleep(0.3)
             else:
                 page_data = await self._fetch_listing_page(category_path, page_num)
                 await asyncio.sleep(0.5)
@@ -179,7 +218,32 @@ class ReasScraper:
             if not page_data:
                 continue
 
-            ads = page_data.get("data", [])
+            ads_raw = page_data.get("data", [])
+            # Filtruj anonymizované inzeráty (isAnonymized=true: žádná adresa, cena, fotky)
+            # a dedup přes seen_ids (API může opakovat listingy).
+            # Pro API mode: aplikuj GPS bounding box (API nemá geo filtr z URL).
+            ads = []
+            for a in ads_raw:
+                aid = a.get("_id")
+                if not aid or aid in seen_ids:
+                    continue
+                if a.get("isAnonymized") or a.get("isAnonymous"):
+                    logger.debug("Reas.cz skipping anonymized listing %s", aid)
+                    continue
+                # GPS bounding box filter pro API mode (JMK oblast)
+                if use_api_pagination:
+                    coords = (a.get("point") or {}).get("coordinates")
+                    if coords and len(coords) >= 2:
+                        try:
+                            lng, lat = float(coords[0]), float(coords[1])
+                            bbox = JMK_BBOX
+                            if not (bbox["lat_min"] <= lat <= bbox["lat_max"] and
+                                    bbox["lng_min"] <= lng <= bbox["lng_max"]):
+                                continue  # mimo JMK → přeskočit
+                        except (ValueError, TypeError):
+                            pass  # bez GPS: přidáme a necháme geo filtr rozhodnout
+                seen_ids.add(aid)
+                ads.append(a)
 
             if self.fetch_details:
                 # Fetch detailů paralelně (po dávkách)
@@ -244,15 +308,60 @@ class ReasScraper:
     async def _fetch_listing_page(
         self, category_path: str, page: int
     ) -> Optional[Dict[str, Any]]:
-        """Stáhne HTML stránku kategorie a extrahuje adsListResult z __NEXT_DATA__."""
+        """Stáhne HTML stránku kategorie a extrahuje adsListResult z __NEXT_DATA__.
+        
+        POZNÁMKA: HTML stránky jsou CDN-cachovány – ?page=N vrátí vždy stránku 1.
+        Pro skutečnou paginaci použij _fetch_listing_page_api (full_rescan).
+        """
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")
 
-        url = f"{BASE_URL}/{category_path}?page={page}"
+        url = f"{BASE_URL}/{category_path}"
+        if "?" in category_path:
+            url += f"&page={page}"
+        else:
+            url += f"?page={page}"
         resp = await self._http_client.get(url)
         resp.raise_for_status()
 
         return self._extract_ads_list(resp.text)
+
+    async def _fetch_listing_page_api(
+        self, category_path: str, page: int, build_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Stáhne data přes Next.js _next/data API endpoint (obchází CDN cache).
+        
+        Tento endpoint paginuje správně a vrací různé listingy pro každou stránku.
+        Geo filtry z URL (jihomoravsky-kraj) však nemusí platit – GPS bounding box
+        se aplikuje v _scrape_category při filtraci ads.
+        """
+        if self._http_client is None:
+            raise RuntimeError("HTTP client not initialized")
+
+        # Odvoz slug path bez query params
+        path_no_query = category_path.split("?")[0]  # prodej/domy/jihomoravsky-kraj/...
+        slugs = [s for s in path_no_query.split("/") if s]
+        slug_params = "&".join(f"slug%5B%5D={s}" for s in slugs)
+        url = f"{BASE_URL}/_next/data/{build_id}/{path_no_query}.json?{slug_params}&page={page}"
+        try:
+            resp = await self._http_client.get(url)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("pageProps", {}).get("adsListResult")
+            elif resp.status_code == 404:
+                # Build ID expired – API nedostupné
+                return None
+        except Exception as exc:
+            logger.debug("Reas.cz _next/data page %s error: %s", page, exc)
+        return None
+
+    async def _get_build_id(self) -> Optional[str]:
+        """Načte aktuální Next.js buildId z hlavní stránky reas.cz."""
+        if self._http_client is None:
+            return None
+        resp = await self._http_client.get(BASE_URL)
+        m = re.search(r'"buildId":"([^"]+)"', resp.text)
+        return m.group(1) if m else None
 
     @http_retry
     async def _fetch_html(self, url: str) -> str:
