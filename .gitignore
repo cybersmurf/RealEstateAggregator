@@ -204,3 +204,6 @@ mono_crash.*
 # Test results
 TestResults/
 test-results/
+
+# Shell output files
+nohup.out

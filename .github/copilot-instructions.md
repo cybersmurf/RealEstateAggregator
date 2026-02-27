@@ -536,7 +536,12 @@ SELECT l.title, l.price, s.name FROM re_realestate.listings l JOIN re_realestate
 - [x] **Bug fix: spatial_areas trigger** – `CREATE OR REPLACE FUNCTION update_updated_at_column()` přidáno do `migrate_postgis.sql` (funkce chyběla při prvním běhu mimo init-db.sql)
 - [x] **ARM64 collation fix** – `ALTER DATABASE realestate_dev REFRESH COLLATION VERSION` po přechodu na ARM64 postgres image
 - [x] **Unit testy 111 → 141** (+30 testů): `CadastreTests.cs` – `PreferMunicipality` (10 variant přes reflection), `ListingCadastreData` defaults, `ListingCadastreDto` record equality, `BulkRuianResultDto`, `SaveCadastreDataRequest`, RUIAN URL formát (3 InlineData), `RuianFindUrl` konstanta přes reflection
-
+### ✅ Dokončeno v Session 19 (2026-02-27)
+- [x] **KN OCR screenshot** – `POST /api/cadastre/listings/{id}/ocr-screenshot` (multipart `IFormFile`); `CadastreService.OcrScreenshotAsync()` volá Ollama Vision `llama3.2-vision:11b` s podrobným KN promptem; parsuje `KnOcrData` (parcel_number, lv_number, land_area_m2, land_type, municipality, encumbrances[]); upsertuje `ListingCadastreData` s `FetchStatus="ocr"`; `CadastreOcrResultDto` vrací data + raw JSON
+- [x] **kn-ocr.js** – clipboard paste (`Ctrl+V`) + drag&drop na drop-zónu → `[JSInvokable] ReceivePastedImageAsync(base64, mimeType)` v Blazor; `knOcr.init(dotNetRef, elementId)` + `knOcr.dispose()`; script tag v `App.razor`
+- [x] **KN OCR UI v ListingDetail.razor** – drop-zóna `kn-ocr-dropzone` s drag feedback, `MudFileUpload` tlačítko, preview obrázku, tabulka výsledků (parcelní č., LV, výměra, druh, vlastník), seznam bretmen (`ParseEncumbrances()` List-based), Snackbar feedback, cleanup v Dispose
+- [x] **bulk-classify-inspection endpoint** – `POST /api/photos/bulk-classify-inspection?batchSize=N&listingId=X` – Vision klasifikace fotografií z prohlídky (`user_listing_photos`) pro konkrétní inzerát
+- [x] **Bulk-normalize progress** – background job normalizoval stávající inzeráty; stav: **249/1416** (~17 %) k datu commitu; job se dá znovu spustit: `curl -X POST "http://localhost:5001/api/ollama/bulk-normalize?batchSize=50"`
 ### ✅ Dokončeno v Session 8 (2026-02-27)
 - [x] **APScheduler naplánovaný scraping** – `scraper/api/main.py`: `AsyncIOScheduler`, `daily_scrape` (3:00 denně) + `weekly_full_rescan` (neděle 2:00); 5 endpointů `/v1/schedule/jobs|trigger-now|pause|resume|cron`; `settings.yaml` scheduler sekce
 - [x] **Fine-tuning guide** – `fine-tuning/` adresář: `README.md` (Unsloth+QLoRA+SFTTrainer workflow), `finetune_unsloth.py`, `prepare_dataset.py`, `export_to_ollama.sh`, `requirements.txt`
@@ -713,8 +718,8 @@ Include upsert to database via get_db_manager().
 ### ✅ Dokončeno v Session 13 (2026-02-26)
 - [x] **Serilog structured logging** – `Serilog.AspNetCore` 9 + `CompactJsonFormatter` + Enrichers (Environment/Process/Thread); bootstrap logger pro zachycení chyb před DI; `UseSerilog` s `ReadFrom.Configuration` + `ReadFrom.Services`; Development: obarvenÿ console output s SourceContext; Production: CompactJsonFormatter (JSON) pro log aggregaci; `UseSerilogRequestLogging()` – HTTP metoda, cesta, status, čas obsluhy; `appsettings.json` MinimumLevel overrides (EF Core/Microsoft → Warning); `try/catch/finally` wrapper s `Log.Fatal` + `Log.CloseAndFlush()`
 
-**Last Updated:** 26. února 2026 (Session 14)
-**Current Commit:** session 14 – MCP Tools komplétní dokumentace
+**Last Updated:** 27. února 2026 (Session 19)
+**Current Commit:** session 19 – KN OCR screenshot (Ollama Vision), bulk-normalize pokračování
 **DB stav:** ~1 403 inzerátů, 13 zdrojů (SREALITY=885, IDNES=168, PRODEJMETO=102, PREMIAREALITY=52, REMAX=39, REAS=20, …), **GPS: 1366/1403 geocodováno (1346 Nominatim, 20 scraper = 97% pokrytí)**
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní), **MCP Server (Claude Desktop integration)**
 **Unit testy:** 141 C# testů zelených (`dotnet test tests/RealEstate.Tests`) + 83 Python testů zelených (`scraper/.venv/bin/pytest scraper/tests/`)
