@@ -132,24 +132,64 @@ public sealed class OllamaTextService(
 
     private const string PriceOpinionSystem = """
         You are a Czech real estate price analyst.
-        Based on the listing metadata (location, size, condition, type), assess if the price is:
-          - "low"  → below typical market value for this type/location
-          - "fair" → roughly aligned with market value
-          - "high" → above typical market value
+        Assess whether the asking price is fair for what the buyer ACTUALLY gets,
+        considering both the market price for size/location AND any known condition issues.
 
-        Important context: Czech Republic market, 2024-2025 prices.
-        Typical ranges per m² (built-up area):
+        Signals:
+          - "low"  → asking price is BELOW what this property is worth → buyer gets a good deal
+          - "fair" → asking price is roughly aligned with the actual value
+          - "high" → asking price is ABOVE the actual value → property is overpriced
+
+        Key rule: if inspection notes or analyses reveal serious defects (dampness, structural issues,
+        required major repairs, legal problems, misleading listing), those INCREASE the real cost
+        for the buyer and should RAISE the signal toward "high" (overpriced for the real condition).
+
+        Czech market context (2024-2025 asking prices per m² of built-up area):
           - Prague: 80 000–150 000 CZK/m²
           - Brno: 50 000–90 000 CZK/m²
           - Regional cities (Znojmo, Třebíč): 20 000–45 000 CZK/m²
-          - Villages: 10 000–25 000 CZK/m²
+          - Villages / rural: 10 000–25 000 CZK/m²
           - Land (per m²): 500–5 000 CZK/m²
 
         Respond ONLY with valid JSON:
-        {"signal": "fair", "reason": "Cena 3 200 000 Kč za 85 m² v Znojmě odpovídá cca 37 600 Kč/m², což je v normálním rozsahu pro lokalitu."}
+        {"signal": "high", "reason": "Cena 6 900 000 Kč v turistické oblasti odpovídá 34 000 Kč/m², ale dům má vážné statické problémy, vlhkost a střechu v havarijním stavu – reálná hodnota výrazně nižší."}
         signal must be exactly "low", "fair", or "high".
-        reason must be in Czech, max 200 characters.
+        reason must be in Czech, max 250 characters.
         """;
+
+    /// <summary>Sestaví user message pro cenový signál ze základních dat inzerátu.</summary>
+    private static string BuildPriceOpinionMessage(Listing listing, string? inspectionNotes, IEnumerable<string>? analysisSnippets)
+    {
+        var area = listing.AreaBuiltUp > 0 ? listing.AreaBuiltUp : listing.AreaLand;
+        var pricePerM2 = area > 0 ? listing.Price / (decimal)area!.Value : null;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Typ: {listing.PropertyType} | Nabídka: {listing.OfferType}");
+        sb.AppendLine($"Cena: {listing.Price:N0} Kč{(pricePerM2 != null ? $" ({pricePerM2:N0} Kč/m²)" : "")}");
+        sb.AppendLine($"Plocha: {(listing.AreaBuiltUp > 0 ? $"{listing.AreaBuiltUp} m² (zastavěná)" : listing.AreaLand > 0 ? $"{listing.AreaLand} m² (pozemek)" : "neznámá")}");
+        sb.AppendLine($"Lokalita: {listing.LocationText}");
+        sb.AppendLine($"Stav: {listing.Condition ?? "neznámý"}");
+        sb.AppendLine($"Dispozice: {listing.Disposition ?? "neznámá"}");
+        sb.AppendLine($"Název: {listing.Title}");
+
+        if (!string.IsNullOrWhiteSpace(inspectionNotes))
+        {
+            sb.AppendLine();
+            sb.AppendLine("═══ POZNÁMKY Z PROHLÍDKY ═══");
+            sb.AppendLine(inspectionNotes[..Math.Min(1500, inspectionNotes.Length)]);
+        }
+
+        var snippets = analysisSnippets?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        if (snippets is { Count: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine($"═══ ULOŽENÉ ANALÝZY ({snippets.Count}) ═══");
+            foreach (var snippet in snippets.Take(3))
+                sb.AppendLine(snippet);
+        }
+
+        return sb.ToString();
+    }
 
     public async Task<OllamaTextBatchResultDto> BulkPriceOpinionAsync(int batchSize, CancellationToken ct)
     {
@@ -157,6 +197,8 @@ public sealed class OllamaTextService(
 
         // Zpracuj jen inzeráty s cenou, bez existujícího signálu
         var listings = await db.Listings
+            .Include(l => l.UserStates)
+            .Include(l => l.Analyses)
             .Where(l => l.PriceSignal == null && l.Price != null && l.Price > 0)
             .OrderBy(l => l.FirstSeenAt)
             .Take(batchSize)
@@ -164,18 +206,13 @@ public sealed class OllamaTextService(
 
         return await ProcessBatchAsync(listings, ct, async (listing, c) =>
         {
-            var area = listing.AreaBuiltUp > 0 ? listing.AreaBuiltUp : listing.AreaLand;
-            var pricePerM2 = area > 0 ? listing.Price / (decimal)area!.Value : null;
+            var notes = listing.UserStates.FirstOrDefault()?.Notes;
+            var analysisSnippets = listing.Analyses
+                .OrderByDescending(a => a.CreatedAt)
+                .Take(3)
+                .Select(a => $"[{a.Title ?? "Analýza"}]: {a.Content[..Math.Min(600, a.Content.Length)]}");
 
-            var userMsg = $"""
-                Typ: {listing.PropertyType} | Nabídka: {listing.OfferType}
-                Cena: {listing.Price:N0} Kč{(pricePerM2 != null ? $" ({pricePerM2:N0} Kč/m²)" : "")}
-                Plocha: {(listing.AreaBuiltUp > 0 ? $"{listing.AreaBuiltUp} m² (zastavěná)" : listing.AreaLand > 0 ? $"{listing.AreaLand} m² (pozemek)" : "neznámá")}
-                Lokalita: {listing.LocationText}
-                Stav: {listing.Condition ?? "neznámý"}
-                Dispozice: {listing.Disposition ?? "neznámá"}
-                Název: {listing.Title}
-                """;
+            var userMsg = BuildPriceOpinionMessage(listing, notes, analysisSnippets);
 
             var response = await embedding.ChatAsync(PriceOpinionSystem, userMsg, c);
             var parsed = TryParseJsonObject<PriceOpinionJson>(response);
@@ -195,6 +232,55 @@ public sealed class OllamaTextService(
             listing.PriceSignalAt = DateTime.UtcNow;
             return true;
         }, "price_opinion");
+    }
+
+    // ─── Recalculate Price Opinion (single listing, full context) ─────────────
+
+    public async Task<RecalculatePriceOpinionResultDto> RecalculatePriceOpinionAsync(Guid listingId, CancellationToken ct)
+    {
+        var listing = await db.Listings
+            .Include(l => l.UserStates)
+            .Include(l => l.Analyses)
+            .FirstOrDefaultAsync(l => l.Id == listingId, ct)
+            ?? throw new ArgumentException($"Inzerát {listingId} nenalezen.");
+
+        if (listing.Price is null or <= 0)
+            return new RecalculatePriceOpinionResultDto(listingId, null, null, false);
+
+        var notes = listing.UserStates.FirstOrDefault()?.Notes;
+        var analysisSnippets = listing.Analyses
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(3)
+            .Select(a => $"[{a.Title ?? "Analýza"}]: {a.Content[..Math.Min(600, a.Content.Length)]}");
+
+        var userMsg = BuildPriceOpinionMessage(listing, notes, analysisSnippets);
+
+        // Reset stávajícího signálu – vynutí přepočet s aktuálním kontextem
+        listing.PriceSignal = null;
+        listing.PriceSignalReason = null;
+        listing.PriceSignalAt = null;
+
+        var response = await embedding.ChatAsync(PriceOpinionSystem, userMsg, ct);
+        var parsed = TryParseJsonObject<PriceOpinionJson>(response);
+
+        if (parsed is null || string.IsNullOrWhiteSpace(parsed.Signal)
+            || parsed.Signal is not ("low" or "fair" or "high"))
+        {
+            logger.LogWarning("RecalculatePriceOpinion: invalid response for {Id}: {Raw}",
+                listingId, response[..Math.Min(200, response.Length)]);
+            await db.SaveChangesAsync(ct);
+            return new RecalculatePriceOpinionResultDto(listingId, null, null, false);
+        }
+
+        listing.PriceSignal = parsed.Signal;
+        listing.PriceSignalReason = parsed.Reason is { } r ? r[..Math.Min(500, r.Length)] : null;
+        listing.PriceSignalAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation("RecalculatePriceOpinion: {Id} → {Signal} (notes={HasNotes}, analyses={AnalysesCount})",
+            listingId, parsed.Signal, !string.IsNullOrWhiteSpace(notes), listing.Analyses.Count);
+
+        return new RecalculatePriceOpinionResultDto(listingId, parsed.Signal, listing.PriceSignalReason, true);
     }
 
     // ─── Duplicate Detection ──────────────────────────────────────────────────

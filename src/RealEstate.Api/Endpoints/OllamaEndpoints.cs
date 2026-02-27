@@ -28,6 +28,12 @@ public static class OllamaEndpoints
             .WithSummary("Generuje cenový signál low/fair/high na základě lokality, plochy a stavu (llama3.2 text).")
             .Produces<OllamaTextBatchResultDto>(200);
 
+        group.MapPost("/listings/{id:guid}/recalculate-price-opinion", RecalculatePriceOpinion)
+            .WithName("RecalculatePriceOpinion")
+            .WithSummary("Přepočítá cenový signál pro konkrétní inzerát s plným kontextem: poznámky z prohlídky + analýzy.")
+            .Produces<RecalculatePriceOpinionResultDto>(200)
+            .Produces(404);
+
         // ── Duplicate detection ─────────────────────────────────────────────────
         group.MapPost("/detect-duplicates", DetectDuplicates)
             .WithName("DetectDuplicates")
@@ -73,6 +79,22 @@ public static class OllamaEndpoints
 
         var result = await service.BulkNormalizeAsync(batchSize, ct);
         return Results.Ok(result);
+    }
+
+    private static async Task<IResult> RecalculatePriceOpinion(
+        [FromRoute] Guid id,
+        [FromServices] IOllamaTextService service,
+        CancellationToken ct)
+    {
+        try
+        {
+            var result = await service.RecalculatePriceOpinionAsync(id, ct);
+            return TypedResults.Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return TypedResults.NotFound(ex.Message);
+        }
     }
 
     private static async Task<IResult> BulkPriceOpinion(

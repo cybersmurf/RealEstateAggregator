@@ -1397,9 +1397,14 @@
         $"api/ollama/bulk-smart-tags?batchSize=1",
         "Tagy vygenerovány.", "Generování tagů selhalo.");
 
-    private async Task TriggerPriceOpinionAsync() => await RunAiTextAsync(
-        $"api/ollama/bulk-price-opinion?batchSize=1",
-        "Cenový signál vygenerován.", "Cenový signál selhal.");
+    private async Task TriggerPriceOpinionAsync()
+    {
+        // Vždy použij dedikovaný endpoint pro konkrétní inzerát –
+        // zahrnuje poznámky z prohlídky a uložené analýzy do promptu.
+        await RunAiTextAsync(
+            $"api/ollama/listings/{_listingId}/recalculate-price-opinion",
+            "Cenový signál přepočítán.", "Přepočet cenového signálu selhal.");
+    }
 
     private async Task TriggerNormalizeAsync() => await RunAiTextAsync(
         $"api/ollama/bulk-normalize?batchSize=1",

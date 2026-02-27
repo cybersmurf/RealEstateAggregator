@@ -15,6 +15,12 @@ public interface IOllamaTextService
     /// <summary>Dávkově generuje cenový signál (low/fair/high) na základě lokality, plochy a stavu.</summary>
     Task<OllamaTextBatchResultDto> BulkPriceOpinionAsync(int batchSize, CancellationToken ct);
 
+    /// <summary>
+    /// Přepočítá cenový signál pro konkrétní inzerát s plným kontextem:
+    /// zahrnuje poznámky z prohlídky a uložené analýzy. Resetuje předchozí signál.
+    /// </summary>
+    Task<RecalculatePriceOpinionResultDto> RecalculatePriceOpinionAsync(Guid listingId, CancellationToken ct);
+
     /// <summary>Porovná dva inzeráty a vyhodnotí, zda jde o tutéž nemovitost.</summary>
     Task<DuplicateDetectionResultDto> DetectDuplicatesAsync(Guid listingId1, Guid listingId2, CancellationToken ct);
 
@@ -23,6 +29,12 @@ public interface IOllamaTextService
 }
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
+
+public record RecalculatePriceOpinionResultDto(
+    Guid ListingId,
+    string? Signal,
+    string? Reason,
+    bool Success);
 
 public record OllamaTextBatchResultDto(
     int Processed,
