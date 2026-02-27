@@ -1,8 +1,62 @@
 # AI Session Summary – RealEstateAggregator
-**Datum:** 25. února 2026  
-**Celková doba:** ~16 hodin (6 sessions)  
-**Celkové commity:** 30+  
-**Status:** ✅ Production-ready full-stack aplikace, 12 scraperů, ~1 230 aktivních inzerátů, RAG+pgvector+Ollama, MCP server (9 nástrojů), GD/OD export s retry, Docker stack
+**Datum:** 27. února 2026  
+**Celková doba:** 24 sessions  
+**Status:** ✅ Production stack, 13 scraperů, ~1 480 aktivních inzerátů, PostGIS koridory, RAG+pgvector+Ollama, MCP server, KN OCR, Docker ARM64
+
+---
+
+## ✅ Latest Updates (Session 24 – 27. února 2026)
+
+### SReality geo filtr – zameškané inzeráty z malých obcí
+
+**Root cause:** SReality API vrací pro menší obce lokaci jako `"Ke Kapličce, Kuchařovice"` (ul. + obec) **bez "okres Znojmo"**. Geo filtr `target_districts` hledal klíčová slova jen v `location_text` → listing byl tiše zahozen filtrem.
+
+Ostatní Kuchařovice listings procházely OK (`"Kuchařovice, okres Znojmo"` / `"Znojemská, Kuchařovice"`), proto bug nebyl dříve odhalen.
+
+**Opravené soubory:**
+
+`scraper/core/filters.py`:
+```python
+# BEFORE: location_text = listing_data.get("location_text", "").lower()
+# AFTER: kombinuj location_text + district + municipality + region
+combined_location = " ".join(filter(None, [
+    listing_data.get("location_text", ""),
+    listing_data.get("district", ""),
+    listing_data.get("municipality", ""),
+    listing_data.get("region", ""),
+])).lower()
+```
+
+`scraper/core/scrapers/sreality_scraper.py`:
+```python
+# Nový DISTRICT_ID_TO_NAME mapping + _normalize_list_item naplní district='Znojmo'
+DISTRICT_ID_TO_NAME: Dict[int, str] = {77: "Znojmo", 78: "Brno-město", ...}
+# → všechny inzeráty z Znojmo okresu projdou filtrem bez ohledu na formát adresy
+```
+
+**Výsledek:** Listing `2031444812` (Ke Kapličce, Kuchařovice, 4 390 000 Kč) ihned sesbírán po fixu. Full rescan SReality spuštěn pro dočerpání dalších potenciálně zameškáných inzerátů.
+
+**Commit:** `91b8157` – fix(sreality): geo filter miss pro obce bez okresu v location_text
+
+---
+
+## ✅ Latest Updates (Session 23 – 27. února 2026)
+
+### REAS CDN pagination bug + Kuchařovice investigace
+
+**Root cause:** REAS HTML stránky `?page=N` jsou CDN-cached → vždy vrátí page 1 (10 inzerátů). Scraper se domníval, že prochází 19 stránek, ale vždy četl stejná data.
+
+**Opravy (`reas_scraper.py`):**
+- Přidána 2. CATEGORIES entry `?sort=newest` → ~18–20 unikátních inzerátů na inkrementální run
+- Pro `full_rescan=True`: použit `/_next/data/{buildId}/path.json` API (bypass CDN, reálná paginace)
+- `_get_build_id()` metoda pro dynamické načtení buildId z homepage
+- `_fetch_listing_page_api()` metoda s GPS bbox post-filtrem
+- `seen_ids` dedup sada across pages
+- Skip `isAnonymized/isAnonymous` inzerátů (REAS subscription-only)
+
+**Kuchařovice (REAS):** inzeráty `69a188220233fdb43521d123` jsou `isAnonymized: true` – REAS záměrně skrývá před veřejným API. Nelze sesbírat jakýmkoliv způsobem. REAS municipality search vrací count=0 (záměrně).
+
+**Commit:** `e01d725` – fix(reas): fix CDN pagination + add sort=newest category
 
 ---
 

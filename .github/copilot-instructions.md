@@ -722,12 +722,21 @@ Include upsert to database via get_db_manager().
 - [x] **ARCHITECTURE.md kompletní přepis** – 53 205 znaků, 16 sekcí, Mermaid diagramy všude (Docker Compose architektura, scraping flow, FilterManager, APScheduler, RAG ingestion/retrieval/generation + plný sekvenční diagram, KN OCR end-to-end, koridor PostGIS pipeline, geocoding pipeline, robustní JSON parsování); RAG matematika (cosine similarity vzorec), EPSG:5514 vysvětlení, ERD se všemi tabulkami, indexová strategie tabulkou, embedding batch sizes
 - [x] **bulk-download `?onlyMyListings=true`** – `PhotoDownloadService.DownloadBatchAsync()` + `IPhotoDownloadService` interface + `PhotoEndpoints` rozšířeny o filtr `Liked/ToVisit/Visited` přes `EXISTS` subquery na `user_listing_states`; šetří disk (nestahuje 15k fotek pro nezajímavé inzeráty)
 
-**Last Updated:** 27. února 2026 (Session 20)
-**Current Commit:** session 20 – ARCHITECTURE.md přepis, bulk-download onlyMyListings
-**DB stav:** ~1 416 inzerátů, 13 zdrojů, **GPS: 1366/1416 geocodováno (97 % pokrytí)**, fotek staženo 1 786/15 891 (1.8 GB / ~16 GB odhadováno)
+### ✅ Dokončeno v Session 23 (2026-02-27)
+- [x] **REAS CDN pagination bug** – CDN cachuje HTML `?page=N` stránky (vždy page 1 = 10 inzerátů); fix: 2. CATEGORIES entry `?sort=newest` → ~18–20 unikátních inzerátů/run; `full_rescan=True` → `_next/data/{buildId}` API (bypass CDN, reálná paginace), `_get_build_id()`, `_fetch_listing_page_api()` s GPS bbox post-filtrem, `seen_ids` dedup
+- [x] **REAS anonymized listingy** – skip `isAnonymized/isAnonymous=True` inzerátů (REAS subscription-only, municipality count=0, nelze sesbírat); Kuchařovice REAS `69a188220233fdb43521d123` = záměrně skryté
+- [x] **Commit** `e01d725` – fix(reas): fix CDN pagination + add sort=newest category
+
+### ✅ Dokončeno v Session 24 (2026-02-27)
+- [x] **SReality geo filtr fix** – bug: API vrací pro malé obce `"Ulice, Obec"` bez okresu (napr. `"Ke Kapličce, Kuchařovice"`) → geo filtr zahodil listing; fix v `filters.py`: `combined_location` nyní kombinuje `location_text + district + municipality + region`; fix v `sreality_scraper.py`: `DISTRICT_ID_TO_NAME` mapping + `_normalize_list_item` naplní `district='Znojmo'` pro `locality_district_id=77`
+- [x] **Listing 2031444812** (Ke Kapličce, Kuchařovice, 4,39M) ihned sesbírán po fixu; full_rescan SREALITY pro dočerpání dalších zameškáných inzerátů
+- [x] **Commit** `91b8157` – fix(sreality): geo filter miss pro obce bez okresu v location_text
+
+**Last Updated:** 27. února 2026 (Session 24)
+**Current Commit:** `91b8157` – fix(sreality): geo filter miss pro obce bez okresu v location_text
+**DB stav:** ~1 480 inzerátů, 13 zdrojů, GPS: 97 % pokrytí, AI: normalize ~83 %, smart-tags ~83 %, price-signal ~75 %
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní), **MCP Server (Claude Desktop integration)**
-**Unit testy:** 141 C# testů zelených (`dotnet test tests/RealEstate.Tests`) + 83 Python testů zelených (`scraper/.venv/bin/pytest scraper/tests/`)
-**AI zpracování:** normalizace 450/1416 (32 %), smart tags 0 %, price signal ~0 % – zbývá spustit bulk joby
+**Unit testy:** 141 C# zelených + 83 Python zelených
 
 ### ✅ Dokončeno v Session 14 (2026-02-26)
 - [x] **MCP Tools vylepšení** – `get_listing` docstring: zdůrazní workflow (1. load data, 2. read analyses, 3. save new); kompletní popis všech polí (ZÁPIS Z PROHLÍDKY, Drive URL, fotky); `get_analyses` docstring: zdůrazní že vrací VŠECHNY analýzy v historii (plný obsah bez zkrácení); `save_analysis` docstring: workflow uložení + auto `source="claude"`; zvýšen upload limit na 150 fotek (Kestrel 1GB, FormOptions 1GB, MudFileUpload MaximumFileCount=150); local inspection photo storage + API endpoint `GET /api/listings/{id}/inspection-photos`; `ListingDetailDto`: přidány `DriveFolderUrl`, `DriveInspectionFolderUrl`, `HasOneDriveExport`; Google Drive MCP credentials setup (`~/.gdrive-server-credentials.json`)
