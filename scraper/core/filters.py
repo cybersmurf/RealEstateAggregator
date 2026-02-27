@@ -108,17 +108,25 @@ class FilterManager:
         property_type = listing_data.get("property_type", "Ostatní")
         offer_type = listing_data.get("offer_type", "Sale")
         price = listing_data.get("price")
-        location_text = listing_data.get("location_text", "").lower()
+        # 🔥 Kombinuj všechna lokační pole pro robustnější geo filtrování.
+        # Sreality API vrací někdy jen "Ulice, Obec" bez okresu → spoléháme na
+        # scraperem naplněné pole 'district' jako záložní zdroj informace.
+        combined_location = " ".join(filter(None, [
+            listing_data.get("location_text", ""),
+            listing_data.get("district", ""),
+            listing_data.get("municipality", ""),
+            listing_data.get("region", ""),
+        ])).lower()
         
         # Kontroluj okres
         target_districts = sf.get("target_districts", [])
         if target_districts:
             district_match = any(
-                district.lower() in location_text
+                district.lower() in combined_location
                 for district in target_districts
             )
             if not district_match:
-                return (False, f"District not in target list: {location_text}")
+                return (False, f"District not in target list: {listing_data.get('location_text', '')}")
         
         # Property type specific filters
         if property_type == "House":

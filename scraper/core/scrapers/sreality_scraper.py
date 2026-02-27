@@ -53,6 +53,17 @@ REGION_NAMES = {
 BASE_API = "https://www.sreality.cz/api/cs/v2"
 BASE_WEB = "https://www.sreality.cz"
 
+# Mapování locality_district_id → název okresu (pro geo filtr)
+DISTRICT_ID_TO_NAME: Dict[int, str] = {
+    77: "Znojmo",
+    78: "Brno-město",
+    79: "Brno-venkov",
+    80: "Břeclav",
+    81: "Hodonín",
+    82: "Vyškov",
+    83: "Blansko",
+}
+
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -404,12 +415,20 @@ class SrealityScraper:
         property_type = CATEGORY_MAIN_MAP.get(cat_main, "Ostatni")
         offer_type = CATEGORY_TYPE_MAP.get(cat_type, "Prodej")
 
+        # 🔥 Nastav district ze známého locality_district_id (pro geo filtr v database.py)
+        # Sreality API vrací pro malé obce jen "Ulice, Obec" bez okresu → district
+        # zajistí průchod geo filtrem (target_districts: ["Znojmo", ...])
+        district: Optional[str] = None
+        if self.locality_district_id:
+            district = DISTRICT_ID_TO_NAME.get(self.locality_district_id)
+
         return {
             "source_code": self.SOURCE_CODE,
             "external_id": str(hash_id),
             "url": detail_url,
             "title": (estate.get("name") or "")[:200],
             "location_text": estate.get("locality", ""),
+            "district": district,
             "price": price,
             "property_type": property_type,
             "offer_type": offer_type,
