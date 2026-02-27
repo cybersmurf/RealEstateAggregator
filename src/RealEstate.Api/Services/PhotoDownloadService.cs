@@ -24,13 +24,29 @@ public sealed class PhotoDownloadService(
         ?? configuration["Photos:PublicBaseUrl"]
         ?? "http://localhost:5001";
 
-    public async Task<PhotoDownloadResultDto> DownloadBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null)
+    // Statusy, které spadají pod "moje inzeráty" (= uživatel je aktivně sleduje)
+    private static readonly string[] MyListingStatuses = ["Liked", "ToVisit", "Visited"];
+
+    public async Task<PhotoDownloadResultDto> DownloadBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool onlyMyListings = false)
     {
         batchSize = Math.Clamp(batchSize, 1, 200);
 
-        var photos = await db.ListingPhotos
-            .Where(p => p.StoredUrl == null)
-            .Where(p => listingId == null || p.ListingId == listingId)
+        // Základní query: jen fotky bez stored_url
+        var query = db.ListingPhotos
+            .Where(p => p.StoredUrl == null);
+
+        // Filtr na konkrétní inzerát
+        if (listingId.HasValue)
+            query = query.Where(p => p.ListingId == listingId.Value);
+
+        // Filtr onlyMyListings: jen inzeráty kde má uživatel stav Liked / ToVisit / Visited
+        if (onlyMyListings)
+            query = query.Where(p =>
+                db.UserListingStates.Any(s =>
+                    s.ListingId == p.ListingId &&
+                    MyListingStatuses.Contains(s.Status)));
+
+        var photos = await query
             .OrderBy(p => p.ListingId)
             .ThenBy(p => p.Order)
             .Take(batchSize)
@@ -38,8 +54,7 @@ public sealed class PhotoDownloadService(
 
         if (photos.Count == 0)
         {
-            var remaining0 = await db.ListingPhotos
-                .CountAsync(p => p.StoredUrl == null && (listingId == null || p.ListingId == listingId), ct);
+            var remaining0 = await query.CountAsync(ct);
             return new PhotoDownloadResultDto(0, 0, 0, remaining0, 0);
         }
 

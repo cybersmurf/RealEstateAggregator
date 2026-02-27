@@ -5,8 +5,9 @@ namespace RealEstate.Api.Services;
 /// </summary>
 public interface IPhotoDownloadService
 {
-    /// <summary>Downloads a batch of photos that have no stored_url yet. Optionally filtered to a single listing.</summary>
-    Task<PhotoDownloadResultDto> DownloadBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null);
+    /// <summary>Downloads a batch of photos that have no stored_url yet. Optionally filtered to a single listing
+    /// or only to listings with user status Liked / ToVisit / Visited.</summary>
+    Task<PhotoDownloadResultDto> DownloadBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool onlyMyListings = false);
 
     /// <summary>Returns stats about photo download progress.</summary>
     Task<PhotoDownloadStatsDto> GetStatsAsync(CancellationToken ct);

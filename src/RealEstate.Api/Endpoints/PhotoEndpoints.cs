@@ -63,6 +63,7 @@ public static class PhotoEndpoints
     private static async Task<IResult> BulkDownload(
         [FromQuery] int batchSize = 50,
         [FromQuery] Guid? listingId = null,
+        [FromQuery] bool onlyMyListings = false,
         [FromServices] IPhotoDownloadService service = default!,
         CancellationToken cancellationToken = default)
     {
@@ -72,7 +73,7 @@ public static class PhotoEndpoints
                 detail: "batchSize musí být v rozmezí 1–200.",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var result = await service.DownloadBatchAsync(batchSize, cancellationToken, listingId);
+        var result = await service.DownloadBatchAsync(batchSize, cancellationToken, listingId, onlyMyListings);
         return Results.Ok(result);
     }
 
