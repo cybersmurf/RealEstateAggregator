@@ -280,13 +280,39 @@ class IdnesRealityScraper:
                         photos.append(content)
             photos = list(dict.fromkeys(photos))[:20]  # deduplicate, max 20
 
-            # Extract description - IDNES uses .b-detail__desc or .b-detail__text
+            # Extract description - IDNES uses different selectors per property type:
+            # Residential: .b-detail__desc / .b-detail__text
+            # Commercial/Other: .b-desc (different BEM variant)
+            # Fallback 1: og:description meta tag (reliable, always 150-300 chars)
+            # Fallback 2: long <p> paragraph (last resort, skip SEO navigation text)
             description = ""
-            for sel in [".b-detail__desc", ".b-detail__text", "[itemprop='description']"]:
+            for sel in [".b-detail__desc", ".b-detail__text", ".b-desc", "[itemprop='description']"]:
                 elem = soup.select_one(sel)
                 if elem:
                     description = elem.get_text(strip=True)
                     break
+            # Fallback 1: og:description / meta description (reliable summary)
+            if not description:
+                meta = soup.find("meta", attrs={"property": "og:description"}) or \
+                       soup.find("meta", attrs={"name": "description"})
+                if meta:
+                    content = meta.get("content", "")
+                    if len(content) > 20:
+                        description = content
+            # Fallback 2: long <p> paragraph – skip SEO navigation text (repetitive patterns)
+            if not description:
+                for p in soup.select("p"):
+                    t = p.get_text(" ", strip=True)
+                    # 100–2000 chars, not navigation/legal text
+                    if (100 < len(t) < 2000
+                            and "cookie" not in t.lower()
+                            and "mafra" not in t.lower()
+                            and "©" not in t
+                            and "@" not in t
+                            and t.lower().count("pronájem") < 4
+                            and t.lower().count("prodej") < 4):
+                        description = t
+                        break
 
             # Extract area - look in table params or title
             area = None

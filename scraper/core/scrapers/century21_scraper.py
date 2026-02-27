@@ -383,14 +383,37 @@ class Century21Scraper:
         return None
 
     def _extract_description(self, soup: BeautifulSoup) -> str:
-        """Extrahuje popis nemovitosti."""
+        """Extrahuje popis nemovitosti.
+
+        Century21 používá Tailwind CSS – popis je v <div class="...whitespace-break-spaces...">
+        ne v <p> tagech. Fallbacky: meta description, kratší paragrafy.
+        """
+        # Primární: div s Tailwind třídou whitespace-break-spaces (hlavní popis)
+        for d in soup.select("div[class]"):
+            cls = " ".join(d.get("class", []))
+            if "whitespace-break-spaces" in cls or "whitespace-break" in cls:
+                txt = d.get_text(" ", strip=True)
+                if len(txt) > 50:
+                    return txt[:5000]
+
+        # Sekundární: hledat <p> s textem (snížený práh na 50 znaků)
         paragraphs = []
-        # Hlavní popis je v div s hodně textu
         for p in soup.select("p"):
             txt = p.get_text(" ", strip=True)
-            if len(txt) > 80 and "cookie" not in txt.lower() and "souhlas" not in txt.lower():
+            if len(txt) > 50 and "cookie" not in txt.lower() and "souhlas" not in txt.lower() and "práva" not in txt.lower():
                 paragraphs.append(txt)
-        return "\n\n".join(paragraphs[:8]) if paragraphs else ""
+        if paragraphs:
+            return "\n\n".join(paragraphs[:8])
+
+        # Fallback: og:description / meta description
+        meta = soup.find("meta", attrs={"property": "og:description"}) or \
+               soup.find("meta", attrs={"name": "description"})
+        if meta:
+            content = meta.get("content", "")
+            if len(content) > 20:
+                return content
+
+        return ""
 
     def _extract_photos(self, soup: BeautifulSoup) -> List[str]:
         """Extrahuje URL fotek ze CDN igluu."""
