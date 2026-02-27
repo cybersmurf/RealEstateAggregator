@@ -1063,14 +1063,40 @@
                         </MudAlert>
                         @if (_ragSources.Count > 0)
                         {
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                Využité záznamy:
-                                @foreach (var s in _ragSources)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Color="Color.Default"
-                                             Class="ml-1">@(s.Title ?? s.Source) · @s.Similarity.ToString("P0")</MudChip>
-                                }
-                            </MudText>
+                            <MudText Typo="Typo.subtitle2" Color="Color.Secondary" Class="mt-2 mb-1">📎 Využité záznamy (@_ragSources.Count)</MudText>
+                            @foreach (var s in _ragSources)
+                            {
+                                <MudPaper Outlined="true" Class="pa-3 mb-2" Style="border-radius:8px;">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-1">
+                                        <MudTooltip Text="@($"Relevance: {s.Similarity:P1}")">
+                                            <MudChip T="string"
+                                                     Color="@GetRagScoreColor(s.Similarity)"
+                                                     Size="Size.Small"
+                                                     Variant="Variant.Filled"
+                                                     Icon="@Icons.Material.Filled.Analytics">
+                                                @s.Similarity.ToString("P0")
+                                            </MudChip>
+                                        </MudTooltip>
+                                        <MudText Typo="Typo.body2" Style="font-weight:600;flex:1;">@(s.Title ?? "–")</MudText>
+                                        <MudChip T="string"
+                                                 Size="Size.Small"
+                                                 Variant="Variant.Outlined"
+                                                 Color="@(s.Source == "claude" ? Color.Secondary : s.Source == "user" ? Color.Tertiary : Color.Default)">
+                                            @s.Source
+                                        </MudChip>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@s.CreatedAt.ToString("dd.MM.yy")</MudText>
+                                    </MudStack>
+                                    <MudProgressLinear Value="@(s.Similarity * 100)"
+                                                      Color="@GetRagScoreColor(s.Similarity)"
+                                                      Rounded="true"
+                                                      Size="Size.Small"
+                                                      Class="mb-2" />
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary"
+                                             Style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">
+                                        @s.ContentExcerpt
+                                    </MudText>
+                                </MudPaper>
+                            }
                         }
                     }
                 </MudStack>
@@ -1202,6 +1228,14 @@
         "floor_plan"  => "Půdorys",
         "damage"      => "Poškození",
         _             => cat ?? "Ostatní"
+    };
+
+    private static Color GetRagScoreColor(double score) => score switch
+    {
+        >= 0.8 => Color.Success,
+        >= 0.6 => Color.Warning,
+        >= 0.4 => Color.Info,
+        _      => Color.Default
     };
 
     private static Color GetConfidenceColor(decimal? cf) => cf switch
