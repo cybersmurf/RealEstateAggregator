@@ -568,6 +568,164 @@ public sealed class PhotoClassificationService(
         };
     }
 
+    // ── Sort by category ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Priorita kategorie pro řazení fotek:
+    /// exteriér první, pak obytné místnosti, technické prostory, půdorysy, poškození nakonec.
+    /// </summary>
+    private static readonly Dictionary<string, int> _categoryOrder = new()
+    {
+        ["exterior"]    = 1,
+        ["land"]        = 2,
+        ["interior"]    = 3,
+        ["living_room"] = 4,
+        ["kitchen"]     = 5,
+        ["bathroom"]    = 6,
+        ["bedroom"]     = 7,
+        ["attic"]       = 8,
+        ["basement"]    = 9,
+        ["garage"]      = 10,
+        ["floor_plan"]  = 11,
+        ["damage"]      = 12,
+        ["other"]       = 99,
+    };
+
+    public async Task<PhotoSortResultDto> SortByCategoryAsync(Guid listingId, CancellationToken ct)
+    {
+        var photos = await db.ListingPhotos
+            .Where(p => p.ListingId == listingId && p.PhotoCategory != null)
+            .OrderBy(p => p.Order)
+            .ToListAsync(ct);
+
+        if (photos.Count == 0)
+            return new PhotoSortResultDto(listingId, 0, "Žádné klasifikované fotky nenalezeny.");
+
+        // Přiřaď nové pořadí dle priority kategorie, zachovej stabilitu (původní Order jako tiebreaker)
+        var sorted = photos
+            .OrderBy(p => _categoryOrder.GetValueOrDefault(p.PhotoCategory!, 99))
+            .ThenBy(p => p.Order)
+            .ToList();
+
+        for (int i = 0; i < sorted.Count; i++)
+            sorted[i].Order = i + 1;
+
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation("SortByCategory: listing {ListingId} → {Count} fotek přeřazeno.", listingId, photos.Count);
+        return new PhotoSortResultDto(listingId, photos.Count,
+            $"Přeřazeno {photos.Count} fotek dle kategorie (exteriér → obývák → kuchyň → ...).");
+    }
+
+    // ── Bulk alt text generation ──────────────────────────────────────────────
+
+    private const string AltTextPrompt =
+        "Generate a short, descriptive alt text for this real estate photo in Czech." +
+        " The text should be concise (max 100 characters), describe what is visible," +
+        " and be suitable as an HTML img alt attribute for screen readers." +
+        " Do NOT start with 'Fotka' or 'Obrázek'. Just describe what you see." +
+        " Example: 'Obývací pokoj s dřevěnou podlahou a oknem do zahrady'";
+
+    public async Task<PhotoClassificationResultDto> BulkAltTextAsync(
+        int batchSize, CancellationToken ct, Guid? listingId = null)
+    {
+        batchSize = Math.Clamp(batchSize, 1, 50);
+
+        var photos = await db.ListingPhotos
+            .Where(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.AltText == null)
+            .Where(p => listingId == null || p.ListingId == listingId)
+            .OrderBy(p => p.ListingId).ThenBy(p => p.Order)
+            .Take(batchSize)
+            .ToListAsync(ct);
+
+        if (photos.Count == 0)
+        {
+            var rem0 = await db.ListingPhotos
+                .CountAsync(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.AltText == null
+                    && (listingId == null || p.ListingId == listingId), ct);
+            return new PhotoClassificationResultDto(0, 0, 0, rem0, 0);
+        }
+
+        int succeeded = 0, failed = 0;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        using var httpClient = httpClientFactory.CreateClient("OllamaVision");
+
+        foreach (var photo in photos)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                byte[] imageBytes;
+                if (photo.StoredUrl != null)
+                {
+                    var localPath = ResolveLocalPath(photo.StoredUrl);
+                    if (!File.Exists(localPath)) { failed++; continue; }
+                    imageBytes = await File.ReadAllBytesAsync(localPath, ct);
+                }
+                else if (photo.OriginalUrl != null)
+                {
+                    using var dlClient = httpClientFactory.CreateClient();
+                    dlClient.Timeout = TimeSpan.FromSeconds(30);
+                    try { imageBytes = await dlClient.GetByteArrayAsync(photo.OriginalUrl, ct); }
+                    catch { failed++; continue; }
+                }
+                else { failed++; continue; }
+
+                var base64 = Convert.ToBase64String(imageBytes);
+                var ollamaUrl = $"{OllamaBaseUrl.TrimEnd('/')}/api/generate";
+
+                var request = new
+                {
+                    model = VisionModel,
+                    prompt = AltTextPrompt,
+                    images = new[] { base64 },
+                    stream = false,
+                    options = new { temperature = 0.2, num_predict = 80 }
+                };
+
+                using var content = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(request),
+                    System.Text.Encoding.UTF8, "application/json");
+                using var response = await httpClient.PostAsync(ollamaUrl, content, ct);
+
+                if (!response.IsSuccessStatusCode) { failed++; continue; }
+
+                var body = await response.Content.ReadAsStringAsync(ct);
+                var ollama = System.Text.Json.JsonSerializer.Deserialize<OllamaGenerateResponse>(body, _jsonOptions);
+
+                if (string.IsNullOrWhiteSpace(ollama?.Response)) { failed++; continue; }
+
+                var altText = ollama.Response.Trim();
+                // Ořízni na max 150 znaků
+                if (altText.Length > 150) altText = altText[..150].TrimEnd();
+                photo.AltText = altText;
+                succeeded++;
+
+                logger.LogDebug("AltText listing {ListingId} photo {Order}: {Alt}",
+                    photo.ListingId, photo.Order, altText[..Math.Min(80, altText.Length)]);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "AltText failed for listing {ListingId} photo {Order}",
+                    photo.ListingId, photo.Order);
+                failed++;
+            }
+        }
+
+        if (succeeded > 0) await db.SaveChangesAsync(ct);
+
+        sw.Stop();
+        var avgMs = photos.Count > 0 ? sw.ElapsedMilliseconds / (double)photos.Count : 0;
+        var remaining = await db.ListingPhotos
+            .CountAsync(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.AltText == null
+                && (listingId == null || p.ListingId == listingId), ct);
+
+        logger.LogInformation("AltText batch: {Ok}/{Proc} OK. Remaining: {Rem}. Avg: {Avg:F0}ms",
+            succeeded, photos.Count, remaining, avgMs);
+
+        return new PhotoClassificationResultDto(photos.Count, succeeded, failed, remaining, avgMs);
+    }
+
     // ── Interní deserialization modely ───────────────────────────────────────
 
     private sealed class OllamaGenerateResponse

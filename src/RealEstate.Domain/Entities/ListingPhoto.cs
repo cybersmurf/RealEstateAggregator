@@ -25,6 +25,8 @@ public class ListingPhoto
     public DateTime? ClassifiedAt { get; set; }
     /// <summary>Zpětná vazba uživatele na klasifikaci: "correct" | "wrong" | null (nehodnoceno)</summary>
     public string? ClassificationFeedback { get; set; }
+    /// <summary>Accessibility alt text pro fotku (WCAG 2.2 AA) – generuje Ollama Vision</summary>
+    public string? AltText { get; set; }
 
     // Navigation property
     public Listing Listing { get; set; } = null!;

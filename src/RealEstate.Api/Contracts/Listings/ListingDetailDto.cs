@@ -43,4 +43,13 @@ public sealed class ListingDetailDto
     public string? DriveFolderUrl { get; set; }
     public string? DriveInspectionFolderUrl { get; set; }
     public bool HasOneDriveExport { get; set; }
+
+    // Ollama text features
+    /// <summary>JSON pole 5 klíčových tagů: ["sklep","zahrada","garáž"]</summary>
+    public string? SmartTags { get; set; }
+    /// <summary>Strukturovaná data z popisu (jsonb object jako string)</summary>
+    public string? AiNormalizedData { get; set; }
+    /// <summary>Cenový signál: "low" | "fair" | "high"</summary>
+    public string? PriceSignal { get; set; }
+    public string? PriceSignalReason { get; set; }
 }

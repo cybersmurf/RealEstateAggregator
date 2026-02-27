@@ -14,6 +14,12 @@ public interface IPhotoClassificationService
 
     /// <summary>Vrátí statistiku klasifikovaných vs. neklasifikovaných fotek.</summary>
     Task<PhotoClassificationStatsDto> GetClassificationStatsAsync(CancellationToken ct);
+
+    /// <summary>Seřadí fotky dle priority kategorie: exteriér → obývák → kuchyň → koupelna → ložnice → ...</summary>
+    Task<PhotoSortResultDto> SortByCategoryAsync(Guid listingId, CancellationToken ct);
+
+    /// <summary>Generuje accessibility alt text pro dávku fotek přes Ollama Vision (WCAG 2.2 AA).</summary>
+    Task<PhotoClassificationResultDto> BulkAltTextAsync(int batchSize, CancellationToken ct, Guid? listingId = null);
 }
 
 public record PhotoClassificationResultDto(
@@ -29,3 +35,8 @@ public record PhotoClassificationStatsDto(
     int Unclassified,
     int WithDamage,
     double PercentClassified);
+
+public record PhotoSortResultDto(
+    Guid ListingId,
+    int PhotosReordered,
+    string Message);

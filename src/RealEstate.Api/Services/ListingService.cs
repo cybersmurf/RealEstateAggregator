@@ -147,6 +147,7 @@ public class ListingService : IListingService
                     DamageDetected = p.DamageDetected,
                     ClassificationConfidence = p.ClassificationConfidence,
                     ClassificationFeedback = p.ClassificationFeedback,
+                    AltText = p.AltText,
                 })
                 .ToList(),
             UserState = userState is not null
@@ -163,7 +164,11 @@ public class ListingService : IListingService
             DriveInspectionFolderUrl = entity.DriveInspectionFolderId is not null
                 ? $"https://drive.google.com/drive/folders/{entity.DriveInspectionFolderId}"
                 : null,
-            HasOneDriveExport = entity.OneDriveFolderId is not null
+            HasOneDriveExport = entity.OneDriveFolderId is not null,
+            SmartTags = entity.SmartTags,
+            AiNormalizedData = entity.AiNormalizedData,
+            PriceSignal = entity.PriceSignal,
+            PriceSignalReason = entity.PriceSignalReason,
         };
     }
 

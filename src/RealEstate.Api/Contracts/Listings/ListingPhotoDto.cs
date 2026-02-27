@@ -16,5 +16,7 @@ public sealed class ListingPhotoDto
     public decimal? ClassificationConfidence { get; set; }
     /// <summary>Zpětná vazba uživatele: "correct" | "wrong" | null</summary>
     public string? ClassificationFeedback { get; set; }
+    /// <summary>Accessibility alt text (WCAG 2.2 AA) – generováno Ollama Vision</summary>
+    public string? AltText { get; set; }
     public bool IsClassified => PhotoCategory != null;
 }

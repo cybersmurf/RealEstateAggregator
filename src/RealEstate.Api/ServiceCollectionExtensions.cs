@@ -105,7 +105,8 @@ public static class ServiceCollectionExtensions
         {
             client.Timeout = TimeSpan.FromSeconds(15);
         });
-
+        // 🤖 Ollama text features (smart tags, normalizace, cený signál, duplicity)
+        services.AddScoped<IOllamaTextService, OllamaTextService>();
         return services;
     }
 

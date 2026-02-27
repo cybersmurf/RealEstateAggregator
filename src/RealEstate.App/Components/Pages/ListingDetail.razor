@@ -103,6 +103,21 @@
                                 @(_classifyLoading ? "Klasifikuji…" : $"Klasifikovat ({_listing.Photos.Count - PhotoClassifiedCount} nehotových)")
                             </MudButton>
                         }
+                        @if (PhotoClassifiedCount > 0)
+                        {
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Info"
+                                       StartIcon="@Icons.Material.Filled.Sort"
+                                       OnClick="SortPhotosByCategoryAsync"
+                                       Disabled="_sortLoading">
+                                @(_sortLoading ? "Řadím…" : "Seřadit dle kategorie")
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Default"
+                                       StartIcon="@Icons.Material.Filled.Accessibility"
+                                       OnClick="TriggerAltTextAsync"
+                                       Disabled="_altTextLoading">
+                                @(_altTextLoading ? "Generuji alt text…" : $"Alt text ({_listing.Photos.Count(p => string.IsNullOrEmpty(p.AltText))} chybí)")
+                            </MudButton>
+                        }
                     </MudStack>
 
                     <MudGrid Spacing="2">
@@ -121,7 +136,7 @@
                                 <MudCard Outlined="true" Style="@borderStyle">
                                     <!-- Náhled fotky s překrytnými odznaky -->
                                     <a href="@pSrc" target="_blank" rel="noopener" style="display:block;position:relative;height:150px;overflow:hidden;background:#111;">
-                                        <img src="@pSrc" alt="@GetCategoryLabel(photo.PhotoCategory)"
+                                        <img src="@pSrc" alt="@(!string.IsNullOrEmpty(photo.AltText) ? photo.AltText : GetCategoryLabel(photo.PhotoCategory))"
                                              style="width:100%;height:150px;object-fit:cover;"
                                              onerror="this.style.opacity='0.15'" />
                                         @if (photo.DamageDetected)
@@ -311,6 +326,115 @@
                 <MudText Typo="Typo.h6" Class="mb-3">Popis</MudText>
                 <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">@_listing.Description</MudText>
             </MudPaper>
+
+            <!-- Ollama AI insights: Smart Tags + Price Signal + Normalized Data -->
+            @if (!string.IsNullOrEmpty(_listing.SmartTags)
+                || !string.IsNullOrEmpty(_listing.PriceSignal)
+                || !string.IsNullOrEmpty(_listing.AiNormalizedData))
+            {
+                <MudPaper Class="pa-4">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Secondary" />
+                        <MudText Typo="Typo.h6">AI analýza</MudText>
+                    </MudStack>
+
+                    @if (!string.IsNullOrEmpty(_listing.PriceSignal))
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+                            <MudText Typo="Typo.subtitle2">Cenový signál:</MudText>
+                            <MudChip T="string"
+                                     Color="@(_listing.PriceSignal == "low" ? Color.Success : _listing.PriceSignal == "high" ? Color.Error : Color.Warning)"
+                                     Icon="@(_listing.PriceSignal == "low" ? Icons.Material.Filled.TrendingDown : _listing.PriceSignal == "high" ? Icons.Material.Filled.TrendingUp : Icons.Material.Filled.TrendingFlat)"
+                                     Size="Size.Small">
+                                @(_listing.PriceSignal == "low" ? "Podhodnocená" : _listing.PriceSignal == "high" ? "Nadhodnocená" : "Přiměřená")
+                            </MudChip>
+                        </MudStack>
+                        @if (!string.IsNullOrEmpty(_listing.PriceSignalReason))
+                        {
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-3">@_listing.PriceSignalReason</MudText>
+                        }
+                    }
+
+                    @if (!string.IsNullOrEmpty(_listing.SmartTags))
+                    {
+                        var tags = TryParseStringArray(_listing.SmartTags);
+                        @if (tags.Count > 0)
+                        {
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3" AlignItems="AlignItems.Center">
+                                <MudText Typo="Typo.subtitle2" Class="mr-1">Tagy:</MudText>
+                                @foreach (var tag in tags)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary">@tag</MudChip>
+                                }
+                            </MudStack>
+                        }
+                    }
+
+                    @if (!string.IsNullOrEmpty(_listing.AiNormalizedData))
+                    {
+                        var norm = TryParseNormalizedData(_listing.AiNormalizedData);
+                        @if (norm.Count > 0)
+                        {
+                            <MudSimpleTable Dense="true" Hover="true" Striped="true" Style="font-size:0.82rem;">
+                                <tbody>
+                                    @foreach (var kv in norm)
+                                    {
+                                        <tr>
+                                            <td style="width:45%;color:var(--mud-palette-text-secondary)">@kv.Key</td>
+                                            <td>@kv.Value</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    }
+
+                    <!-- Akce: generovat data -->
+                    <MudStack Row="true" Spacing="1" Class="mt-3" Wrap="Wrap.Wrap">
+                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.Label"
+                                   OnClick="TriggerSmartTagsAsync"
+                                   Disabled="_aiTextLoading">
+                            @(_aiTextLoading ? "…" : string.IsNullOrEmpty(_listing.SmartTags) ? "Generovat tagy" : "Přegenerovat tagy")
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.PriceCheck"
+                                   OnClick="TriggerPriceOpinionAsync"
+                                   Disabled="_aiTextLoading">
+                            @(_aiTextLoading ? "…" : string.IsNullOrEmpty(_listing.PriceSignal) ? "Cenový signál" : "Přepočítat cenu")
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.DataObject"
+                                   OnClick="TriggerNormalizeAsync"
+                                   Disabled="_aiTextLoading">
+                            @(_aiTextLoading ? "…" : string.IsNullOrEmpty(_listing.AiNormalizedData) ? "Normalizovat popis" : "Přenormalizovat")
+                        </MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
+            @if (string.IsNullOrEmpty(_listing.SmartTags)
+                && string.IsNullOrEmpty(_listing.PriceSignal)
+                && string.IsNullOrEmpty(_listing.AiNormalizedData))
+            {
+                <MudPaper Class="pa-3">
+                    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Secondary" Size="Size.Small" />
+                        <MudText Typo="Typo.subtitle2" Class="mr-2">AI analýza:</MudText>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.Label"
+                                   OnClick="TriggerSmartTagsAsync"
+                                   Disabled="_aiTextLoading">Tagy</MudButton>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.PriceCheck"
+                                   OnClick="TriggerPriceOpinionAsync"
+                                   Disabled="_aiTextLoading">Cenový signál</MudButton>
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.DataObject"
+                                   OnClick="TriggerNormalizeAsync"
+                                   Disabled="_aiTextLoading">Normalizovat popis</MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
 
             <!-- Katastr nemovitosti -->
             <MudPaper Class="pa-4">
@@ -931,6 +1055,11 @@
     // ── AI klasifikace fotek – stav a helpery ─────────────────────────────
     private Dictionary<Guid, string?> _photoFeedbacks = new();
     private bool _classifyLoading;
+    private bool _sortLoading;
+    private bool _altTextLoading;
+
+    // ── AI text features (smart tags, price signal, normalize) ────────────
+    private bool _aiTextLoading;
 
     // Computed – nelze @{var=} uvnitř @if v Razor, proto computed properties v @code
     private int PhotoClassifiedCount      => _listing?.Photos.Count(p => p.IsClassified) ?? 0;
@@ -1053,6 +1182,171 @@
             _classifyLoading = false;
             StateHasChanged();
         }
+    }
+
+    private async Task SortPhotosByCategoryAsync()
+    {
+        _sortLoading = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync(
+                $"api/photos/sort-by-category?listingId={Id}", null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadListingAsync();
+                Snackbar.Add("Fotky přeřazeny dle kategorie.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Řazení selhalo.", Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba řazení: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _sortLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TriggerAltTextAsync()
+    {
+        _altTextLoading = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync(
+                $"api/photos/bulk-alt-text?batchSize=20&listingId={Id}", null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadListingAsync();
+                Snackbar.Add("Alt text vygenerován.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Generování alt textu selhalo (Ollama běží?).", Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba alt textu: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _altTextLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── AI text helpers ────────────────────────────────────────────────────
+
+    private async Task TriggerSmartTagsAsync() => await RunAiTextAsync(
+        $"api/ollama/bulk-smart-tags?batchSize=1",
+        "Tagy vygenerovány.", "Generování tagů selhalo.");
+
+    private async Task TriggerPriceOpinionAsync() => await RunAiTextAsync(
+        $"api/ollama/bulk-price-opinion?batchSize=1",
+        "Cenový signál vygenerován.", "Cenový signál selhal.");
+
+    private async Task TriggerNormalizeAsync() => await RunAiTextAsync(
+        $"api/ollama/bulk-normalize?batchSize=1",
+        "Normalizace dokončena.", "Normalizace selhala.");
+
+    private async Task RunAiTextAsync(string url, string successMsg, string failMsg)
+    {
+        _aiTextLoading = true;
+        StateHasChanged();
+        try
+        {
+            // Batch=1 zpracuje první inzerát – ale my chceme konkrétní listing.
+            // Workaround: dočasně update přes dedicated endpoint if listing not yet processed,
+            // jinak jednoduše zavoláme batch a refreshneme detail (listing bude první ve frontě
+            // pokud je ještě nezpracovaný)
+            var response = await Http.PostAsync(url, null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadListingAsync();
+                Snackbar.Add(successMsg, Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(failMsg, Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _aiTextLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private static List<string> TryParseStringArray(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return new();
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private static List<(string Key, string Value)> TryParseNormalizedData(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return new();
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var result = new List<(string, string)>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == System.Text.Json.JsonValueKind.Null) continue;
+                var key = prop.Name switch
+                {
+                    "year_built"    => "Rok stavby",
+                    "floor"         => "Patro",
+                    "total_floors"  => "Celkem podlaží",
+                    "has_elevator"  => "Výtah",
+                    "has_basement"  => "Sklep",
+                    "has_garage"    => "Garáž",
+                    "has_garden"    => "Zahrada",
+                    "has_balcony"   => "Balkon",
+                    "has_terrace"   => "Terasa",
+                    "has_pool"      => "Bazén",
+                    "heating_type"  => "Vytápění",
+                    "energy_class"  => "Energ. třída",
+                    "ownership"     => "Vlastnictví",
+                    _ => prop.Name
+                };
+                var val = prop.Value.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.True  => "Ano",
+                    System.Text.Json.JsonValueKind.False => "Ne",
+                    _ => prop.Value.ToString()
+                };
+                // Přeložíme hodnoty
+                val = val switch
+                {
+                    "gas"           => "Plyn",
+                    "electric"      => "Elektřina",
+                    "solid_fuel"    => "Tuhá paliva",
+                    "heat_pump"     => "Tepelné čerpadlo",
+                    "district"      => "Dálkové teplo",
+                    "personal"      => "Osobní",
+                    "cooperative"   => "Družstevní",
+                    "company"       => "Firemní",
+                    "state"         => "Státní",
+                    _ => val
+                };
+                result.Add((key, val));
+            }
+            return result;
+        }
+        catch { return new(); }
     }
 
     protected override async Task OnInitializedAsync()

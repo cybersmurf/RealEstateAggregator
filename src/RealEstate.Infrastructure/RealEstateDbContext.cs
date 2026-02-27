@@ -122,6 +122,15 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.OneDriveFolderId).HasColumnName("onedrive_folder_id");
             entity.Property(e => e.OneDriveInspectionFolderId).HasColumnName("onedrive_inspection_folder_id");
 
+            // Ollama text features
+            entity.Property(e => e.SmartTags).HasColumnName("smart_tags").HasColumnType("text");
+            entity.Property(e => e.SmartTagsAt).HasColumnName("smart_tags_at").HasColumnType("timestamptz");
+            entity.Property(e => e.AiNormalizedData).HasColumnName("ai_normalized_data").HasColumnType("jsonb");
+            entity.Property(e => e.AiNormalizedAt).HasColumnName("ai_normalized_at").HasColumnType("timestamptz");
+            entity.Property(e => e.PriceSignal).HasColumnName("price_signal").HasMaxLength(10);
+            entity.Property(e => e.PriceSignalReason).HasColumnName("price_signal_reason");
+            entity.Property(e => e.PriceSignalAt).HasColumnName("price_signal_at").HasColumnType("timestamptz");
+
             // 🔍 Shadow property pro precomputed tsvector (GIN index) – fulltext search
             entity.Property<NpgsqlTsVector>("SearchTsv")
                 .HasColumnName("search_tsv")
@@ -185,6 +194,8 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.DamageDetected).HasColumnName("damage_detected").HasDefaultValue(false);
             entity.Property(e => e.ClassificationConfidence).HasColumnName("classification_confidence").HasColumnType("numeric(3,2)");
             entity.Property(e => e.ClassifiedAt).HasColumnName("classified_at").HasColumnType("timestamptz");
+            entity.Property(e => e.ClassificationFeedback).HasColumnName("classification_feedback");
+            entity.Property(e => e.AltText).HasColumnName("alt_text");
             entity.HasIndex(e => new { e.ListingId, e.Order });
         });
 

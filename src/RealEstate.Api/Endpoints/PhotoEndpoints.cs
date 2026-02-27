@@ -44,6 +44,19 @@ public static class PhotoEndpoints
             .Produces(200)
             .Produces(404);
 
+        // ── Řazení fotek dle kategorie ────────────────────────────────────
+        group.MapPost("/sort-by-category", SortByCategory)
+            .WithName("SortPhotosByCategory")
+            .WithSummary("Seřadí fotky inzerátu dle priority kategorie: exteriér → obývák → kuchyň → koupelna → ložnice → ...")
+            .Produces<PhotoSortResultDto>(200)
+            .Produces(400);
+
+        // ── Accessibility alt text (WCAG 2.2 AA) ─────────────────────────
+        group.MapPost("/bulk-alt-text", BulkAltText)
+            .WithName("BulkAltText")
+            .WithSummary("Generuje accessibility alt text pro dávku fotek přes Ollama Vision (WCAG 2.2 AA).")
+            .Produces<PhotoClassificationResultDto>(200);
+
         return app;
     }
 
@@ -143,5 +156,36 @@ public static class PhotoEndpoints
             category = photo.PhotoCategory,
             damageDetected = photo.DamageDetected
         });
+    }
+
+    private static async Task<IResult> SortByCategory(
+        [FromQuery] Guid listingId,
+        [FromServices] IPhotoClassificationService service = default!,
+        CancellationToken cancellationToken = default)
+    {
+        if (listingId == Guid.Empty)
+            return Results.Problem(
+                title: "Chybí listingId",
+                detail: "Parametr listingId je povinný.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        var result = await service.SortByCategoryAsync(listingId, cancellationToken);
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> BulkAltText(
+        [FromQuery] int batchSize = 20,
+        [FromQuery] Guid? listingId = null,
+        [FromServices] IPhotoClassificationService service = default!,
+        CancellationToken cancellationToken = default)
+    {
+        if (batchSize < 1 || batchSize > 50)
+            return Results.Problem(
+                title: "Neplatný batchSize",
+                detail: "batchSize musí být v rozmezí 1–50.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        var result = await service.BulkAltTextAsync(batchSize, cancellationToken, listingId);
+        return Results.Ok(result);
     }
 }

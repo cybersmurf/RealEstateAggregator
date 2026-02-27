@@ -56,6 +56,20 @@ public class Listing
     public string? OneDriveFolderId { get; set; }
     public string? OneDriveInspectionFolderId { get; set; }
     
+    // ── Ollama text features ────────────────────────────────────────────────────
+    /// <summary>JSON pole 5 klíčových tagů z popisu: ["sklep","zahrada","novostavba", ...]</summary>
+    public string? SmartTags { get; set; }
+    public DateTime? SmartTagsAt { get; set; }
+
+    /// <summary>Strukturovaná data z popisu (jsonb): rok_stavby, patro, vytah, sklep, zahrada, ...</summary>
+    public string? AiNormalizedData { get; set; }
+    public DateTime? AiNormalizedAt { get; set; }
+
+    /// <summary>Cenový signál: "low" | "fair" | "high"</summary>
+    public string? PriceSignal { get; set; }
+    public string? PriceSignalReason { get; set; }
+    public DateTime? PriceSignalAt { get; set; }
+
     // Navigation properties
     public Source Source { get; set; } = null!;
     public ICollection<ListingPhoto> Photos { get; set; } = new List<ListingPhoto>();
