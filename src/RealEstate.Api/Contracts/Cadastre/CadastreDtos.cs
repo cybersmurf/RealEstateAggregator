@@ -37,3 +37,9 @@ public record BulkRuianResultDto(
     int Skipped,
     string Message
 );
+
+/// <summary>Výsledek OCR zpracování screenshotu z nahlíženídokn.czk.cz.</summary>
+public record CadastreOcrResultDto(
+    ListingCadastreDto Cadastre,
+    string OcrExtractedJson  // Raw JSON co Ollama Vision extrahoval
+);

@@ -1,5 +1,6 @@
 @page "/listings/{id:guid}"
 @implements IDisposable
+@using System.Text.Json
 
 @inject HttpClient Http
 @inject NavigationManager Navigation
@@ -519,6 +520,113 @@
                         <MudText Typo="Typo.caption" Color="Color.Warning">Adresa v RUIAN nenalezena</MudText>
                     }
                 </MudStack>
+
+                <!-- ── OCR screenshot z nahlíženídokn ──────────────────────── -->
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.subtitle2" Class="mb-2">
+                    📋 OCR ze screenshotu (nahlíženídokn.cuzk.cz)
+                </MudText>
+
+                @if (_ocrParsed is not null)
+                {
+                    <!-- Extrahovaná KN data z OCR -->
+                    <MudAlert Severity="Severity.Success" Dense="true" Class="mb-2">
+                        OCR zpracováno. Extrahovaná data:
+                    </MudAlert>
+                    <MudSimpleTable Dense="true" Class="mb-3" Style="font-size:0.85em">
+                        <tbody>
+                            @if (!string.IsNullOrWhiteSpace(_ocrParsed.ParcelNumber))
+                            {
+                                <tr><td>📌 Parcelní číslo</td><td><strong>@_ocrParsed.ParcelNumber</strong></td></tr>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_ocrParsed.LvNumber))
+                            {
+                                <tr><td>📄 Číslo LV</td><td><strong>@_ocrParsed.LvNumber</strong></td></tr>
+                            }
+                            @if (_ocrParsed.LandAreaM2.HasValue)
+                            {
+                                <tr><td>📐 Výměra</td><td><strong>@_ocrParsed.LandAreaM2.Value.ToString("N0") m²</strong></td></tr>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_ocrParsed.LandType))
+                            {
+                                <tr><td>🏷️ Druh pozemku</td><td>@_ocrParsed.LandType</td></tr>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_ocrParsed.OwnerType))
+                            {
+                                <tr><td>👤 Vlastník</td><td>@_ocrParsed.OwnerType</td></tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                    @if (!string.IsNullOrWhiteSpace(_ocrParsed.EncumbrancesJson) && _ocrParsed.EncumbrancesJson != "[]")
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                            ⚠️ Omezení vlastnického práva:
+                        </MudAlert>
+                        @foreach (var encLine in ParseEncumbrances(_ocrParsed.EncumbrancesJson))
+                        {
+                            <MudText Typo="Typo.body2">• @encLine</MudText>
+                        }
+                    }
+                    else if (_ocrParsed is not null)
+                    {
+                        <MudChip T="string" Color="Color.Success" Size="Size.Small" Icon="@Icons.Material.Filled.CheckCircle">
+                            Bez zjevných omezení
+                        </MudChip>
+                    }
+                }
+                @if (!string.IsNullOrEmpty(_ocrPreviewSrc))
+                {
+                    <img src="@_ocrPreviewSrc" alt="Náhled screenshotu KN"
+                         style="max-width:100%; max-height:300px; object-fit:contain; border:1px solid #e0e0e0; border-radius:4px; margin-bottom:8px;" />
+                }
+
+                <!-- Drop zone: paste Ctrl+V nebo přetáhni soubor -->
+                <div id="kn-ocr-dropzone"
+                     class="kn-ocr-dropzone @(_ocrDragging ? "kn-ocr-dragover" : "")"
+                     style="border:2px dashed @(_ocrDragging ? "#1976d2" : "#bdbdbd"); border-radius:8px; padding:20px; text-align:center; cursor:pointer; background:@(_ocrDragging ? "#e3f2fd" : "transparent"); transition:all 0.2s;"
+                     aria-label="Zóna pro vložení screenshotu z katastru. Stiskněte Ctrl+V nebo přetáhněte soubor.">
+                    @if (_ocrLoading)
+                    {
+                        <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="mr-2" />
+                        <MudText Typo="Typo.body2" Color="Color.Primary">Zpracovávám screenshot přes Ollama Vision...</MudText>
+                    }
+                    else
+                    {
+                        <MudIcon Icon="@Icons.Material.Outlined.ContentPaste" Style="font-size:2rem; color:#9e9e9e;" aria-hidden="true" />
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            Vlož screenshot pomocí <strong>Ctrl+V</strong> nebo přetáhni soubor sem
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Tertiary">
+                            ( otevři nahlíženídokn.cuzk.cz, vyhledej parcelu, pořiď PrintScreen, sem Ctrl+V )
+                        </MudText>
+                    }
+                </div>
+
+                <MudStack Row="true" Spacing="2" Class="mt-2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <MudFileUpload T="IBrowserFile"
+                                   Accept="image/*"
+                                   FilesChanged="HandleOcrFileUpload"
+                                   MaximumFileCount="1"
+                                   Disabled="_ocrLoading">
+                        <ActivatorContent>
+                            <MudButton Variant="Variant.Outlined"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Upload"
+                                       Disabled="_ocrLoading">
+                                Nahrát soubor
+                            </MudButton>
+                        </ActivatorContent>
+                    </MudFileUpload>
+                    @if (_ocrParsed is not null)
+                    {
+                        <MudButton Size="Size.Small"
+                                   Variant="Variant.Text"
+                                   Color="Color.Default"
+                                   OnClick="@(() => { _ocrData = null; _ocrParsed = null; _ocrPreviewSrc = null; StateHasChanged(); })">
+                            Vymazat OCR výsledek
+                        </MudButton>
+                    }
+                </MudStack>
             </MudPaper>
 
             <!-- User State -->
@@ -1019,6 +1127,13 @@
     private bool _cadastreLoading;
     private record CadastreDataDto(Guid Id, Guid ListingId, long? RuianKod, string? CadastreUrl, string FetchStatus, DateTime FetchedAt);
 
+    // OCR screenshot z KN
+    private CadastreDataDto? _ocrData;
+    private bool _ocrLoading;
+    private bool _ocrDragging;
+    private string? _ocrPreviewSrc;
+    private DotNetObjectReference<ListingDetail>? _ocrDotNetRef;
+
     // RAG Chat
     private string _ragQuestion = string.Empty;
     private string? _ragAnswer;
@@ -1358,6 +1473,180 @@
         await LoadExportStateAsync();
         await LoadRagAnalysesAsync();
         await LoadCadastreDataAsync();
+    }
+
+    private bool _ocrJsInitialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_ocrJsInitialized)
+        {
+            try
+            {
+                _ocrDotNetRef = DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("knOcr.init", _ocrDotNetRef, "kn-ocr-dropzone");
+                _ocrJsInitialized = true;
+            }
+            catch (Exception ex)
+            {
+                // JS není k dispozici (pre-rendering) – ignoruj
+                _ = ex;
+            }
+        }
+    }
+
+    /// <summary>Voláno z JS (kn-ocr.js) po vložení obrázku z clipboardu nebo drag&amp;drop.</summary>
+    [JSInvokable]
+    public async Task ReceivePastedImageAsync(string base64Data, string mimeType)
+    {
+        try
+        {
+            _ocrPreviewSrc = $"data:{mimeType};base64,{base64Data}";
+            StateHasChanged();
+
+            var imageBytes = Convert.FromBase64String(base64Data);
+            await ProcessOcrImageAsync(imageBytes, mimeType);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"OCR se nezdařilo: {ex.Message}", Severity.Error);
+            _ocrLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleOcrFileUpload(IBrowserFile file)
+    {
+        if (file is null) return;
+        if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            Snackbar.Add("Vyberte obrázek (PNG, JPG, WEBP...).", Severity.Warning);
+            return;
+        }
+
+        try
+        {
+            using var ms = new System.IO.MemoryStream();
+            await using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            await stream.CopyToAsync(ms);
+            var imageBytes = ms.ToArray();
+
+            // Preview
+            _ocrPreviewSrc = $"data:{file.ContentType};base64,{Convert.ToBase64String(imageBytes)}";
+            StateHasChanged();
+
+            await ProcessOcrImageAsync(imageBytes, file.ContentType);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Nahrání souboru selhalo: {ex.Message}", Severity.Error);
+            _ocrLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ProcessOcrImageAsync(byte[] imageBytes, string mimeType)
+    {
+        _ocrLoading = true;
+        _ocrData = null;
+        StateHasChanged();
+
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(imageBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+            content.Add(fileContent, "file", $"kn_screenshot.{mimeType.Split('/').LastOrDefault() ?? "png"}");
+
+            var response = await Http.PostAsync(
+                $"api/cadastre/listings/{Id}/ocr-screenshot", content, _cts.Token);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<OcrResultWrapper>(_cts.Token);
+                if (result?.Cadastre is not null)
+                {
+                    _ocrData = new CadastreDataDto(
+                        result.Cadastre.Id,
+                        result.Cadastre.ListingId,
+                        result.Cadastre.RuianKod,
+                        result.Cadastre.CadastreUrl,
+                        result.Cadastre.FetchStatus,
+                        result.Cadastre.FetchedAt);
+
+                    // Kopíruji parsed data do lokálního rozšířeného DTO
+                    _ocrParsed = result.Cadastre;
+                    Snackbar.Add("✅ Screenshot zpracován, data extrahována!", Severity.Success);
+
+                    // Aktualizuj i _cadastreData pokud bylo empty
+                    if (_cadastreData is null)
+                        _cadastreData = _ocrData;
+                }
+                else
+                {
+                    Snackbar.Add("OCR nevrátil výsledek.", Severity.Warning);
+                }
+            }
+            else
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                Snackbar.Add($"OCR selhal: {response.StatusCode} – {err[..Math.Min(150, err.Length)]}", Severity.Error);
+            }
+        }
+        finally
+        {
+            _ocrLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // Rozšířené OCR data (s détailem polí)
+    private FullCadastreDto? _ocrParsed;
+
+    // DTO mapující plný response z API.
+    private record OcrResultWrapper(
+        FullCadastreDto Cadastre,
+        string OcrExtractedJson);
+
+    private record FullCadastreDto(
+        Guid Id,
+        Guid ListingId,
+        long? RuianKod,
+        string? ParcelNumber,
+        string? LvNumber,
+        int? LandAreaM2,
+        string? LandType,
+        string? OwnerType,
+        string? EncumbrancesJson,
+        string AddressSearched,
+        string? CadastreUrl,
+        string FetchStatus,
+        string? FetchError,
+        DateTime FetchedAt);
+
+    private static IEnumerable<string> ParseEncumbrances(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        var result = new List<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
+                var who  = item.TryGetProperty("who", out var w) ? w.GetString() : null;
+                var desc = item.TryGetProperty("description", out var d) ? d.GetString() : null;
+                var line = type ?? "(neznámé)";
+                if (!string.IsNullOrWhiteSpace(who))  line += $" – {who}";
+                if (!string.IsNullOrWhiteSpace(desc)) line += $" ({desc})";
+                result.Add(line);
+            }
+        }
+        catch
+        {
+            result.Add(json);
+        }
+        return result;
     }
 
     private async Task LoadCadastreDataAsync()
@@ -1872,6 +2161,8 @@
     {
         _cts.Cancel();
         _cts.Dispose();
+        _ocrDotNetRef?.Dispose();
+        try { _ = JS.InvokeVoidAsync("knOcr.dispose"); } catch { /* ignore */ }
     }
 
     // ─── RAG Chat ──────────────────────────────────────────────────────────────

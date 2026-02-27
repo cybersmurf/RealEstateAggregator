@@ -24,4 +24,11 @@ public interface ICadastreService
     /// Vrací statistiky.
     /// </summary>
     Task<BulkRuianResultDto> BulkFetchAsync(int batchSize = 50, CancellationToken ct = default);
+
+    /// <summary>
+    /// OCR screenshot ze stránky nahlíženídokn.cuzk.cz přes Ollama Vision.
+    /// Extrahuje parcelní číslo, LV, výměru, druh pozemku, vlastníky, břemena.
+    /// Uloží/přepíše katastrální data s FetchStatus = "ocr".
+    /// </summary>
+    Task<CadastreOcrResultDto> OcrScreenshotAsync(Guid listingId, byte[] imageData, CancellationToken ct = default);
 }

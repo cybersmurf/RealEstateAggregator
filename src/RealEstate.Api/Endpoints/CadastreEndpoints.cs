@@ -33,6 +33,15 @@ public static class CadastreEndpoints
             .WithName("BulkFetchCadastre")
             .WithSummary("Spustí hromadné RUIAN vyhledávání pro inzeráty bez katastrálních dat");
 
+        // ── OCR screenshot ────────────────────────────────────────────────────
+        group.MapPost("/listings/{listingId:guid}/ocr-screenshot", OcrScreenshot)
+            .WithName("OcrCadastreScreenshot")
+            .WithSummary("OCR screenshot z nahlíženídokn.cuzk.cz – extrahuje parcelní číslo, LV, výměru, břemena přes Ollama Vision")
+            .DisableAntiforgery()
+            .Produces<CadastreOcrResultDto>(200)
+            .Produces(400)
+            .Produces(500);
+
         return app;
     }
 
@@ -94,5 +103,39 @@ public static class CadastreEndpoints
         batchSize = Math.Clamp(batchSize, 1, 200);
         var result = await service.BulkFetchAsync(batchSize, ct);
         return TypedResults.Ok(result);
+    }
+
+    private static async Task<IResult> OcrScreenshot(
+        Guid listingId,
+        IFormFile file,
+        ICadastreService service,
+        CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return Results.BadRequest("Soubor nebyl odeslán nebo je prázdný.");
+
+        if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest("Soubor musí být obrázek (image/*).");
+
+        if (file.Length > 20 * 1024 * 1024)   // 20 MB limit
+            return Results.BadRequest("Soubor je příliš velký (max 20 MB).");
+
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms, ct);
+            var imageData = ms.ToArray();
+
+            var result = await service.OcrScreenshotAsync(listingId, imageData, ct);
+            return Results.Ok(result);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return Results.NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"OCR zpracování selhalo: {ex.Message}");
+        }
     }
 }

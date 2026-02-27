@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,7 @@ namespace RealEstate.Api.Services;
 public sealed class CadastreService(
     RealEstateDbContext db,
     IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
     ILogger<CadastreService> logger) : ICadastreService
 {
     // ─── Konfigurace ──────────────────────────────────────────────────────────
@@ -159,6 +161,171 @@ public sealed class CadastreService(
 
         var msg = $"Zpracováno {listings.Count}: nalezeno {found}, nenalezeno {notFound}, chyby {error}";
         return new BulkRuianResultDto(listings.Count, found, notFound, error, 0, msg);
+    }
+
+    // ─── OCR SCREENSHOT ───────────────────────────────────────────────────────
+    public async Task<CadastreOcrResultDto> OcrScreenshotAsync(
+        Guid listingId, byte[] imageData, CancellationToken ct = default)
+    {
+        var base64 = Convert.ToBase64String(imageData);
+
+        var ollamaBaseUrl = Environment.GetEnvironmentVariable("OLLAMA_BASE_URL")
+            ?? configuration["Ollama:BaseUrl"]
+            ?? "http://localhost:11434";
+        var visionModel = Environment.GetEnvironmentVariable("OLLAMA_VISION_MODEL")
+            ?? configuration["Ollama:VisionModel"]
+            ?? "llama3.2-vision:11b";
+
+        var ollamaUrl = $"{ollamaBaseUrl.TrimEnd('/')}/api/generate";
+
+        const string ocrPrompt = """
+            You are analyzing a screenshot from the Czech cadastre system (nahlizeni.cuzk.cz / nahlizenidokn.cuzk.cz).
+            Extract ALL available data from the screenshot and return ONLY valid JSON, nothing else.
+
+            Look for these sections and fields:
+            - "Informace o pozemku" or "Informace o budově": parcel/plot details
+            - "Vlastníci, jiní oprávnění": owner information
+            - "Omezení vlastnického práva": encumbrances / restrictions
+            - "Způsob ochrany nemovitosti": protection status
+            - "Součástí je stavba": building info
+
+            Return exactly this JSON structure (use null for missing fields):
+            {
+              "parcel_number": "60",
+              "lv_number": "1088",
+              "land_area_m2": 593,
+              "land_type": "zastavěná plocha a nádvoří",
+              "municipality": "Štítary",
+              "cadastral_area": "Štítary na Moravě",
+              "owner_info": "fyzická osoba",
+              "protection": "pam. zóna - budova, pozemek v památkové zóně",
+              "encumbrances": [
+                {"type": "Věcné břemeno zřizování a provozování vedení"},
+                {"type": "Zákaz zcizení"},
+                {"type": "Zástavní právo smluvní"},
+                {"type": "Zástavní právo z rozhodnutí správního orgánu"}
+              ],
+              "building_number": "113",
+              "building_type": "zemědělská usedlost"
+            }
+
+            Important: encumbrances array is critical - list ALL items from "Omezení vlastnického práva" table.
+            If there are no encumbrances, use empty array [].
+            """;
+
+        var requestBody = new
+        {
+            model = visionModel,
+            prompt = ocrPrompt,
+            images = new[] { base64 },
+            stream = false,
+            format = "json",
+            options = new { temperature = 0.1, num_predict = 1024 }
+        };
+
+        using var httpClient = httpClientFactory.CreateClient("OllamaVision");
+        httpClient.Timeout = TimeSpan.FromMinutes(5);
+
+        var jsonContent = new StringContent(
+            JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+
+        logger.LogInformation("KN OCR: calling Ollama Vision for listing {ListingId}", listingId);
+        var response = await httpClient.PostAsync(ollamaUrl, jsonContent, ct);
+        response.EnsureSuccessStatusCode();
+
+        var rawBody = await response.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(rawBody);
+        var ocrRawJson = doc.RootElement.TryGetProperty("response", out var respEl)
+            ? respEl.GetString() ?? "{}"
+            : "{}";
+
+        logger.LogInformation("KN OCR raw response for {ListingId}: {Raw}",
+            listingId, ocrRawJson[..Math.Min(300, ocrRawJson.Length)]);
+
+        // Parsuj extrahovaná data
+        KnOcrData? ocr = null;
+        try
+        {
+            ocr = JsonSerializer.Deserialize<KnOcrData>(ocrRawJson, _ocrJsonOptions);
+        }
+        catch (JsonException jex)
+        {
+            logger.LogWarning(jex, "KN OCR: JSON parse failed, trying regex fallback");
+            // Pokus o extract z obalujícího textu
+            var match = System.Text.RegularExpressions.Regex.Match(ocrRawJson, @"\{[\s\S]+\}");
+            if (match.Success)
+                try { ocr = JsonSerializer.Deserialize<KnOcrData>(match.Value, _ocrJsonOptions); }
+                catch { /* skip */ }
+        }
+
+        // Upsert do DB
+        var existing = await db.ListingCadastreData
+            .FirstOrDefaultAsync(x => x.ListingId == listingId, ct);
+
+        if (existing is null)
+        {
+            var listing = await db.Listings.AsNoTracking()
+                .FirstOrDefaultAsync(l => l.Id == listingId, ct);
+            existing = new ListingCadastreData
+            {
+                ListingId = listingId,
+                AddressSearched = listing?.Municipality ?? listing?.LocationText ?? "",
+            };
+            db.ListingCadastreData.Add(existing);
+        }
+
+        if (ocr is not null)
+        {
+            existing.ParcelNumber     = ocr.ParcelNumber ?? existing.ParcelNumber;
+            existing.LvNumber         = ocr.LvNumber ?? existing.LvNumber;
+            existing.LandAreaM2       = ocr.LandAreaM2 ?? existing.LandAreaM2;
+            existing.LandType         = ocr.LandType ?? existing.LandType;
+            existing.OwnerType        = ocr.OwnerInfo ?? existing.OwnerType;
+            if (ocr.Encumbrances?.Count > 0)
+                existing.EncumbrancesJson = JsonSerializer.Serialize(ocr.Encumbrances, _ocrJsonOptions);
+        }
+
+        existing.FetchStatus  = "ocr";
+        existing.FetchError   = null;
+        existing.FetchedAt    = DateTime.UtcNow;
+        existing.RawRuianJson = ocrRawJson;
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("KN OCR saved for listing {ListingId}: parcel={Parcel}, LV={Lv}, area={Area}",
+            listingId, existing.ParcelNumber, existing.LvNumber, existing.LandAreaM2);
+
+        return new CadastreOcrResultDto(ToDto(existing), ocrRawJson);
+    }
+
+    // ─── Private OCR types ────────────────────────────────────────────────────
+
+    private static readonly JsonSerializerOptions _ocrJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+    };
+
+    private sealed class KnOcrData
+    {
+        [JsonPropertyName("parcel_number")] public string? ParcelNumber { get; set; }
+        [JsonPropertyName("lv_number")]     public string? LvNumber { get; set; }
+        [JsonPropertyName("land_area_m2")]  public int? LandAreaM2 { get; set; }
+        [JsonPropertyName("land_type")]     public string? LandType { get; set; }
+        [JsonPropertyName("municipality")]  public string? Municipality { get; set; }
+        [JsonPropertyName("cadastral_area")]public string? CadastralArea { get; set; }
+        [JsonPropertyName("owner_info")]    public string? OwnerInfo { get; set; }
+        [JsonPropertyName("protection")]    public string? Protection { get; set; }
+        [JsonPropertyName("encumbrances")]  public List<KnEncumbrance>? Encumbrances { get; set; }
+        [JsonPropertyName("building_number")]  public string? BuildingNumber { get; set; }
+        [JsonPropertyName("building_type")]    public string? BuildingType { get; set; }
+    }
+
+    private sealed class KnEncumbrance
+    {
+        [JsonPropertyName("type")]        public string Type { get; set; } = "";
+        [JsonPropertyName("description")] public string? Description { get; set; }
+        [JsonPropertyName("who")]         public string? Who { get; set; }
     }
 
     // ─── PRIVATE HELPERS ──────────────────────────────────────────────────────
