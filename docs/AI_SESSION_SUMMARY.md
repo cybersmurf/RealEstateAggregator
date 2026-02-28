@@ -1,7 +1,37 @@
 # AI Session Summary – RealEstateAggregator
-**Datum:** 27. února 2026  
-**Celková doba:** 24 sessions  
-**Status:** ✅ Production stack, 13 scraperů, ~1 480 aktivních inzerátů, PostGIS koridory, RAG+pgvector+Ollama, MCP server, KN OCR, Docker ARM64
+**Datum:** 28. února 2026  
+**Celková doba:** 25 sessions  
+**Status:** ✅ Production stack, 13 scraperů, 1 558 aktivních inzerátů, PostGIS koridory, RAG+pgvector+Ollama, MCP server, KN OCR, Docker ARM64
+
+---
+
+## ✅ Latest Updates (Session 25 – 28. února 2026)
+
+### AI coverage analýza – 100 % zpracovatelných dat
+
+Ranní kontrola stavu po přechodu na nový dataset (1 558 inzerátů):
+
+**Stats:**
+| Metrika | Počet | % |
+|---------|-------|---|
+| Total listings | 1 558 | 100 % |
+| withNormalizedData | 1 422 | 91 % |
+| withSmartTags | 1 425 | 91 % |
+| withPriceSignal | 1 226 | 79 % |
+
+**Proč ne 100 %?** Záměrné filtry v `OllamaTextService.cs`:
+- `normalize` + `smart-tags`: skip pokud `Description == null || Description.Length <= 100` → **132 inzerátů** (prázdný nebo velmi krátký popis – AI by nemohlo nic vytěžit)
+- `price-opinion`: skip pokud `Price == null || Price == 0` → **327 inzerátů** (pozemky/komerční na dotaz)
+
+**Závěr: 91 %/91 %/79 % = 100 % zpracovatelných dat.** Zbývající inzeráty jsou záměrně přeskočeny, ne bug.
+
+### Full rescan všech 13 scraperů
+
+- Spuštěn `full_rescan=true` pro všechny zdroje (job `725dc1c8`)
+- Cíl: zachytit inzeráty zameškané před SReality geo filter fixem (commit `91b8157`)
+- AI joby (normalize/smart-tags/price-opinion) spuštěny pro nové inzeráty
+
+**DB stav po session:** 1 558 inzerátů, 13 zdrojů, AI: normalize 91 %, smart-tags 91 %, price-signal 79 % (= 100 % zpracovatelných dat)
 
 ---
 

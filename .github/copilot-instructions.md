@@ -727,14 +727,19 @@ Include upsert to database via get_db_manager().
 - [x] **REAS anonymized listingy** – skip `isAnonymized/isAnonymous=True` inzerátů (REAS subscription-only, municipality count=0, nelze sesbírat); Kuchařovice REAS `69a188220233fdb43521d123` = záměrně skryté
 - [x] **Commit** `e01d725` – fix(reas): fix CDN pagination + add sort=newest category
 
+### ✅ Dokončeno v Session 25 (2026-02-28)
+- [x] **AI coverage analýza** – potvrzeno: 91 % normalize/smart-tags a 79 % price-signal = **100 % zpracovatelných dat**; zbývající inzeráty záměrně přeskočeny (popis < 100 znaků → 132 inz., cena NULL → 327 inz.)
+- [x] **Full rescan všech 13 scraperů** – zachycení zameškáných inzerátů po SReality geo filter fixu (commit `91b8157`)
+- [x] **AI joby doběhly** – 1558 celkem, 1425 smart-tags, 1422 normalize, 1226 price-signal
+
 ### ✅ Dokončeno v Session 24 (2026-02-27)
 - [x] **SReality geo filtr fix** – bug: API vrací pro malé obce `"Ulice, Obec"` bez okresu (napr. `"Ke Kapličce, Kuchařovice"`) → geo filtr zahodil listing; fix v `filters.py`: `combined_location` nyní kombinuje `location_text + district + municipality + region`; fix v `sreality_scraper.py`: `DISTRICT_ID_TO_NAME` mapping + `_normalize_list_item` naplní `district='Znojmo'` pro `locality_district_id=77`
 - [x] **Listing 2031444812** (Ke Kapličce, Kuchařovice, 4,39M) ihned sesbírán po fixu; full_rescan SREALITY pro dočerpání dalších zameškáných inzerátů
 - [x] **Commit** `91b8157` – fix(sreality): geo filter miss pro obce bez okresu v location_text
 
-**Last Updated:** 27. února 2026 (Session 24)
-**Current Commit:** `91b8157` – fix(sreality): geo filter miss pro obce bez okresu v location_text
-**DB stav:** ~1 480 inzerátů, 13 zdrojů, GPS: 97 % pokrytí, AI: normalize ~83 %, smart-tags ~83 %, price-signal ~75 %
+**Last Updated:** 28. února 2026 (Session 25)
+**Current Commit:** `e82f8a6` – docs: session 23+24 summary
+**DB stav:** 1558 inzerátů, 13 zdrojů, GPS: 97 % pokrytí, AI: normalize 91 %, smart-tags 91 %, price-signal 79 % (= 100 % zpracovatelných dat)
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní), **MCP Server (Claude Desktop integration)**
 **Unit testy:** 141 C# zelených + 83 Python zelených
 
