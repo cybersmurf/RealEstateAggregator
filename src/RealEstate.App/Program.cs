@@ -15,6 +15,8 @@ builder.Services.AddHttpClient("RealEstateApi", client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["ApiBaseUrl"] ?? "http://localhost:5001");
     client.Timeout = TimeSpan.FromMinutes(10); // velký multipart upload fotek z prohlídky
+    var scrapingApiKey = builder.Configuration["ScrapingApiKey"] ?? "dev-key-change-me";
+    client.DefaultRequestHeaders.Add("X-Api-Key", scrapingApiKey);
 });
 
 // Register HttpClient as singleton for DI
