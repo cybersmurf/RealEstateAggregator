@@ -1402,7 +1402,7 @@
         // Vždy použij dedikovaný endpoint pro konkrétní inzerát –
         // zahrnuje poznámky z prohlídky a uložené analýzy do promptu.
         await RunAiTextAsync(
-            $"api/ollama/listings/{_listingId}/recalculate-price-opinion",
+            $"api/ollama/listings/{Id}/recalculate-price-opinion",
             "Cenový signál přepočítán.", "Přepočet cenového signálu selhal.");
     }
 
