@@ -1,7 +1,9 @@
 @page "/scrape"
+@using System.Threading
 
 @inject HttpClient Http
 @inject ISnackbar Snackbar
+@implements IDisposable
 
 <PageTitle>Scrapování – RealEstate</PageTitle>
 
@@ -12,9 +14,38 @@
         Správa scrapování
     </MudText>
 
+    <!-- Stats panel -->
+    @if (_stats != null)
+    {
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-3">Stav databáze</MudText>
+            <MudGrid>
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Celkem inzerátů</MudText>
+                    <MudText Typo="Typo.h6">@_stats.TotalListings</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Normalizováno</MudText>
+                    <MudText Typo="Typo.h6">@_stats.WithNormalizedData <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">(@NormPct %)</MudText></MudText>
+                    <MudProgressLinear Value="@NormPct" Color="@PctColor(NormPct)" Rounded="true" Size="Size.Small" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Smart-tagy</MudText>
+                    <MudText Typo="Typo.h6">@_stats.WithSmartTags <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">(@TagsPct %)</MudText></MudText>
+                    <MudProgressLinear Value="@TagsPct" Color="@PctColor(TagsPct)" Rounded="true" Size="Size.Small" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Cenový signál</MudText>
+                    <MudText Typo="Typo.h6">@_stats.WithPriceSignal <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">(@PricePct %)</MudText></MudText>
+                    <MudProgressLinear Value="@PricePct" Color="@PctColor(PricePct)" Rounded="true" Size="Size.Small" />
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    }
+
     <!-- Karta pro spuštění -->
     <MudPaper Elevation="2" Class="pa-4">
-        <MudText Typo="Typo.h6" Class="mb-3">Spustit scrapování</MudText>
+        <MudText Typo="Typo.h6" Class="mb-3">1. Stáhnout nové inzeráty</MudText>
 
         <!-- Výběr zdrojů -->
         <MudText Typo="Typo.body2" Class="mb-1">Zdroje (prázdné = všechny aktivní)</MudText>
@@ -37,22 +68,25 @@
             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mb-3" />
         }
 
-        <!-- Full rescan toggle -->
-        <MudSwitch @bind-Value="_fullRescan" Color="Color.Warning" Class="mb-3">
-            Plný rescan (ignoruj cache, přepiš vše)
-        </MudSwitch>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="4" Class="mb-3">
+            <MudSwitch @bind-Value="_fullRescan" Color="Color.Warning">
+                Plný rescan (ignoruj cache, přepiš vše)
+            </MudSwitch>
+            <MudSwitch @bind-Value="_autoRunAi" Color="Color.Success">
+                Po stažení automaticky spustit AI analýzu
+            </MudSwitch>
+        </MudStack>
 
-        <!-- Spustit -->
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"
                    StartIcon="@Icons.Material.Filled.PlayArrow"
                    Size="Size.Large"
-                   Disabled="_running"
+                   Disabled="@(_scraping || _aiRunning)"
                    OnClick="TriggerScrapeAsync">
-            @if (_running)
+            @if (_scraping)
             {
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-                <span>Spouštím…</span>
+                <span>Stahuji…</span>
             }
             else
             {
@@ -61,21 +95,48 @@
         </MudButton>
     </MudPaper>
 
-    <!-- Výsledek posledního jobu -->
+    <!-- AI zpracování -->
+    <MudPaper Elevation="2" Class="pa-4">
+        <MudText Typo="Typo.h6" Class="mb-1">2. Spustit AI analýzu</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Zpracuje nové inzeráty bez AI dat: normalizace textu, smart-tagy a cenový signál.
+        </MudText>
+
+        @if (_aiRunning)
+        {
+            <MudStack Spacing="1" Class="mb-3">
+                <MudText Typo="Typo.body2">@_aiStatus</MudText>
+                <MudProgressLinear Indeterminate="true" Color="Color.Success" Rounded="true" />
+            </MudStack>
+        }
+
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Success"
+                   StartIcon="@Icons.Material.Filled.AutoAwesome"
+                   Disabled="@(_aiRunning || _scraping)"
+                   OnClick="RunAiJobsAsync">
+            @if (_aiRunning)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <span>Zpracovávám…</span>
+            }
+            else
+            {
+                <span>Spustit AI analýzu</span>
+            }
+        </MudButton>
+    </MudPaper>
+
+    <!-- Výsledek posledního scrape jobu -->
     @if (_lastResult != null)
     {
         <MudAlert Severity="@(_lastResult.Status == "Failed" ? Severity.Error : Severity.Success)"
-                  Variant="Variant.Outlined"
-                  Icon="@(_lastResult.Status == "Failed" ? Icons.Material.Filled.Error : Icons.Material.Filled.CheckCircle)">
-            <MudText>
-                <strong>Job ID:</strong> @_lastResult.JobId
-                &nbsp;|&nbsp;
-                <strong>Status:</strong> @_lastResult.Status
-                @if (!string.IsNullOrWhiteSpace(_lastResult.Message))
-                {
-                    <span>&nbsp;— @_lastResult.Message</span>
-                }
-            </MudText>
+                  Variant="Variant.Outlined">
+            <strong>Scrapování:</strong> @_lastResult.Status
+            @if (!string.IsNullOrWhiteSpace(_lastResult.Message))
+            {
+                <span> — @_lastResult.Message</span>
+            }
         </MudAlert>
     }
 
@@ -116,21 +177,36 @@
 </MudStack>
 
 @code {
-    private bool _running;
+    private bool _scraping;
+    private bool _aiRunning;
     private bool _loadingSources = true;
     private bool _fullRescan;
+    private bool _autoRunAi = true;
+    private string _aiStatus = "";
     private List<SourceDto> _availableSources = new();
     private IReadOnlyCollection<string> _selectedSourceCodes = new List<string>();
     private ScrapeTriggerResultDto? _lastResult;
+    private OllamaStatsDto? _stats;
+    private CancellationTokenSource _cts = new();
+
+    private int NormPct => _stats?.TotalListings > 0 ? (int)(100.0 * _stats.WithNormalizedData / _stats.TotalListings) : 0;
+    private int TagsPct => _stats?.TotalListings > 0 ? (int)(100.0 * _stats.WithSmartTags / _stats.TotalListings) : 0;
+    private int PricePct => _stats?.TotalListings > 0 ? (int)(100.0 * _stats.WithPriceSignal / _stats.TotalListings) : 0;
+    private Color PctColor(int pct) => pct >= 90 ? Color.Success : pct >= 70 ? Color.Warning : Color.Error;
 
     protected override async Task OnInitializedAsync()
     {
+        await Task.WhenAll(LoadSourcesAsync(), LoadStatsAsync());
+    }
+
+    private async Task LoadSourcesAsync()
+    {
         try
         {
-            var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
+            var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources", _cts.Token);
             _availableSources = sources ?? new();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Snackbar.Add($"Nepodařilo se načíst zdroje: {ex.Message}", Severity.Warning);
         }
@@ -140,9 +216,18 @@
         }
     }
 
+    private async Task LoadStatsAsync()
+    {
+        try
+        {
+            _stats = await Http.GetFromJsonAsync<OllamaStatsDto>("api/ollama/stats", _cts.Token);
+        }
+        catch { /* stats jsou optional */ }
+    }
+
     private async Task TriggerScrapeAsync()
     {
-        _running = true;
+        _scraping = true;
         _lastResult = null;
         try
         {
@@ -151,24 +236,89 @@
                 sourceCodes = _selectedSourceCodes.Count > 0 ? _selectedSourceCodes.ToList() : null,
                 fullRescan = _fullRescan,
             };
-            var response = await Http.PostAsJsonAsync("api/scraping/trigger", request);
+            var response = await Http.PostAsJsonAsync("api/scraping/trigger", request, _cts.Token);
             response.EnsureSuccessStatusCode();
-            _lastResult = await response.Content.ReadFromJsonAsync<ScrapeTriggerResultDto>();
+            _lastResult = await response.Content.ReadFromJsonAsync<ScrapeTriggerResultDto>(cancellationToken: _cts.Token);
             if (_lastResult?.Status == "Failed")
                 Snackbar.Add($"Scrapování selhalo: {_lastResult.Message}", Severity.Error);
             else
-                Snackbar.Add("Scrapování bylo úspěšně spuštěno!", Severity.Success);
+            {
+                Snackbar.Add("Scrapování bylo spuštěno – inzeráty se stahují na pozadí.", Severity.Success);
+                if (_autoRunAi)
+                {
+                    // Počkáme chvíli aby scraper stihl pár inzerátů zpracovat
+                    await Task.Delay(3000, _cts.Token);
+                    await RunAiJobsAsync();
+                }
+            }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
         }
         finally
         {
-            _running = false;
+            _scraping = false;
         }
     }
 
+    private async Task RunAiJobsAsync()
+    {
+        _aiRunning = true;
+        try
+        {
+            // Normalize
+            _aiStatus = "Normalizuji texty…";
+            StateHasChanged();
+            for (int i = 0; i < 40; i++)
+            {
+                var r = await Http.PostAsync($"api/ollama/bulk-normalize?batchSize=50", null, _cts.Token);
+                if (!r.IsSuccessStatusCode) break;
+                var dto = await r.Content.ReadFromJsonAsync<BulkJobResultDto>(cancellationToken: _cts.Token);
+                if (dto?.RemainingUnprocessed == 0) break;
+            }
+
+            // Smart-tags
+            _aiStatus = "Generuji smart-tagy…";
+            StateHasChanged();
+            for (int i = 0; i < 40; i++)
+            {
+                var r = await Http.PostAsync($"api/ollama/bulk-smart-tags?batchSize=50", null, _cts.Token);
+                if (!r.IsSuccessStatusCode) break;
+                var dto = await r.Content.ReadFromJsonAsync<BulkJobResultDto>(cancellationToken: _cts.Token);
+                if (dto?.RemainingUnprocessed == 0) break;
+            }
+
+            // Price opinion
+            _aiStatus = "Vyhodnocuji ceny…";
+            StateHasChanged();
+            for (int i = 0; i < 60; i++)
+            {
+                var r = await Http.PostAsync($"api/ollama/bulk-price-opinion?batchSize=30", null, _cts.Token);
+                if (!r.IsSuccessStatusCode) break;
+                var dto = await r.Content.ReadFromJsonAsync<BulkJobResultDto>(cancellationToken: _cts.Token);
+                if (dto?.RemainingUnprocessed == 0) break;
+            }
+
+            Snackbar.Add("AI analýza dokončena!", Severity.Success);
+            await LoadStatsAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Snackbar.Add($"AI analýza selhala: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _aiRunning = false;
+            _aiStatus = "";
+        }
+    }
+
+    public void Dispose() => _cts.Cancel();
+
     private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
     private record ScrapeTriggerResultDto(Guid JobId, string Status, string? Message);
+    private record OllamaStatsDto(int TotalListings, int WithNormalizedData, int WithSmartTags, int WithPriceSignal);
+    private record BulkJobResultDto(int Processed, int Succeeded, int Failed, int RemainingUnprocessed);
 }
