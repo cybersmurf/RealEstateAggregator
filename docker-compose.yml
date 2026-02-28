@@ -76,6 +76,7 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - ApiBaseUrl=http://realestate-api:8080
       - ApiPublicUrl=http://localhost:5001
+      - ScrapingApiKey=${API_KEY:-dev-key-change-me}
     depends_on:
       api:
         condition: service_healthy
