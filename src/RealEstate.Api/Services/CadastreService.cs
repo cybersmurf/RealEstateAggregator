@@ -220,7 +220,7 @@ public sealed class CadastreService(
             images = new[] { base64 },
             stream = false,
             format = "json",
-            options = new { temperature = 0.1, num_predict = 1024 }
+            options = new { temperature = 0.1, num_predict = 2048 }
         };
 
         using var httpClient = httpClientFactory.CreateClient("OllamaVision");
@@ -288,7 +288,8 @@ public sealed class CadastreService(
         existing.FetchStatus  = "ocr";
         existing.FetchError   = null;
         existing.FetchedAt    = DateTime.UtcNow;
-        existing.RawRuianJson = ocrRawJson;
+        // Uložit jen validní JSON – oříznutý nebo nečitelný výstup z Ollama do DB neuložíme
+        existing.RawRuianJson = IsValidJson(ocrRawJson) ? ocrRawJson : null;
 
         await db.SaveChangesAsync(ct);
         logger.LogInformation("KN OCR saved for listing {ListingId}: parcel={Parcel}, LV={Lv}, area={Area}",
@@ -406,4 +407,11 @@ public sealed class CadastreService(
         x.FetchError,
         x.FetchedAt
     );
+
+    private static bool IsValidJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try { JsonDocument.Parse(json); return true; }
+        catch (JsonException) { return false; }
+    }
 }
