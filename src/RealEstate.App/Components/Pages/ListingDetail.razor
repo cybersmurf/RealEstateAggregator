@@ -122,6 +122,7 @@
                     </MudStack>
 
                     <MudGrid Spacing="2">
+                        @{ int _photoIdx = 0; }
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {
                             var pSrc = !string.IsNullOrEmpty(photo.StoredUrl) ? photo.StoredUrl : photo.OriginalUrl;
@@ -133,10 +134,14 @@
                                     : fb == "correct"
                                         ? "border: 2px solid var(--mud-palette-success);"
                                         : "";
+                            var _capturedIdx = _photoIdx++;
                             <MudItem xs="12" sm="6" md="4" lg="3">
                                 <MudCard Outlined="true" Style="@borderStyle">
                                     <!-- Náhled fotky s překrytnými odznaky -->
-                                    <a href="@pSrc" target="_blank" rel="noopener" style="display:block;position:relative;height:150px;overflow:hidden;background:#111;">
+                                    <button type="button"
+                                            @onclick="() => OpenLightbox(_capturedIdx)"
+                                            style="display:block;position:relative;height:150px;overflow:hidden;background:#111;width:100%;padding:0;border:none;cursor:zoom-in;"
+                                            aria-label="Zobrazit fotku v plném rozlišení">
                                         <img src="@pSrc" alt="@(!string.IsNullOrEmpty(photo.AltText) ? photo.AltText : GetCategoryLabel(photo.PhotoCategory))"
                                              style="width:100%;height:150px;object-fit:cover;"
                                              onerror="this.style.opacity='0.15'" />
@@ -158,7 +163,7 @@
                                                 neklasifikováno
                                             </div>
                                         }
-                                    </a>
+                                    </button>
 
                                     @if (photo.IsClassified)
                                     {
@@ -1195,6 +1200,65 @@
     }
 </MudContainer>
 
+@* ── Lightbox overlay ──────────────────────────────────────────────────── *@
+@if (_lbOpen && _listing?.Photos is { Count: > 0 })
+{
+    var _lbPhotos = _listing.Photos.OrderBy(p => p.Order).ToList();
+    var _lbPhoto  = _lbPhotos[Math.Clamp(_lbIdx, 0, _lbPhotos.Count - 1)];
+    var _lbSrc    = !string.IsNullOrEmpty(_lbPhoto.StoredUrl) ? _lbPhoto.StoredUrl : _lbPhoto.OriginalUrl;
+    var _lbTotal  = _lbPhotos.Count;
+    <div style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.93);display:flex;align-items:center;justify-content:center;"
+         @onclick="LightboxClose"
+         @onkeydown="LightboxKeyDown"
+         tabindex="0"
+         role="dialog"
+         aria-modal="true"
+         aria-label="Prohlížeč fotek">
+
+        @* Předchozí *@
+        @if (_lbIdx > 0)
+        {
+            <button type="button" @onclick:stopPropagation="true" @onclick="LightboxPrev"
+                    style="position:absolute;left:14px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.18);border:none;border-radius:50%;width:52px;height:52px;font-size:28px;color:#fff;cursor:pointer;line-height:1;z-index:10000;"
+                    aria-label="Předchozí fotka">&#8249;</button>
+        }
+
+        @* Foto *@
+        <img src="@_lbSrc"
+             alt="@(!string.IsNullOrEmpty(_lbPhoto.AltText) ? _lbPhoto.AltText : GetCategoryLabel(_lbPhoto.PhotoCategory))"
+             style="max-width:90vw;max-height:88vh;object-fit:contain;border-radius:4px;box-shadow:0 4px 32px #000;user-select:none;"
+             @onclick:stopPropagation="true" />
+
+        @* Další *@
+        @if (_lbIdx < _lbTotal - 1)
+        {
+            <button type="button" @onclick:stopPropagation="true" @onclick="LightboxNext"
+                    style="position:absolute;right:14px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.18);border:none;border-radius:50%;width:52px;height:52px;font-size:28px;color:#fff;cursor:pointer;line-height:1;z-index:10000;"
+                    aria-label="Další fotka">&#8250;</button>
+        }
+
+        @* Zavřít + počítadlo *@
+        <div style="position:absolute;top:12px;right:16px;display:flex;align-items:center;gap:16px;z-index:10000;">
+            <span style="color:#bbb;font-size:13px;font-variant-numeric:tabular-nums;">@(_lbIdx + 1) / @_lbTotal</span>
+            <button type="button" @onclick:stopPropagation="true" @onclick="LightboxClose"
+                    style="background:rgba(255,255,255,.18);border:none;border-radius:50%;width:36px;height:36px;font-size:18px;color:#fff;cursor:pointer;line-height:1;"
+                    aria-label="Zavřít prohlížeč fotek">&#x2715;</button>
+        </div>
+
+        @* Kategorie + confidence dole *@
+        @if (_lbPhoto.IsClassified && !string.IsNullOrWhiteSpace(_lbPhoto.PhotoCategory))
+        {
+            <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);color:#fff;border-radius:8px;padding:4px 14px;font-size:12px;white-space:nowrap;z-index:10000;">
+                @GetCategoryLabel(_lbPhoto.PhotoCategory)
+                @if (_lbPhoto.ClassificationConfidence.HasValue)
+                {
+                    <span style="opacity:.6"> · @($"{_lbPhoto.ClassificationConfidence.Value * 100:0}%")</span>
+                }
+            </div>
+        }
+    </div>
+}
+
 @code {
     [Parameter]
     public Guid Id { get; set; }
@@ -1213,6 +1277,39 @@
     // Soubory s analýzami z Google Drive složky
     private List<DriveFileItem>? _driveFiles;
     private record DriveFileItem(string Id, string Name, string WebViewLink, DateTime? ModifiedAt);
+
+    // ── Lightbox (AI klasifikace fotek) ──────────────────────────────────────
+    private bool _lbOpen;
+    private int  _lbIdx;
+
+    private void OpenLightbox(int idx)
+    {
+        _lbIdx   = idx;
+        _lbOpen  = true;
+    }
+
+    private void LightboxClose() => _lbOpen = false;
+
+    private void LightboxPrev()
+    {
+        if (_lbIdx > 0) _lbIdx--;
+    }
+
+    private void LightboxNext()
+    {
+        var max = (_listing?.Photos.Count ?? 1) - 1;
+        if (_lbIdx < max) _lbIdx++;
+    }
+
+    private void LightboxKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowLeft":  LightboxPrev();  break;
+            case "ArrowRight": LightboxNext();  break;
+            case "Escape":     LightboxClose(); break;
+        }
+    }
 
     // OneDrive export
     private bool _oneDriveExporting = false;

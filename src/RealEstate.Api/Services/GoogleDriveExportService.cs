@@ -237,14 +237,15 @@ public sealed class GoogleDriveExportService(
             var driveService = await CreateDriveServiceAsync();
             var req = driveService.Files.List();
             req.Q = $"'{listing.DriveFolderId}' in parents " +
-                    $"and name contains 'analyz' " +
                     $"and mimeType != 'application/vnd.google-apps.folder' " +
                     $"and trashed = false";
             req.Fields = "files(id,name,webViewLink,modifiedTime)";
-            req.PageSize = 50;
+            req.PageSize = 200;
             req.OrderBy = "modifiedTime desc";
             var result = await req.ExecuteAsync(ct);
             return (result.Files ?? [])
+                .Where(f => f.Name.Contains("analyz", StringComparison.OrdinalIgnoreCase)
+                         || f.Name.Contains("analýz", StringComparison.OrdinalIgnoreCase))
                 .Select(f => new DriveFileDto(
                     f.Id,
                     f.Name,
