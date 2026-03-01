@@ -1692,8 +1692,17 @@
     {
         try
         {
-            _cadastreData = await Http.GetFromJsonAsync<CadastreDataDto>(
+            var full = await Http.GetFromJsonAsync<FullCadastreDto>(
                 $"api/cadastre/listings/{Id}", _cts.Token);
+            if (full is not null)
+            {
+                _cadastreData = new CadastreDataDto(
+                    full.Id, full.ListingId, full.RuianKod, full.CadastreUrl, full.FetchStatus, full.FetchedAt);
+
+                // Pokud jsou v DB uložená OCR data, zobraz je ihned (bez nutnosti znovu nahrát screenshot)
+                if (full.FetchStatus == "ocr" && !string.IsNullOrWhiteSpace(full.ParcelNumber))
+                    _ocrParsed = full;
+            }
         }
         catch { /* katastralni data jsou optional */ }
     }
