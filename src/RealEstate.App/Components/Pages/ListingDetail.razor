@@ -455,36 +455,110 @@
                     Adresa pro vyhledavani: <strong>@_listing.LocationText</strong>
                 </MudText>
 
-                <MudText Typo="Typo.subtitle2" Class="mb-1">Co zkontrolovat v KN:</MudText>
-                <MudSimpleTable Dense="true" Class="mb-3" Style="font-size:0.85em">
-                    <tbody>
-                        <tr>
-                            <td>&#x1F534;</td>
-                            <td><strong>Zastavni prava</strong></td>
-                            <td>Hypoteky a exekuce na listu vlastnictvi (LV)</td>
-                        </tr>
-                        <tr>
-                            <td>&#x1F7E1;</td>
-                            <td><strong>Vecna bremena</strong></td>
-                            <td>Pravo pruchodu, vedeni siti, uzivani treti osobou</td>
-                        </tr>
-                        <tr>
-                            <td>&#x26A0;&#xFE0F;</td>
-                            <td><strong>Vymera pozemku</strong></td>
-                            <td>Overit vs. @(_listing.AreaLand.HasValue ? _listing.AreaLand.Value.ToString("N0") + " m²" : "?") z inzeratu</td>
-                        </tr>
-                        <tr>
-                            <td>&#x26A0;&#xFE0F;</td>
-                            <td><strong>Druh pozemku</strong></td>
-                            <td>Zastavena plocha / zahrada / orna puda</td>
-                        </tr>
-                        <tr>
-                            <td>&#x26A0;&#xFE0F;</td>
-                            <td><strong>Pristupova cesta</strong></td>
-                            <td>Na cizim pozemku nebo vecne bremeno?</td>
-                        </tr>
-                    </tbody>
-                </MudSimpleTable>
+                @if (_ocrParsed is not null)
+                {
+                    <!-- Srovnání inzerát vs KN (data z OCR) -->
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">📊 Inzerát vs. Katastr:</MudText>
+                    <MudSimpleTable Dense="true" Class="mb-3" Style="font-size:0.85em">
+                        <tbody>
+                            @{
+                                var _knArea    = _ocrParsed.LandAreaM2;
+                                var _listArea  = _listing.AreaLand.HasValue ? (int?)((int)_listing.AreaLand.Value) : null;
+                                bool? _areaOk  = _knArea.HasValue && _listArea.HasValue
+                                    ? Math.Abs(_knArea.Value - _listArea.Value) / (double)Math.Max(1, _listArea.Value) < 0.05
+                                    : null;
+                                var _encLines  = ParseEncumbrances(_ocrParsed.EncumbrancesJson).ToList();
+                            }
+                            <tr>
+                                <td>@(_areaOk == true ? "✅" : _areaOk == false ? "⚠️" : "📐")</td>
+                                <td><strong>Výměra pozemku</strong></td>
+                                <td>
+                                    inzerát: <strong>@(_listArea.HasValue ? _listArea.Value.ToString("N0") + " m²" : "nezadáno")</strong>
+                                    &nbsp;→&nbsp;
+                                    KN: <strong style="color:@(_areaOk == false ? "#d32f2f" : _areaOk == true ? "#2e7d32" : "inherit")">@(_knArea.HasValue ? _knArea.Value.ToString("N0") + " m²" : "?")</strong>
+                                    @if (_areaOk == false && _listArea.HasValue && _knArea.HasValue)
+                                    {
+                                        <span style="color:#d32f2f"> (rozdíl @(Math.Abs(_knArea.Value - _listArea.Value)) m²)</span>
+                                    }
+                                </td>
+                            </tr>
+                            @if (!string.IsNullOrWhiteSpace(_ocrParsed.LandType))
+                            {
+                                <tr>
+                                    <td>🏷️</td>
+                                    <td><strong>Druh pozemku v KN</strong></td>
+                                    <td>@_ocrParsed.LandType</td>
+                                </tr>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_ocrParsed.ParcelNumber))
+                            {
+                                <tr>
+                                    <td>📌</td>
+                                    <td><strong>Parcelní číslo</strong></td>
+                                    <td>@_ocrParsed.ParcelNumber</td>
+                                </tr>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_ocrParsed.LvNumber))
+                            {
+                                <tr>
+                                    <td>📄</td>
+                                    <td><strong>List vlastnictví (LV)</strong></td>
+                                    <td>@_ocrParsed.LvNumber</td>
+                                </tr>
+                            }
+                            <tr>
+                                <td>@(_encLines.Count == 0 ? "✅" : "🔴")</td>
+                                <td><strong>Omezení vlastnického práva</strong></td>
+                                <td>
+                                    @if (_encLines.Count == 0)
+                                    {
+                                        <span style="color:#2e7d32">V KN žádná omezení nenalezena</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var _enc in _encLines)
+                                        {
+                                            <div>• @_enc</div>
+                                        }
+                                    }
+                                </td>
+                            </tr>
+                        </tbody>
+                    </MudSimpleTable>
+                }
+                else
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mb-1">Co zkontrolovat v KN:</MudText>
+                    <MudSimpleTable Dense="true" Class="mb-3" Style="font-size:0.85em">
+                        <tbody>
+                            <tr>
+                                <td>&#x1F534;</td>
+                                <td><strong>Zastavni prava</strong></td>
+                                <td>Hypoteky a exekuce na listu vlastnictvi (LV)</td>
+                            </tr>
+                            <tr>
+                                <td>&#x1F7E1;</td>
+                                <td><strong>Vecna bremena</strong></td>
+                                <td>Pravo pruchodu, vedeni siti, uzivani treti osobou</td>
+                            </tr>
+                            <tr>
+                                <td>&#x26A0;&#xFE0F;</td>
+                                <td><strong>Vymera pozemku</strong></td>
+                                <td>Overit vs. @(_listing.AreaLand.HasValue ? _listing.AreaLand.Value.ToString("N0") + " m²" : "?") z inzeratu</td>
+                            </tr>
+                            <tr>
+                                <td>&#x26A0;&#xFE0F;</td>
+                                <td><strong>Druh pozemku</strong></td>
+                                <td>Zastavena plocha / zahrada / orna puda</td>
+                            </tr>
+                            <tr>
+                                <td>&#x26A0;&#xFE0F;</td>
+                                <td><strong>Pristupova cesta</strong></td>
+                                <td>Na cizim pozemku nebo vecne bremeno?</td>
+                            </tr>
+                        </tbody>
+                    </MudSimpleTable>
+                }
 
                 <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
                     <MudButton Variant="Variant.Filled"
@@ -524,7 +598,7 @@
                 <!-- ── OCR screenshot z nahlíženídokn ──────────────────────── -->
                 <MudDivider Class="my-3" />
                 <MudText Typo="Typo.subtitle2" Class="mb-2">
-                    📋 OCR ze screenshotu (nahlíženídokn.cuzk.cz)
+                    @(_ocrParsed is not null ? "🔄 Aktualizovat OCR" : "📋 OCR ze screenshotu (nahlíženídokn.cuzk.cz)")
                 </MudText>
 
                 @if (_ocrParsed is not null)
@@ -762,6 +836,22 @@
                                 Složka obsahuje INFO.md, DATA.json, AI_INSTRUKCE.md a fotky ze scrapu.
                                 Nahraj vlastní fotky z prohlídky do podsložky <strong>Moje_fotky_z_prohlidky</strong>.
                             </MudText>
+                            @if (_driveFiles is { Count: > 0 })
+                            {
+                                <MudDivider />
+                                <MudText Typo="Typo.body2"><strong>📑 Analýzy v Drive složce:</strong></MudText>
+                                @foreach (var df in _driveFiles)
+                                {
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudIcon Icon="@Icons.Material.Filled.Description" Size="Size.Small" Color="Color.Success" aria-hidden="true" />
+                                        <MudLink Href="@df.WebViewLink" Target="_blank" Typo="Typo.body2">@df.Name</MudLink>
+                                        @if (df.ModifiedAt.HasValue)
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@df.ModifiedAt.Value.ToLocalTime().ToString("d. M. yyyy")</MudText>
+                                        }
+                                    </MudStack>
+                                }
+                            }
                             @if (_driveResult.PhotosTotal > 0)
                             {
                                 <MudText Typo="Typo.caption"
@@ -1119,6 +1209,10 @@
     private DriveExportResult? _driveResult;
     private record DriveExportResult(string FolderUrl, string FolderName, string FolderId, string? InspectionFolderId = null,
         int PhotosUploaded = 0, int PhotosTotal = 0);
+
+    // Soubory s analýzami z Google Drive složky
+    private List<DriveFileItem>? _driveFiles;
+    private record DriveFileItem(string Id, string Name, string WebViewLink, DateTime? ModifiedAt);
 
     // OneDrive export
     private bool _oneDriveExporting = false;
@@ -1510,6 +1604,7 @@
     {
         await LoadListingAsync();
         await LoadExportStateAsync();
+        await LoadDriveAnalysisFilesAsync();
         await LoadRagAnalysesAsync();
         await LoadCadastreDataAsync();
     }
@@ -1757,6 +1852,17 @@
         catch { /* export-state je optional, ignorujeme chybu */ }
     }
 
+    private async Task LoadDriveAnalysisFilesAsync()
+    {
+        try
+        {
+            var list = await Http.GetFromJsonAsync<List<DriveFileItem>>(
+                $"api/listings/{Id}/drive-analysis-files", _cts.Token);
+            _driveFiles = list is { Count: > 0 } ? list : null;
+        }
+        catch { /* Drive nemusí být dostupný */ }
+    }
+
     private async Task LoadListingAsync()
     {
         _loading = true;
@@ -1911,6 +2017,7 @@
             {
                 _driveResult = await response.Content.ReadFromJsonAsync<DriveExportResult>(_cts.Token);
                 Snackbar.Add("Export na Google Drive byl úspěšný!", Severity.Success);
+                await LoadDriveAnalysisFilesAsync();
             }
             else
             {

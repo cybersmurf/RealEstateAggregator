@@ -222,6 +222,43 @@ public sealed class GoogleDriveExportService(
         return new DriveScanResultDto(imported, skipped, driveFiles.Count, msg);
     }
 
+    public async Task<List<DriveFileDto>> ListAnalysisFilesAsync(Guid listingId, CancellationToken ct = default)
+    {
+        var listing = await dbContext.Listings
+            .AsNoTracking()
+            .Select(l => new { l.Id, l.DriveFolderId })
+            .FirstOrDefaultAsync(l => l.Id == listingId, ct);
+
+        if (listing is null || string.IsNullOrWhiteSpace(listing.DriveFolderId))
+            return [];
+
+        try
+        {
+            var driveService = await CreateDriveServiceAsync();
+            var req = driveService.Files.List();
+            req.Q = $"'{listing.DriveFolderId}' in parents " +
+                    $"and name contains 'analyz' " +
+                    $"and mimeType != 'application/vnd.google-apps.folder' " +
+                    $"and trashed = false";
+            req.Fields = "files(id,name,webViewLink,modifiedTime)";
+            req.PageSize = 50;
+            req.OrderBy = "modifiedTime desc";
+            var result = await req.ExecuteAsync(ct);
+            return (result.Files ?? [])
+                .Select(f => new DriveFileDto(
+                    f.Id,
+                    f.Name,
+                    f.WebViewLink ?? $"https://drive.google.com/file/d/{f.Id}/view",
+                    f.ModifiedTimeDateTimeOffset?.UtcDateTime))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Nelze načíst analýzy z Drive pro listing {Id}", listingId);
+            return [];
+        }
+    }
+
     private async Task<DriveService> CreateDriveServiceAsync()
     {
         // Preferujeme OAuth UserToken (soubory vlastní uživatel, má storage quota)

@@ -67,7 +67,21 @@ public static class ExportEndpoints
             .WithSummary("Prohledá GD složku s fotkami z prohlídky a importuje nové soubory lokálně + do user_listing_photos.")
             .WithTags("Export");
 
+        // Vrátí seznam souborů v GD složce, jejichž název obsahuje "analyz"
+        group.MapGet("/{id:guid}/drive-analysis-files", ListDriveAnalysisFiles)
+            .WithName("ListDriveAnalysisFiles")
+            .WithTags("Export");
+
         return app;
+    }
+
+    private static async Task<IResult> ListDriveAnalysisFiles(
+        Guid id,
+        [FromServices] IGoogleDriveExportService driveService,
+        CancellationToken ct)
+    {
+        var files = await driveService.ListAnalysisFilesAsync(id, ct);
+        return Results.Ok(files);
     }
 
     private static async Task<IResult> SaveAnalysis(
