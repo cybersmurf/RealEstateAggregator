@@ -1,7 +1,65 @@
 # AI Session Summary – RealEstateAggregator
-**Datum:** 28. února 2026  
-**Celková doba:** 25 sessions  
+**Datum:** 1. března 2026  
+**Celková doba:** 26 sessions  
 **Status:** ✅ Production stack, 13 scraperů, 1 558 aktivních inzerátů, PostGIS koridory, RAG+pgvector+Ollama, MCP server, KN OCR, Docker ARM64
+
+---
+
+## ✅ Latest Updates (Session 26 – 1. března 2026)
+
+### Photo lightbox – AI klasifikace fotek
+
+Kliknutí na fotku v sekci „AI klasifikace fotek" (záložka v ListingDetail) nyní otevírá fullscreen lightbox místo otevření surové URL v nové záložce:
+- Šipky ‹ / › pro přechod mezi fotkami (nebo `ArrowLeft`/`ArrowRight`)
+- Počítadlo `N / M` vpravo nahoře
+- Klik na backdrop nebo `Escape` zavře
+- Kategorie + confidence % dole uprostřed
+- Blikající kurzor eliminován (lightbox nemá streaming)
+
+**Commit:** `ec1400d` – `feat(photos+drive): lightbox viewer + Drive analýz diacritic fix`  
+**Soubor:** `src/RealEstate.App/Components/Pages/ListingDetail.razor`
+
+### Drive analýzy – oprava diakritiky
+
+Google Drive API query `name contains 'analyz'` je case-insensitive pro ASCII, ale diacritic-sensitive → soubory pojmenované `Analýza_xxx` (české ý ≠ ASCII y) nebyly nalezeny.
+
+**Oprava:** Fetch všech souborů složky (bez name filtru, `PageSize=200`) + C# filter pro obě varianty:
+```csharp
+.Where(f => f.Name.Contains("analyz", StringComparison.OrdinalIgnoreCase)
+         || f.Name.Contains("analýz", StringComparison.OrdinalIgnoreCase))
+```
+
+**Commit:** `ec1400d`  
+**Soubor:** `src/RealEstate.Api/Services/GoogleDriveExportService.cs`
+
+### RAG UI Design – dokumentace standardů
+
+Nový soubor `docs/RAG_UI_DESIGN.md` (1384 řádků, 16 sekcí) – obecné UI standardy pro RAG systémy s MudBlazor 9:
+- Chat bubbles, citation cards, knowledge base management
+- Document ingestion dialog (text/file/URL), drag&drop dropzone
+- Conversation history (SessionStorage vs DB decision table)
+- Settings drawer, loading/error/empty stavy, SSE streaming pattern
+- WCAG 2.2 AA checklist, state management vzory
+- MudBlazor 9 component reference, .NET API endpoint spec
+- Embedded vs standalone srovnání
+
+**Commit:** `3eb8ef1`
+
+### Colima secrets bind mount fix
+
+`/app/secrets/` v API kontejneru byl prázdný přestože `docker-compose.yml` měl správný bind mount – Colima na macOS bind mount pro `./secrets` nereliabilně vystavuje. Google Drive credentials nebyly dostupné → `ListAnalysisFilesAsync` vracel tiše `[]`. API logy ukazovaly:
+```
+WRN Nelze načíst analýzy z Drive pro listing...
+FileNotFoundException: '/app/secrets/google-drive-sa.json'
+```
+
+**Oprava:** `make secrets-sync` target + automatické volání z `make up` a `make rebuild-api`:
+```bash
+make secrets-sync  # docker cp credentials do běžícího kontejneru
+```
+
+**Commit:** `9136d58`  
+**Soubor:** `Makefile`
 
 ---
 

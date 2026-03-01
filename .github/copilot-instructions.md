@@ -2,7 +2,7 @@
 
 **Project:** Real Estate Aggregator with Semantic Search & AI Analysis  
 **Stack:** .NET 10, Blazor Server, PostgreSQL 15 + **PostGIS 3.4** + pgvector, Python FastAPI scrapers, **MCP Tools for Claude Desktop**  
-**Last Updated:** 26. února 2026 (Session 14)
+**Last Updated:** 1. března 2026 (Session 26)
 
 ---
 
@@ -737,8 +737,15 @@ Include upsert to database via get_db_manager().
 - [x] **Listing 2031444812** (Ke Kapličce, Kuchařovice, 4,39M) ihned sesbírán po fixu; full_rescan SREALITY pro dočerpání dalších zameškáných inzerátů
 - [x] **Commit** `91b8157` – fix(sreality): geo filter miss pro obce bez okresu v location_text
 
-**Last Updated:** 28. února 2026 (Session 25)
-**Current Commit:** `e82f8a6` – docs: session 23+24 summary
+### ✅ Dokončeno v Session 26 (2026-03-01)
+- [x] **Photo lightbox** – kliknutí na fotku v AI klasifikaci otevírá fullscreen overlay s ‹/› navigací, počítadlem N/M, Escape/ArrowLeft/ArrowRight/backdrop-close, kategorie + confidence dole; `_lbOpen`/`_lbIdx` state + 5 metod in `ListingDetail.razor`
+- [x] **Drive analýzy diacritic fix** – `name contains 'analyz'` v GD API je case-insensitive ale diacritic-sensitive (ý ≠ y); fix: fetch all files + C# filter pro `analyz` i `analýz` variant; `Analyza_Kucharovice.pdf`/`.docx` nyní viditelné
+- [x] **RAG_UI_DESIGN.md** – nový soubor `docs/RAG_UI_DESIGN.md` (1384 řádků, 16 sekcí): obecné UI standardy pro embedded+standalone RAG chat s MudBlazor 9 (bubbles, citation cards, KB management, streaming, WCAG 2.2 AA, state management)
+- [x] **Colima secrets fix** – bind mount `./secrets:/app/secrets` nefunguje na Colima → `/app/secrets/` bylo prázdné → Drive credentials chyběly → analýzy se nezobrazovaly; fix: `make secrets-sync` (docker cp) volaný z `make up` + `make rebuild-api`
+- [x] **Debugging postup** – identifikace přes API log `FileNotFoundException: '/app/secrets/google-drive-sa.json'`, `docker inspect` ověřil mount, `docker exec ls` ukázal prázdný dir
+
+**Last Updated:** 1. března 2026 (Session 26)
+**Current Commit:** `9136d58` – fix(secrets): add secrets-sync make target for Colima bind mount workaround
 **DB stav:** 1558 inzerátů, 13 zdrojů, GPS: 97 % pokrytí, AI: normalize 91 %, smart-tags 91 %, price-signal 79 % (= 100 % zpracovatelných dat)
 **Docker stack:** plně funkční, Blazor App :5002, API :5001, Scraper :8001, Postgres :5432 (PostGIS 3.4 + pgvector ARM64 nativní), **MCP Server (Claude Desktop integration)**
 **Unit testy:** 141 C# zelených + 83 Python zelených
