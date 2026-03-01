@@ -5,7 +5,7 @@
 
 .PHONY: help up down clean restart rebuild rebuild-api rebuild-app rebuild-scraper \
         logs logs-api logs-app logs-scraper logs-db \
-        status ps db db-stats test scrape scrape-full
+        status ps db db-stats test scrape scrape-full secrets-sync
 
 help:
 	@echo "================================================="
@@ -27,6 +27,7 @@ help:
 	@echo "  make test            – Spustí unit testy"
 	@echo "  make scrape          – Inkrementální scrape všech zdrojů"
 	@echo "  make scrape-full     – Plný rescan všech zdrojů"
+	@echo "  make secrets-sync    – Zkopíruje Google Drive secrets do API kontejneru"
 	@echo "================================================="
 
 # ---- Start / Stop --------------------------------------------------------------
@@ -34,6 +35,7 @@ help:
 up:
 	@echo ">>> Spouštím celý stack v Dockeru..."
 	docker-compose up -d
+	$(MAKE) secrets-sync
 	@echo ""
 	@echo "  App:     http://localhost:5002"
 	@echo "  API:     http://localhost:5001"
@@ -55,10 +57,12 @@ restart:
 rebuild:
 	docker-compose build api app scraper
 	docker-compose up -d --force-recreate api app scraper
+	$(MAKE) secrets-sync
 
 rebuild-api:
 	docker-compose build api
 	docker-compose up -d --force-recreate api
+	$(MAKE) secrets-sync
 
 rebuild-app:
 	docker-compose build app
@@ -67,6 +71,15 @@ rebuild-app:
 rebuild-scraper:
 	docker-compose build scraper
 	docker-compose up -d --force-recreate scraper
+
+# ---- Secrets -----------------------------------------------------------------
+
+# Colima bind mount pro ./secrets nefunguje spolehlivě – kopírujeme ručně.
+# Volá se automaticky po 'make up' a 'make rebuild-api'.
+secrets-sync:
+	@echo ">>> Sychronizuji Google Drive secrets do API kontejneru..."
+	@docker cp secrets/google-drive-token.json realestate-api:/app/secrets/google-drive-token.json 2>/dev/null && echo "  google-drive-token.json OK" || echo "  WARN: google-drive-token.json nenalezen (Drive OAuth nebude fungovat)"
+	@docker cp secrets/google-drive-sa.json realestate-api:/app/secrets/google-drive-sa.json 2>/dev/null && echo "  google-drive-sa.json OK" || echo "  WARN: google-drive-sa.json nenalezen (Drive SA nebude fungovat)"
 
 # ---- Logy ----------------------------------------------------------------------
 
