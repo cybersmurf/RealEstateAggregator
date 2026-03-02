@@ -354,34 +354,70 @@ class DatabaseManager:
         """
         Upsert fotek pro listing.
         
-        Smaže staré fotky a vloží nové.
-        WICHTIG: Běží v transakci, aby DELETE+INSERT byly atomické.
+        ⚠️  ZACHOVÁVÁ KLASIFIKACE:
+        - Existující fotky s classified_at != NULL jsou ponechány (včetně metadata)
+        - Jen updatuje order_index, pokud se změnil
+        - Smaže jen fotky, které už nejsou v novém seznamu
+        - Přidá nové fotky, pokud se objevily
+        
+        WICHTIG: Běží v transakci, aby byly operace atomické.
         """
         async with conn.transaction():
-            # Smazat staré fotky
-            await conn.execute(
-                "DELETE FROM re_realestate.listing_photos WHERE listing_id = $1",
+            # Načíst existující fotky pro tento listing
+            existing = await conn.fetch(
+                """
+                SELECT id, original_url, order_index, classified_at, stored_url, 
+                       photo_category, photo_labels, damage_detected, 
+                       classification_confidence, photo_description
+                FROM re_realestate.listing_photos 
+                WHERE listing_id = $1
+                """,
                 listing_id
             )
             
-            # Vložit nové fotky
-            for idx, photo_url in enumerate(photo_urls[:20]):  # Max 20 photos
-                photo_id = uuid4()
-                await conn.execute(
-                    """
-                    INSERT INTO re_realestate.listing_photos (
-                        id, listing_id, original_url, order_index, created_at
+            existing_by_url = {row['original_url']: row for row in existing}
+            new_urls_set = set(photo_urls[:20])
+            
+            # 1. UPDATE existujících fotek (změněný order_index)
+            for idx, photo_url in enumerate(photo_urls[:20]):
+                if photo_url in existing_by_url:
+                    row = existing_by_url[photo_url]
+                    if row['order_index'] != idx:
+                        await conn.execute(
+                            "UPDATE re_realestate.listing_photos SET order_index = $1 WHERE id = $2",
+                            idx, row['id']
+                        )
+            
+            # 2. INSERT nových fotek (které ještě nejsou v DB)
+            for idx, photo_url in enumerate(photo_urls[:20]):
+                if photo_url not in existing_by_url:
+                    photo_id = uuid4()
+                    await conn.execute(
+                        """
+                        INSERT INTO re_realestate.listing_photos (
+                            id, listing_id, original_url, order_index, created_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5)
+                        """,
+                        photo_id,
+                        listing_id,
+                        photo_url,
+                        idx,
+                        datetime.utcnow()
                     )
-                    VALUES ($1, $2, $3, $4, $5)
-                    """,
-                    photo_id,
-                    listing_id,
-                    photo_url,
-                    idx,
-                    datetime.utcnow()
-                )
+            
+            # 3. DELETE fotek, které zmizely (ale JEN ty bez klasifikace)
+            #    → Klasifikované fotky ponecháváme, i kdyby scraper přestal vracet URL
+            urls_to_delete = set(existing_by_url.keys()) - new_urls_set
+            for url in urls_to_delete:
+                row = existing_by_url[url]
+                if row['classified_at'] is None:
+                    await conn.execute(
+                        "DELETE FROM re_realestate.listing_photos WHERE id = $1",
+                        row['id']
+                    )
         
-        logger.debug(f"Upserted {len(photo_urls)} photos for listing {listing_id}")
+        logger.debug(f"Upserted {len(photo_urls)} photos for listing {listing_id} (preserved classifications)")
     
     # ============================================================================
     # Scrape Jobs Persistence
