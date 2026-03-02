@@ -88,6 +88,7 @@ public static class PhotoEndpoints
     private static async Task<IResult> BulkClassify(
         [FromQuery] int batchSize = 20,
         [FromQuery] Guid? listingId = null,
+        [FromQuery] bool onlyMyListings = false,
         [FromServices] IPhotoClassificationService service = default!,
         CancellationToken cancellationToken = default)
     {
@@ -97,7 +98,7 @@ public static class PhotoEndpoints
                 detail: "batchSize musí být v rozmezí 1–50 (Vision model je pomalý).",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var result = await service.ClassifyBatchAsync(batchSize, cancellationToken, listingId);
+        var result = await service.ClassifyBatchAsync(batchSize, cancellationToken, listingId, onlyMyListings);
         return Results.Ok(result);
     }
 
@@ -112,6 +113,7 @@ public static class PhotoEndpoints
     private static async Task<IResult> BulkClassifyInspection(
         [FromQuery] int batchSize = 20,
         [FromQuery] Guid? listingId = null,
+        [FromQuery] bool onlyMyListings = false,
         [FromServices] IPhotoClassificationService service = default!,
         CancellationToken cancellationToken = default)
     {
@@ -121,7 +123,7 @@ public static class PhotoEndpoints
                 detail: "batchSize musí být v rozmezí 1–50.",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var result = await service.ClassifyInspectionBatchAsync(batchSize, cancellationToken, listingId);
+        var result = await service.ClassifyInspectionBatchAsync(batchSize, cancellationToken, listingId, onlyMyListings);
         return Results.Ok(result);
     }
 

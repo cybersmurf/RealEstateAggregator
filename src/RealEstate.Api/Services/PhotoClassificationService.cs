@@ -70,14 +70,26 @@ public sealed class PhotoClassificationService(
         " Focus on materials, condition, size impression, and any notable features or defects." +
         " Be specific and concise.";
 
-    public async Task<PhotoClassificationResultDto> ClassifyBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null)
+    public async Task<PhotoClassificationResultDto> ClassifyBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool onlyMyListings = false)
     {
         batchSize = Math.Clamp(batchSize, 1, 50);
 
         // Fotky stažené lokálně NEBO s original_url – stačí mít odkud načíst obrázek
-        var photos = await db.ListingPhotos
+        var query = db.ListingPhotos
             .Where(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.ClassifiedAt == null)
-            .Where(p => listingId == null || p.ListingId == listingId)
+            .Where(p => listingId == null || p.ListingId == listingId);
+
+        // Filtr na "moje inzeráty" (Liked/ToVisit/Visited)
+        if (onlyMyListings)
+        {
+            query = query.Where(p => db.UserListingStates
+                .Any(u => u.ListingId == p.ListingId 
+                    && (u.Status == "Liked" 
+                        || u.Status == "ToVisit" 
+                        || u.Status == "Visited")));
+        }
+
+        var photos = await query
             .OrderBy(p => p.ListingId)
             .ThenBy(p => p.Order)
             .Take(batchSize)
@@ -85,9 +97,20 @@ public sealed class PhotoClassificationService(
 
         if (photos.Count == 0)
         {
-            var remaining0 = await db.ListingPhotos
-                .CountAsync(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.ClassifiedAt == null
-                    && (listingId == null || p.ListingId == listingId), ct);
+            var remainingQuery0 = db.ListingPhotos
+                .Where(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.ClassifiedAt == null
+                    && (listingId == null || p.ListingId == listingId));
+            
+            if (onlyMyListings)
+            {
+                remainingQuery0 = remainingQuery0.Where(p => db.UserListingStates
+                    .Any(u => u.ListingId == p.ListingId 
+                        && (u.Status == "Liked" 
+                            || u.Status == "ToVisit" 
+                            || u.Status == "Visited")));
+            }
+
+            var remaining0 = await remainingQuery0.CountAsync(ct);
             return new PhotoClassificationResultDto(0, 0, 0, remaining0, 0);
         }
 
@@ -272,9 +295,21 @@ public sealed class PhotoClassificationService(
 
         stopwatch.Stop();
         var avgMs = photos.Count > 0 ? stopwatch.ElapsedMilliseconds / (double)photos.Count : 0;
-        var remaining = await db.ListingPhotos
-            .CountAsync(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.ClassifiedAt == null
-                && (listingId == null || p.ListingId == listingId), ct);
+        
+        var remainingQuery = db.ListingPhotos
+            .Where(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.ClassifiedAt == null
+                && (listingId == null || p.ListingId == listingId));
+        
+        if (onlyMyListings)
+        {
+            remainingQuery = remainingQuery.Where(p => db.UserListingStates
+                .Any(u => u.ListingId == p.ListingId 
+                    && (u.Status == "Liked" 
+                        || u.Status == "ToVisit" 
+                        || u.Status == "Visited")));
+        }
+
+        var remaining = await remainingQuery.CountAsync(ct);
 
         logger.LogInformation(
             "Photo classification batch: {Processed} processed, {Succeeded} OK, {Failed} failed. Remaining: {Remaining}. Avg: {Avg}ms",
@@ -284,13 +319,25 @@ public sealed class PhotoClassificationService(
             photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0));
     }
 
-    public async Task<PhotoClassificationResultDto> ClassifyInspectionBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null)
+    public async Task<PhotoClassificationResultDto> ClassifyInspectionBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool onlyMyListings = false)
     {
         batchSize = Math.Clamp(batchSize, 1, 50);
 
-        var photos = await db.UserListingPhotos
+        var query = db.UserListingPhotos
             .Where(p => p.ClassifiedAt == null)
-            .Where(p => listingId == null || p.ListingId == listingId)
+            .Where(p => listingId == null || p.ListingId == listingId);
+        
+        // Filtr na "moje inzeráty" (Liked/ToVisit/Visited)
+        if (onlyMyListings)
+        {
+            query = query.Where(p => db.UserListingStates
+                .Any(u => u.ListingId == p.ListingId 
+                    && (u.Status == "Liked" 
+                        || u.Status == "ToVisit" 
+                        || u.Status == "Visited")));
+        }
+
+        var photos = await query
             .OrderBy(p => p.ListingId)
             .ThenBy(p => p.UploadedAt)
             .Take(batchSize)
@@ -298,9 +345,20 @@ public sealed class PhotoClassificationService(
 
         if (photos.Count == 0)
         {
-            var remaining0 = await db.UserListingPhotos
-                .CountAsync(p => p.ClassifiedAt == null
-                    && (listingId == null || p.ListingId == listingId), ct);
+            var remainingQuery0 = db.UserListingPhotos
+                .Where(p => p.ClassifiedAt == null
+                    && (listingId == null || p.ListingId == listingId));
+            
+            if (onlyMyListings)
+            {
+                remainingQuery0 = remainingQuery0.Where(p => db.UserListingStates
+                    .Any(u => u.ListingId == p.ListingId 
+                        && (u.Status == "Liked" 
+                            || u.Status == "ToVisit" 
+                            || u.Status == "Visited")));
+            }
+
+            var remaining0 = await remainingQuery0.CountAsync(ct);
             return new PhotoClassificationResultDto(0, 0, 0, remaining0, 0);
         }
 
@@ -364,9 +422,21 @@ public sealed class PhotoClassificationService(
 
         stopwatch.Stop();
         var avgMs = photos.Count > 0 ? stopwatch.ElapsedMilliseconds / (double)photos.Count : 0;
-        var remaining = await db.UserListingPhotos
-            .CountAsync(p => p.ClassifiedAt == null
-                && (listingId == null || p.ListingId == listingId), ct);
+        
+        var remainingQuery = db.UserListingPhotos
+            .Where(p => p.ClassifiedAt == null
+                && (listingId == null || p.ListingId == listingId));
+        
+        if (onlyMyListings)
+        {
+            remainingQuery = remainingQuery.Where(p => db.UserListingStates
+                .Any(u => u.ListingId == p.ListingId 
+                    && (u.Status == "Liked" 
+                        || u.Status == "ToVisit" 
+                        || u.Status == "Visited")));
+        }
+
+        var remaining = await remainingQuery.CountAsync(ct);
 
         logger.LogInformation(
             "Inspection photo classification: {Processed} processed, {Succeeded} OK, {Failed} failed. Remaining: {Remaining}. Avg: {Avg}ms",

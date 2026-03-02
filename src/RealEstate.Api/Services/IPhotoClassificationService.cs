@@ -6,11 +6,11 @@ namespace RealEstate.Api.Services;
 /// </summary>
 public interface IPhotoClassificationService
 {
-    /// <summary>Klasifikuje dávku fotek z inzerátu přes Ollama Vision API. Optionally filtered to a single listing.</summary>
-    Task<PhotoClassificationResultDto> ClassifyBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null);
+    /// <summary>Klasifikuje dávku fotek z inzerátu přes Ollama Vision API. Optionally filtered to a single listing or user's saved listings.</summary>
+    Task<PhotoClassificationResultDto> ClassifyBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool onlyMyListings = false);
 
-    /// <summary>Klasifikuje dávku fotek z prohlídky (user_listing_photos) přes Ollama Vision API. Optionally filtered to a single listing.</summary>
-    Task<PhotoClassificationResultDto> ClassifyInspectionBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null);
+    /// <summary>Klasifikuje dávku fotek z prohlídky (user_listing_photos) přes Ollama Vision API. Optionally filtered to a single listing or user's saved listings.</summary>
+    Task<PhotoClassificationResultDto> ClassifyInspectionBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool onlyMyListings = false);
 
     /// <summary>Vrátí statistiku klasifikovaných vs. neklasifikovaných fotek.</summary>
     Task<PhotoClassificationStatsDto> GetClassificationStatsAsync(CancellationToken ct);
