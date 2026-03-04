@@ -22,25 +22,26 @@ def strip_diacritics(text: str) -> str:
     )
 
 # ── Modely k porovnání ─────────────────────────────────────────────────────
+# Tuple: (zobrazovane_jmeno, db_source, kind, color, popis_pro_uzivatele)
 MODELS = [
-    ("Claude Opus 4.6",      "local:claude/claude-opus-4-6",               "cloud", "#4f46e5"),
-    ("Claude Sonnet 4.6",    "local:claude/claude-sonnet-4-6",              "cloud", "#7c3aed"),
-    ("Claude Sonnet 4.5",    "local:claude/claude-sonnet-4-5-20250929",     "cloud", "#6d28d9"),
-    ("Claude 3.5 (MCP)",     "claude",                                       "cloud", "#a855f7"),
-    ("Claude 3 Haiku",       "local:claude/claude-3-haiku-20240307",        "cloud", "#c084fc"),
-    ("Mistral Large",        "local:mistral/mistral-large-latest",           "cloud", "#f97316"),
-    ("DeepSeek V3.1 671B",   "local:ollama-cloud/deepseek-v3.1:671b",       "cloud", "#0891b2"),
-    ("Gemma3 27B",           "local:ollama-cloud/gemma3:27b",                "cloud", "#0d9488"),
-    ("Mistral S3.2 24B",     "local:mistral-small3.2:24b",                  "local", "#eab308"),
-    ("Groq Llama3.3 70B",    "local:groq/llama-3.3-70b-versatile",          "cloud", "#dc2626"),
-    ("Groq + Tools",         "local:groq-tools/llama-3.3-70b-versatile",    "cloud", "#b91c1c"),
-    ("Qwen2.5 14B",          "qwen-local",                                   "local", "#16a34a"),
-    ("Qwen3.5 9B",           "local:qwen3.5:9b",                            "local", "#6b7280"),
+    ("Claude Opus 4.6",      "local:claude/claude-opus-4-6",               "cloud", "#4f46e5", "Anthropic · nejvýkonnější model řady Claude 4"),
+    ("Claude Sonnet 4.6",    "local:claude/claude-sonnet-4-6",             "cloud", "#7c3aed", "Anthropic · vyvážený výkon/cena, Claude 4 střed"),
+    ("Claude Sonnet 4.5",    "local:claude/claude-sonnet-4-5-20250929",    "cloud", "#6d28d9", "Anthropic · Claude 3.7 Sonnet (září 2025)"),
+    ("Claude 3.5 (MCP)",     "claude",                                      "cloud", "#a855f7", "Anthropic · Claude Desktop s MCP tools (iterativní volání nástrojů)"),
+    ("Claude 3 Haiku",       "local:claude/claude-3-haiku-20240307",       "cloud", "#c084fc", "Anthropic · nejrychlejší/nejlevnější Claude 3"),
+    ("Mistral Large",        "local:mistral/mistral-large-latest",          "cloud", "#f97316", "Mistral AI · vlajkový model, ~123B parametrů"),
+    ("DeepSeek V3.1 671B",   "local:ollama-cloud/deepseek-v3.1:671b",      "cloud", "#0891b2", "DeepSeek · 671B MoE, čínský open-source, top tier"),
+    ("Gemma3 27B",           "local:ollama-cloud/gemma3:27b",               "cloud", "#0d9488", "Google · Gemma 3, 27B parametrů, open-weights"),
+    ("Mistral S3.2 24B",     "local:mistral-small3.2:24b",                 "local", "#eab308", "Mistral AI · Small 3.2, 24B, lokálně přes Ollama"),
+    ("Groq Llama3.3 70B",    "local:groq/llama-3.3-70b-versatile",         "cloud", "#dc2626", "Meta · Llama 3.3 70B přes Groq API (plain prompt, bez nástrojů)"),
+    ("Groq + Tools",         "local:groq-tools/llama-3.3-70b-versatile",   "cloud", "#b91c1c", "Meta · Llama 3.3 70B + Groq function calling (get_listing + photos + cadastre)"),
+    ("Qwen2.5 14B",          "qwen-local",                                  "local", "#16a34a", "Alibaba · Qwen 2.5, 14B parametrů, lokálně přes Ollama"),
+    ("Qwen3.5 9B",           "local:qwen3.5:9b",                           "local", "#6b7280", "Alibaba · Qwen 3.5, 9B parametrů, nejmenší testovaný model"),
 ]
 
 # ── Načti texty + časy z DB (dva oddělené dotazy kvůli | v markdown textech) ─
 entries = []
-for name, src, kind, color in MODELS:
+for name, src, kind, color, desc in MODELS:
     text = psql(
         f"SELECT content FROM re_realestate.listing_analyses "
         f"WHERE listing_id='{LISTING_ID}' AND source='{src}' "
@@ -63,7 +64,7 @@ for name, src, kind, color in MODELS:
     else:
         elapsed = "n/a"
     entries.append({"name": name, "src": src, "kind": kind, "color": color,
-                    "elapsed": elapsed, "text": text})
+                    "elapsed": elapsed, "text": text, "desc": desc})
 
 # ── Témata ─────────────────────────────────────────────────────────────────
 TOPICS = [
@@ -228,6 +229,8 @@ for rank, e in enumerate(sorted_entries, 1):
         <span class="model-name">{crown}{e['name']}{note}</span>
         {kind_badge}
         <span class="elapsed-badge">time: {e['elapsed']}</span>
+        <div class="model-desc">{e.get('desc','')}</div>
+        <div class="model-src">{e['src']}</div>
         <div class="cz-row">{cz_flags}</div>
       </div>
       <div class="score-bar-wrap">
@@ -268,6 +271,8 @@ html = """<!DOCTYPE html>
   .badge-cloud{background:#1d4ed8;color:#bfdbfe}
   .badge-local{background:#166534;color:#bbf7d0}
   .elapsed-badge{font-size:.75rem;color:#94a3b8;margin-left:auto}
+  .model-desc{width:100%;font-size:.72rem;color:#64748b;margin-top:.15rem;font-style:italic}
+  .model-src{width:100%;font-size:.68rem;color:#475569;font-family:monospace;margin-top:.1rem}
   .cz-row{width:100%;font-size:.8rem;letter-spacing:.1rem;margin-top:.2rem}
   .cz.ok{color:#4ade80;font-weight:700}
   .cz.fail{color:#f87171;opacity:.7}
@@ -301,6 +306,28 @@ html = """<!DOCTYPE html>
   Ostatni modely dostaly <strong>jednorazovy textovy prompt</strong> bez pristupu k nastrojum.
   Vysledkovy rozdil odrazi workflow, ne jen inteligenci modelu.
 </div>
+
+<details style="margin-bottom:1.5rem">
+<summary style="cursor:pointer;color:#94a3b8;font-size:.85rem;padding:.4rem 0">📖 Legenda – co znamenají jednotlivé modely a odznaky?</summary>
+<div style="background:#1e293b;border-radius:.5rem;padding:1rem;margin-top:.5rem;font-size:.82rem;color:#94a3b8;line-height:1.8">
+  <strong style="color:#e2e8f0">Odznaky na kartě:</strong><br>
+  <span style="background:#1d4ed8;color:#bfdbfe;padding:.1rem .4rem;border-radius:.25rem;font-size:.75rem;font-weight:700">CLOUD</span> = model běží na vzdáleném API (platí se za tokeny) &nbsp;·&nbsp;
+  <span style="background:#166534;color:#bbf7d0;padding:.1rem .4rem;border-radius:.25rem;font-size:.75rem;font-weight:700">LOCAL</span> = model běží lokálně přes Ollama (zdarma, ale pomalejší)<br><br>
+  <strong style="color:#e2e8f0">Modely: co jsou zač</strong><br>
+  <b>Anthropic Claude 3 Haiku</b> – nejrychlejší a nejlevnější Claude, základní tier<br>
+  <b>Anthropic Claude Sonnet 4.5 / 4.6</b> – střední tier Claude 4, vyvážený výkon/cena<br>
+  <b>Anthropic Claude Opus 4.6</b> – nejvýkonnější Claude 4, nejdražší<br>
+  <b>Claude 3.5 (MCP)</b> – Claude Desktop s přístupem k nástrojům (volá DB, čte fotky iterativně)<br>
+  <b>Mistral Large</b> – vlajkový model Mistral AI, přibližně 123B parametrů<br>
+  <b>DeepSeek V3.1 671B</b> – čínský open-source gigant, 671B parametrů (MoE architektura)<br>
+  <b>Gemma3 27B</b> – Google open-weights model, 27B parametrů<br>
+  <b>Mistral Small 3.2 24B</b> – menší lokální Mistral, 24B parametrů<br>
+  <b>Groq Llama 3.3 70B (plain)</b> – Meta Llama 3.3 70B přes Groq API, jednorázový textový prompt<br>
+  <b>Groq + Tools</b> – <em>stejný model</em> (Llama 3.3 70B), ale s vícekrokovým function callingem; model sám načte data z DB<br>
+  <b>Qwen 2.5 14B / Qwen 3.5 9B</b> – Alibaba open-source modely, 14B a 9B parametrů, nejmenší testované<br><br>
+  <strong style="color:#e2e8f0">Proč jsou Groq modely rychlejší?</strong> Groq používá vlastní LPU čipy optimalizované pro inferenci (ne GPU) → ~10× rychlejší než standardní GPU inference.
+</div>
+</details>
 
 <div class="grid">""" + cards_html + """</div>
 
