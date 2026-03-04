@@ -169,6 +169,273 @@ public sealed class LocalAnalysisService(
             ?.Trim() ?? string.Empty;
     }
 
+    // ─── Groq Tool-Use loop (OpenAI-compatible function calling) ─────────────
+    // Prefix: groq-tools/<model>  př. groq-tools/llama-3.3-70b-versatile
+    // Tok: 1) Groq dostane nástroje  2) Volá je → .NET vykoná  3) Groq vygeneruje analýzu
+    private async Task<string> GroqToolingAsync(
+        string model, Guid listingId, string systemPrompt, CancellationToken ct)
+    {
+        var apiKey = GroqApiKey ?? throw new InvalidOperationException("Groq:ApiKey není nastaven.");
+
+        // ── Definice nástrojů (OpenAI function calling formát) ───────────────
+        var toolDefs = new object[]
+        {
+            new {
+                type = "function",
+                function = new {
+                    name = "get_listing_details",
+                    description = "Načte kompletní detail inzerátu: cena, plocha, lokace, dispozice, stav, typ stavby, rok výstavby, popis z inzerátu, URL, zdroj.",
+                    parameters = new {
+                        type = "object",
+                        properties = new { listing_id = new { type = "string", description = "UUID inzerátu" } },
+                        required = new[] { "listing_id" }
+                    }
+                }
+            },
+            new {
+                type = "function",
+                function = new {
+                    name = "get_photo_descriptions",
+                    description = "Načte AI klasifikace a popisy fotografií nemovitosti (exteriér, interiér, koupelna, zahrada…). Klíčové pro posouzení fyzického stavu.",
+                    parameters = new {
+                        type = "object",
+                        properties = new { listing_id = new { type = "string", description = "UUID inzerátu" } },
+                        required = new[] { "listing_id" }
+                    }
+                }
+            },
+            new {
+                type = "function",
+                function = new {
+                    name = "get_cadastre_data",
+                    description = "Načte data z katastru nemovitostí: parcelní číslo, LV, výměra, druh pozemku, zástavní práva a věcná břemena.",
+                    parameters = new {
+                        type = "object",
+                        properties = new { listing_id = new { type = "string", description = "UUID inzerátu" } },
+                        required = new[] { "listing_id" }
+                    }
+                }
+            },
+        };
+
+        // ── Počáteční zprávy ─────────────────────────────────────────────────
+        var messagesList = new List<object>
+        {
+            new { role = "system", content = systemPrompt },
+            new { role = "user",   content =
+                $"Proveď kompletní analýzu nemovitosti (ID: {listingId}). " +
+                "Nejdříve použij nástroje get_listing_details a get_photo_descriptions pro načtení dat. " +
+                "Pokud jsou dostupná data katastru, načti je přes get_cadastre_data. " +
+                "Pak napiš strukturovanou analýzu v češtině dle instrukcí výše."
+            },
+        };
+
+        using var http = httpClientFactory.CreateClient();
+        http.Timeout = TimeSpan.FromMinutes(3);
+        http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+
+        // ── Tool-use loop (max 8 iterací) ────────────────────────────────────
+        for (int turn = 0; turn < 8; turn++)
+        {
+            var requestObj = new
+            {
+                model,
+                messages = messagesList,
+                tools = toolDefs,
+                tool_choice = turn == 0 ? (object)"required" : "auto",  // první turn MUSÍ zavolat tool
+                temperature = 0.3,
+                max_tokens  = 4096,
+            };
+
+            using var body = new StringContent(
+                JsonSerializer.Serialize(requestObj), Encoding.UTF8, "application/json");
+            using var resp = await http.PostAsync($"{GroqBaseUrl}/chat/completions", body, ct);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync(ct);
+                logger.LogError("GroqTools HTTP {Status} turn {Turn}: {Err}", (int)resp.StatusCode, turn, err[..Math.Min(400, err.Length)]);
+                throw new HttpRequestException($"GroqTools HTTP {(int)resp.StatusCode}");
+            }
+
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            var choice       = doc.RootElement.GetProperty("choices")[0];
+            var finishReason = choice.GetProperty("finish_reason").GetString();
+            var assistantMsg = choice.GetProperty("message");
+
+            // Přidej assistant zprávu do historie jako JsonElement (zachová tool_calls strukturu)
+            messagesList.Add(assistantMsg.Clone());
+
+            logger.LogInformation("GroqTools turn {Turn}/{Max}: finish_reason={Reason}", turn + 1, 8, finishReason);
+
+            if (finishReason is "stop" or "length")
+            {
+                // Finální odpověď
+                var content = assistantMsg.TryGetProperty("content", out var c) ? c.GetString() : null;
+                return content?.Trim() ?? string.Empty;
+            }
+
+            if (finishReason == "tool_calls" &&
+                assistantMsg.TryGetProperty("tool_calls", out var toolCalls))
+            {
+                foreach (var toolCall in toolCalls.EnumerateArray())
+                {
+                    var toolCallId = toolCall.GetProperty("id").GetString()!;
+                    var funcName   = toolCall.GetProperty("function").GetProperty("name").GetString()!;
+                    var argsJson   = toolCall.GetProperty("function").GetProperty("arguments").GetString() ?? "{}";
+
+                    using var argsDoc  = JsonDocument.Parse(argsJson);
+                    var toolResult = await ExecuteGroqToolAsync(funcName, argsDoc.RootElement, listingId, ct);
+
+                    logger.LogInformation("GroqTools tool={Tool} → {Len} znaků výsledku", funcName, toolResult.Length);
+
+                    messagesList.Add(new { role = "tool", tool_call_id = toolCallId, content = toolResult });
+                }
+                continue;
+            }
+
+            // Neočekávaný finish_reason
+            logger.LogWarning("GroqTools: neočekávaný finish_reason={Reason}, ukončuji loop", finishReason);
+            break;
+        }
+
+        // Fallback: pokud loopoval až do konce, vyžádáme finální odpověď bez tools
+        logger.LogWarning("GroqTools: dosažen limit turns, generuji bez tools");
+        messagesList.Add(new { role = "user", content = "Na základě informací výše napiš závěrečnou strukturovanou analýzu v češtině. Nepoužívej další nástroje." });
+        var fbReq = new { model, messages = messagesList, temperature = 0.3, max_tokens = 4096 };
+        using var fbBody = new StringContent(JsonSerializer.Serialize(fbReq), Encoding.UTF8, "application/json");
+        using var fbHttp = httpClientFactory.CreateClient();
+        fbHttp.Timeout = TimeSpan.FromMinutes(3);
+        fbHttp.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+        using var fbResp = await fbHttp.PostAsync($"{GroqBaseUrl}/chat/completions", fbBody, ct);
+        var fbJson = await fbResp.Content.ReadAsStringAsync(ct);
+        using var fbDoc = JsonDocument.Parse(fbJson);
+        return fbDoc.RootElement
+            .GetProperty("choices")[0].GetProperty("message").GetProperty("content")
+            .GetString()?.Trim() ?? string.Empty;
+    }
+
+    // ─── Vykonání Groq tool callu ─────────────────────────────────────────────
+    private async Task<string> ExecuteGroqToolAsync(
+        string funcName, JsonElement args, Guid listingId, CancellationToken ct)
+    {
+        switch (funcName)
+        {
+            case "get_listing_details":
+            {
+                var listing = await db.Listings
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(l => l.Id == listingId, ct);
+                if (listing is null) return "Inzerát nenalezen.";
+
+                var sb = new StringBuilder();
+                sb.AppendLine($"# {listing.Title}");
+                sb.AppendLine($"- **Lokace:** {listing.LocationText}");
+                sb.AppendLine($"- **Cena:** {(listing.Price.HasValue ? $"{listing.Price.Value:N0} Kč" : "neuvedena")}{(listing.PriceNote is not null ? $" ({listing.PriceNote})" : "")}");
+                sb.AppendLine($"- **Typ:** {listing.PropertyType} / {listing.OfferType}");
+                if (listing.AreaBuiltUp.HasValue) sb.AppendLine($"- **Zastavěná plocha:** {listing.AreaBuiltUp:F0} m²");
+                if (listing.AreaLand.HasValue)    sb.AppendLine($"- **Pozemek:** {listing.AreaLand:F0} m²");
+                if (listing.Disposition is not null)      sb.AppendLine($"- **Dispozice:** {listing.Disposition}");
+                if (listing.ConstructionType is not null) sb.AppendLine($"- **Typ stavby:** {listing.ConstructionType}");
+                if (listing.Condition is not null)        sb.AppendLine($"- **Stav:** {listing.Condition}");
+                // Rok výstavby je uložen v AiNormalizedData JSON (klíč "rok_stavby")
+                if (listing.AiNormalizedData is not null)
+                {
+                    try
+                    {
+                        using var ndoc = JsonDocument.Parse(listing.AiNormalizedData);
+                        if (ndoc.RootElement.TryGetProperty("rok_stavby", out var yrEl) &&
+                            yrEl.ValueKind is JsonValueKind.Number or JsonValueKind.String)
+                            sb.AppendLine($"- **Rok výstavby:** {yrEl}");
+                    }
+                    catch { /* ignorovat malformed JSON */ }
+                }
+                sb.AppendLine($"- **GPS:** {(listing.Latitude.HasValue ? $"{listing.Latitude:F6}, {listing.Longitude:F6}" : "–")}");
+                sb.AppendLine($"- **Zdroj:** {listing.SourceName} ({listing.SourceCode})");
+                sb.AppendLine($"- **URL:** {listing.Url}");
+                sb.AppendLine();
+                sb.AppendLine("## Popis z inzerátu:");
+                sb.AppendLine(listing.Description ?? "(bez popisu)");
+                return sb.ToString();
+            }
+
+            case "get_photo_descriptions":
+            {
+                var photos = await db.ListingPhotos
+                    .AsNoTracking()
+                    .Where(p => p.ListingId == listingId && p.ClassifiedAt != null)
+                    .OrderBy(p => p.Order)
+                    .ToListAsync(ct);
+
+                if (photos.Count == 0)
+                    return "Žádné klasifikované fotografie nejsou k dispozici pro tento inzerát.";
+
+                var sb = new StringBuilder();
+                sb.AppendLine($"# Fotografie ({photos.Count} klasifikovaných):");
+                foreach (var p in photos)
+                {
+                    sb.Append($"- **Foto {p.Order + 1}** [{p.PhotoCategory ?? "?"}]");
+                    if (p.DamageDetected == true) sb.Append(" ⚠️ VIDITELNÉ POŠKOZENÍ");
+                    if (!string.IsNullOrWhiteSpace(p.PhotoDescription))
+                        sb.Append($": {p.PhotoDescription}");
+                    var labels = p.PhotoLabels is not null
+                        ? JsonSerializer.Deserialize<List<string>>(p.PhotoLabels)
+                        : null;
+                    if (labels?.Count > 0)
+                        sb.Append($" [štítky: {string.Join(", ", labels)}]");
+                    sb.AppendLine();
+                }
+                var dmg = photos.Count(p => p.DamageDetected == true);
+                if (dmg > 0) sb.AppendLine($"\n⚠️ Celkem {dmg}/{photos.Count} fotek detekuje poškození!");
+                return sb.ToString();
+            }
+
+            case "get_cadastre_data":
+            {
+                try
+                {
+                    var conn = db.Database.GetDbConnection();
+                    if (conn.State != System.Data.ConnectionState.Open)
+                        await conn.OpenAsync(ct);
+
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText =
+                        "SELECT parcel_number, lv_number, land_area_m2, land_type, owner_name, municipality, encumbrances " +
+                        "FROM re_realestate.listing_cadastre_data " +
+                        "WHERE listing_id = @id LIMIT 1";
+                    var p = cmd.CreateParameter();
+                    p.ParameterName = "@id"; p.Value = listingId;
+                    cmd.Parameters.Add(p);
+
+                    using var reader = await cmd.ExecuteReaderAsync(ct);
+                    if (!await reader.ReadAsync(ct))
+                        return "Data z katastru nejsou pro tento inzerát k dispozici.";
+
+                    var sb = new StringBuilder();
+                    sb.AppendLine("# Data z katastru nemovitostí:");
+                    if (!reader.IsDBNull(0)) sb.AppendLine($"- **Parcelní číslo:** {reader.GetString(0)}");
+                    if (!reader.IsDBNull(1)) sb.AppendLine($"- **List vlastnictví (LV):** {reader.GetString(1)}");
+                    if (!reader.IsDBNull(2)) sb.AppendLine($"- **Výměra parcely:** {reader.GetInt32(2)} m²");
+                    if (!reader.IsDBNull(3)) sb.AppendLine($"- **Druh pozemku:** {reader.GetString(3)}");
+                    if (!reader.IsDBNull(4)) sb.AppendLine($"- **Vlastník:** {reader.GetString(4)}");
+                    if (!reader.IsDBNull(5)) sb.AppendLine($"- **Obec/KÚ:** {reader.GetString(5)}");
+                    if (!reader.IsDBNull(6) && !string.IsNullOrWhiteSpace(reader.GetString(6)))
+                        sb.AppendLine($"- **Věcná břemena / zástavní práva:** {reader.GetString(6)}");
+                    return sb.ToString();
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "get_cadastre_data: tabulka nebo data nedostupná pro {ListingId}", listingId);
+                    return "Data z katastru nemovitostí nejsou k dispozici.";
+                }
+            }
+
+            default:
+                return $"Nástroj '{funcName}' není implementován.";
+        }
+    }
+
     // ─── Hlavní analýza ──────────────────────────────────────────────────────
     public async Task<LocalAnalysisResultDto> AnalyzeAsync(Guid listingId, string? chatModel = null, CancellationToken ct = default)
     {
@@ -198,7 +465,11 @@ public sealed class LocalAnalysisService(
             listingId, effectiveModel ?? "výchozí (config)");
 
         var analysisMarkdown = effectiveModel is not null
-            ? effectiveModel.StartsWith("groq/", StringComparison.OrdinalIgnoreCase)
+            ? effectiveModel.StartsWith("groq-tools/", StringComparison.OrdinalIgnoreCase)
+                ? await GroqToolingAsync(
+                    effectiveModel["groq-tools/".Length..],
+                    listingId, systemPrompt, ct)
+                : effectiveModel.StartsWith("groq/", StringComparison.OrdinalIgnoreCase)
                 ? await ExternalOpenAiChatAsync(
                     GroqBaseUrl,
                     GroqApiKey ?? throw new InvalidOperationException("Groq:ApiKey není nastaven."),
