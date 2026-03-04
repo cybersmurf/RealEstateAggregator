@@ -148,6 +148,7 @@ app.MapSpatialEndpoints();
 app.MapCadastreEndpoints();
 app.MapPhotoEndpoints();
 app.MapOllamaEndpoints();
+app.MapLocalAnalysisEndpoints();
 
 // ─── Scraping endpoints – chráněno API klíčem ─────────────────────────────────
 app.MapScrapingEndpoints()

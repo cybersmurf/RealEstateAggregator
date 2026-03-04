@@ -23,6 +23,9 @@ public class ListingAnalysis
     /// <summary>Volitelný nadpis (např. "Analýza ze dne 25.2.2026")</summary>
     public string? Title { get; set; }
 
+    /// <summary>Doba generování v sekundách (NULL = neznámo / starší záznamy)</summary>
+    public double? ElapsedSeconds { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

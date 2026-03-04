@@ -107,6 +107,7 @@ public static class ServiceCollectionExtensions
         });
         // 🤖 Ollama text features (smart tags, normalizace, cený signál, duplicity)
         services.AddScoped<IOllamaTextService, OllamaTextService>();
+        services.AddScoped<ILocalAnalysisService, LocalAnalysisService>();
         return services;
     }
 

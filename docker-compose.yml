@@ -45,6 +45,13 @@ services:
       - Ollama__BaseUrl=http://host.docker.internal:11434
       - Ollama__VisionModel=llama3.2-vision:11b
       - Embedding__Provider=ollama
+      - OpenRouter__ApiKey=${OPENROUTER_API_KEY:-}
+      - OpenRouter__BaseUrl=https://openrouter.ai/api/v1
+      - Groq__ApiKey=${GROQ_API_KEY:-}
+      - Mistral__ApiKey=${MISTRAL_API_KEY:-}
+      - OllamaCloud__ApiKey=${OLLAMA_CLOUD_API_KEY:-}
+      - OllamaCloud__BaseUrl=https://ollama.com/v1
+      - Anthropic__ApiKey=${ANTHROPIC_API_KEY:-}
       - Embedding__VectorDimensions=768
       - PHOTOS_PUBLIC_BASE_URL=http://localhost:5001  # URL přístupná z prohlížeče pro stažené fotky
     depends_on:
