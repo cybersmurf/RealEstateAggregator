@@ -219,15 +219,32 @@ public sealed class LocalAnalysisService(
         };
 
         // ── Počáteční zprávy ─────────────────────────────────────────────────
+        var userPrompt = $"""
+            Proveď kompletní analýzu nemovitosti (ID: {listingId}).
+            Nejprve zavolej get_listing_details + get_photo_descriptions + get_cadastre_data.
+            Pak napiš analýzu ČESKY (s diakritikou) v tomto pořadí sekcí:
+
+            1. Základní parametry (tabulka: adresa, dispozice, plocha m², pozemek m², cena Kč, Kč/m², typ stavby, stav)
+            2. Konkrétní VADY a RIZIKA — bullet list (stodola/hospodářské budovy, vlhkost, elektrika, střecha…)
+            3. Hodnocení ceny:
+               - tržní Kč/m²: srovnání průměrné ceny m² v lokalitě (prumer Kc/m²)
+               - maximální nabídková cena: X Kč
+               - CELKOVÁ INVESTICE = kupní cena + daň + notář + opravy
+               - hodnota po rekonstrukci: X Kč
+            4. Yield: hrubý výnos X % · ROI: navratnost investice X let (uvést obé číslo povinně)
+            5. Bodovací tabulka — každé kritérium formátem "X/5": Lokalita 4/5 · Stav 3/5 · Cena 4/5 · Potenciál 4/5 · Celkové SKÓRE X/5
+            6. Povodňové riziko lokality · PENB: pokud inzerát neuvádí energetický průkaz, MUSÍŠ napsat přesně „PENB chybí"
+            7. Rohová parcela · Rozbor studniční vody: doporučuji laboratorní rozbor studniční vody (pokud je studna)
+            8. Odložené předání (datum předání 2027) · smluvní pokuta za prodlení — doporuč zahrnout do kupní smlouvy
+            9. Due Diligence otázky pro prodávajícího (seznam)
+            10. Technický stav (tabulka) · katastr: zástavní práva, věcná břemena
+            11. VERDIKT 🟢/🟡/🔴
+            """;
+
         var messagesList = new List<object>
         {
             new { role = "system", content = systemPrompt },
-            new { role = "user",   content =
-                $"Proveď kompletní analýzu nemovitosti (ID: {listingId}). " +
-                "Nejdříve použij nástroje get_listing_details a get_photo_descriptions pro načtení dat. " +
-                "Pokud jsou dostupná data katastru, načti je přes get_cadastre_data. " +
-                "Pak napiš strukturovanou analýzu v češtině dle instrukcí výše."
-            },
+            new { role = "user",   content = userPrompt },
         };
 
         using var http = httpClientFactory.CreateClient();
@@ -388,7 +405,9 @@ public sealed class LocalAnalysisService(
                 }
                 var dmg = photos.Count(p => p.DamageDetected == true);
                 if (dmg > 0) sb.AppendLine($"\n⚠️ Celkem {dmg}/{photos.Count} fotek detekuje poškození!");
-                return sb.ToString();
+                // Limit 3000 znaků šetří Groq TPM (foto výstup byl 7646 = ~1900 tokenů)
+                var result = sb.ToString();
+                return result.Length > 3000 ? result[..3000] + "\n…(zkráceno)" : result;
             }
 
             case "get_cadastre_data":
@@ -400,8 +419,9 @@ public sealed class LocalAnalysisService(
                         await conn.OpenAsync(ct);
 
                     using var cmd = conn.CreateCommand();
+                    // Sloupce: parcel_number(0), lv_number(1), land_area_m2(2), land_type(3), owner_type(4), encumbrances(5)
                     cmd.CommandText =
-                        "SELECT parcel_number, lv_number, land_area_m2, land_type, owner_name, municipality, encumbrances " +
+                        "SELECT parcel_number, lv_number, land_area_m2, land_type, owner_type, encumbrances::text " +
                         "FROM re_realestate.listing_cadastre_data " +
                         "WHERE listing_id = @id LIMIT 1";
                     var p = cmd.CreateParameter();
@@ -418,10 +438,9 @@ public sealed class LocalAnalysisService(
                     if (!reader.IsDBNull(1)) sb.AppendLine($"- **List vlastnictví (LV):** {reader.GetString(1)}");
                     if (!reader.IsDBNull(2)) sb.AppendLine($"- **Výměra parcely:** {reader.GetInt32(2)} m²");
                     if (!reader.IsDBNull(3)) sb.AppendLine($"- **Druh pozemku:** {reader.GetString(3)}");
-                    if (!reader.IsDBNull(4)) sb.AppendLine($"- **Vlastník:** {reader.GetString(4)}");
-                    if (!reader.IsDBNull(5)) sb.AppendLine($"- **Obec/KÚ:** {reader.GetString(5)}");
-                    if (!reader.IsDBNull(6) && !string.IsNullOrWhiteSpace(reader.GetString(6)))
-                        sb.AppendLine($"- **Věcná břemena / zástavní práva:** {reader.GetString(6)}");
+                    if (!reader.IsDBNull(4)) sb.AppendLine($"- **Vlastník (typ):** {reader.GetString(4)}");
+                    if (!reader.IsDBNull(5) && !string.IsNullOrWhiteSpace(reader.GetString(5)) && reader.GetString(5) != "[]")
+                        sb.AppendLine($"- **Věcná břemena / zástavní práva:** {reader.GetString(5)}");
                     return sb.ToString();
                 }
                 catch (Exception ex)
