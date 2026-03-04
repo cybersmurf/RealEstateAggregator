@@ -178,11 +178,14 @@ public sealed class PhotoClassificationService(
 
                 using var classifyContent = new StringContent(
                     JsonSerializer.Serialize(classifyRequest), Encoding.UTF8, "application/json");
-                using var classifyResponse = await httpClient.PostAsync(ollamaUrl, classifyContent, ct);
+                // CancellationToken.None: nechceme přerušit Ollama volání kvůli HTTP request timeoutu
+                // (Blazor HttpClient má default 100s; vision model může trvat i 5 min)
+                // Bezpečnostní síť = OllamaVision HttpClient.Timeout = 5 minut
+                using var classifyResponse = await httpClient.PostAsync(ollamaUrl, classifyContent, CancellationToken.None);
 
                 if (!classifyResponse.IsSuccessStatusCode)
                 {
-                    var body = await classifyResponse.Content.ReadAsStringAsync(ct);
+                    var body = await classifyResponse.Content.ReadAsStringAsync(CancellationToken.None);
                     logger.LogWarning(
                         "Ollama classify HTTP {Status} for listing {ListingId} photo {Order}: {Body}",
                         (int)classifyResponse.StatusCode, photo.ListingId, photo.Order,
@@ -191,7 +194,7 @@ public sealed class PhotoClassificationService(
                     continue;
                 }
 
-                var classifyBody = await classifyResponse.Content.ReadAsStringAsync(ct);
+                var classifyBody = await classifyResponse.Content.ReadAsStringAsync(CancellationToken.None);
                 var classifyOllama = JsonSerializer.Deserialize<OllamaGenerateResponse>(classifyBody, _jsonOptions);
 
                 if (string.IsNullOrWhiteSpace(classifyOllama?.Response))
@@ -240,11 +243,11 @@ public sealed class PhotoClassificationService(
 
                     using var descContent = new StringContent(
                         JsonSerializer.Serialize(descRequest), Encoding.UTF8, "application/json");
-                    using var descResponse = await httpClient.PostAsync(ollamaUrl, descContent, ct);
+                    using var descResponse = await httpClient.PostAsync(ollamaUrl, descContent, CancellationToken.None);
 
                     if (descResponse.IsSuccessStatusCode)
                     {
-                        var descBody = await descResponse.Content.ReadAsStringAsync(ct);
+                        var descBody = await descResponse.Content.ReadAsStringAsync(CancellationToken.None);
                         var descOllama = JsonSerializer.Deserialize<OllamaGenerateResponse>(descBody, _jsonOptions);
                         if (!string.IsNullOrWhiteSpace(descOllama?.Response))
                         {
@@ -291,7 +294,7 @@ public sealed class PhotoClassificationService(
         }
 
         if (succeeded > 0)
-            await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(CancellationToken.None);
 
         stopwatch.Stop();
         var avgMs = photos.Count > 0 ? stopwatch.ElapsedMilliseconds / (double)photos.Count : 0;
@@ -418,7 +421,7 @@ public sealed class PhotoClassificationService(
         }
 
         if (succeeded > 0)
-            await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(CancellationToken.None);
 
         stopwatch.Stop();
         var avgMs = photos.Count > 0 ? stopwatch.ElapsedMilliseconds / (double)photos.Count : 0;
@@ -469,18 +472,18 @@ public sealed class PhotoClassificationService(
 
         using var classifyContent = new StringContent(
             JsonSerializer.Serialize(classifyRequest), Encoding.UTF8, "application/json");
-        using var classifyResponse = await httpClient.PostAsync(ollamaUrl, classifyContent, ct);
+        using var classifyResponse = await httpClient.PostAsync(ollamaUrl, classifyContent, CancellationToken.None);
 
         if (!classifyResponse.IsSuccessStatusCode)
         {
-            var body = await classifyResponse.Content.ReadAsStringAsync(ct);
+            var body = await classifyResponse.Content.ReadAsStringAsync(CancellationToken.None);
             logger.LogWarning("Ollama classify HTTP {Status} for {ListingId}/{PhotoId}: {Body}",
                 (int)classifyResponse.StatusCode, listingId, photoId,
                 body[..Math.Min(200, body.Length)]);
             return (null, null);
         }
 
-        var classifyBody   = await classifyResponse.Content.ReadAsStringAsync(ct);
+        var classifyBody   = await classifyResponse.Content.ReadAsStringAsync(CancellationToken.None);
         var classifyOllama = JsonSerializer.Deserialize<OllamaGenerateResponse>(classifyBody, _jsonOptions);
 
         if (string.IsNullOrWhiteSpace(classifyOllama?.Response))
@@ -515,10 +518,10 @@ public sealed class PhotoClassificationService(
             };
             using var descContent = new StringContent(
                 JsonSerializer.Serialize(descRequest), Encoding.UTF8, "application/json");
-            using var descResponse = await httpClient.PostAsync(ollamaUrl, descContent, ct);
+            using var descResponse = await httpClient.PostAsync(ollamaUrl, descContent, CancellationToken.None);
             if (descResponse.IsSuccessStatusCode)
             {
-                var descBody   = await descResponse.Content.ReadAsStringAsync(ct);
+                var descBody   = await descResponse.Content.ReadAsStringAsync(CancellationToken.None);
                 var descOllama = JsonSerializer.Deserialize<OllamaGenerateResponse>(descBody, _jsonOptions);
                 if (!string.IsNullOrWhiteSpace(descOllama?.Response))
                     description = TrimToSentence(descOllama.Response.Trim(), maxLength: 400);
