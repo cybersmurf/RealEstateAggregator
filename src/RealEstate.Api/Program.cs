@@ -110,12 +110,25 @@ if (app.Environment.IsDevelopment())
     {
         using var scope = app.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<RealEstateDbContext>();
-        
-        // 🔥 Use EnsureCreatedAsync instead of MigrateAsync to avoid column naming conflicts
-        // This creates the database schema from scratch if needed
-        await dbContext.Database.EnsureCreatedAsync();
-        
-        await DbInitializer.SeedAsync(dbContext);
+
+        // Retry loop: after macOS restart Docker may start API before postgres is ready
+        const int maxDbRetries = 20;
+        for (int attempt = 1; attempt <= maxDbRetries; attempt++)
+        {
+            try
+            {
+                // 🔥 Use EnsureCreatedAsync instead of MigrateAsync to avoid column naming conflicts
+                await dbContext.Database.EnsureCreatedAsync();
+                await DbInitializer.SeedAsync(dbContext);
+                break;
+            }
+            catch (Exception ex) when (attempt < maxDbRetries)
+            {
+                Log.Warning("DB not ready (pokus {Attempt}/{Max}): {Msg}. Čekám 5s...",
+                    attempt, maxDbRetries, ex.Message.Split('\n')[0]);
+                await Task.Delay(TimeSpan.FromSeconds(5));
+            }
+        }
     }
 }
 else
