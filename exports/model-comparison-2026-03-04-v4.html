@@ -2,7 +2,7 @@
 <html lang="cs">
 <head>
 <meta charset="UTF-8">
-<title>Model Benchmark 04. 03. 2026 21:44</title>
+<title>Model Benchmark 05. 03. 2026 06:15</title>
 <style>
   body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:2rem}
   h1{color:#f1f5f9;font-size:1.6rem;margin-bottom:.2rem}
@@ -16,6 +16,8 @@
   .badge-cloud{background:#1d4ed8;color:#bfdbfe}
   .badge-local{background:#166534;color:#bbf7d0}
   .elapsed-badge{font-size:.75rem;color:#94a3b8;margin-left:auto}
+  .model-desc{width:100%;font-size:.72rem;color:#64748b;margin-top:.15rem;font-style:italic}
+  .model-src{width:100%;font-size:.68rem;color:#475569;font-family:monospace;margin-top:.1rem}
   .cz-row{width:100%;font-size:.8rem;letter-spacing:.1rem;margin-top:.2rem}
   .cz.ok{color:#4ade80;font-weight:700}
   .cz.fail{color:#f87171;opacity:.7}
@@ -42,7 +44,7 @@
 </head>
 <body>
 <h1>Model Benchmark - Citonice 5+1, 240 m2</h1>
-<div class="sub">Generovano 04. 03. 2026 21:44 - 12 modelu - 18 hodnoticich temat (15 obsah + 3 cestina)</div>
+<div class="sub">Generovano 05. 03. 2026 06:15 - 14 modelu - 18 hodnoticich temat (15 obsah + 3 cestina)</div>
 
 <div class="note">
   POZNAMKA: Claude 3.5 (MCP) je analyza z <strong>Claude Desktop s MCP tools</strong> - model sam volal get_listing(), cetl fotky a data iterativne.
@@ -50,69 +52,230 @@
   Vysledkovy rozdil odrazi workflow, ne jen inteligenci modelu.
 </div>
 
+<details style="margin-bottom:1.5rem">
+<summary style="cursor:pointer;color:#94a3b8;font-size:.85rem;padding:.4rem 0">📖 Legenda – co znamenají jednotlivé modely a odznaky?</summary>
+<div style="background:#1e293b;border-radius:.5rem;padding:1rem;margin-top:.5rem;font-size:.82rem;color:#94a3b8;line-height:1.8">
+  <strong style="color:#e2e8f0">Odznaky na kartě:</strong><br>
+  <span style="background:#1d4ed8;color:#bfdbfe;padding:.1rem .4rem;border-radius:.25rem;font-size:.75rem;font-weight:700">CLOUD</span> = model běží na vzdáleném API (platí se za tokeny) &nbsp;·&nbsp;
+  <span style="background:#166534;color:#bbf7d0;padding:.1rem .4rem;border-radius:.25rem;font-size:.75rem;font-weight:700">LOCAL</span> = model běží lokálně přes Ollama (zdarma, ale pomalejší)<br><br>
+  <strong style="color:#e2e8f0">Modely: co jsou zač</strong><br>
+  <b>Anthropic Claude 3 Haiku</b> – nejrychlejší a nejlevnější Claude, základní tier<br>
+  <b>Anthropic Claude Sonnet 4.5 / 4.6</b> – střední tier Claude 4, vyvážený výkon/cena<br>
+  <b>Anthropic Claude Opus 4.6</b> – nejvýkonnější Claude 4, nejdražší<br>
+  <b>Claude 3.5 (MCP)</b> – Claude Desktop s přístupem k nástrojům (volá DB, čte fotky iterativně)<br>
+  <b>Mistral Large</b> – vlajkový model Mistral AI, přibližně 123B parametrů<br>
+  <b>Mistral Large + Tools</b> – <em>stejný model</em>, ale s vícekrokovým function callingem (tool_choice="any"); porovnání plain vs tool use na Mistralu<br>
+  <b>DeepSeek V3.1 671B</b> – čínský open-source gigant, 671B parametrů (MoE architektura)<br>
+  <b>Gemma3 27B</b> – Google open-weights model, 27B parametrů<br>
+  <b>Mistral Small 3.2 24B</b> – menší lokální Mistral, 24B parametrů<br>
+  <b>Groq Llama 3.3 70B (plain)</b> – Meta Llama 3.3 70B přes Groq API, jednorázový textový prompt<br>
+  <b>Groq + Tools</b> – <em>stejný model</em> (Llama 3.3 70B), ale s vícekrokovým function callingem; model sám načte data z DB<br>
+  <b>Qwen 2.5 14B / Qwen 3.5 9B</b> – Alibaba open-source modely, 14B a 9B parametrů, nejmenší testované<br><br>
+  <strong style="color:#e2e8f0">Proč jsou Groq modely rychlejší?</strong> Groq používá vlastní LPU čipy optimalizované pro inferenci (ne GPU) → ~10× rychlejší než standardní GPU inference.
+</div>
+</details>
+
 <div class="grid">
-    <div class="card" style="border-left: 4px solid #a855f7">
+    <div class="card" style="border-left: 4px solid #b91c1c">
       <div class="card-header">
         <span class="rank">#1</span>
-        <span class="model-name">WINNER Claude 3.5 (MCP)</span>
+        <span class="model-name">WINNER Groq + Tools</span>
         <span class="badge badge-cloud">CLOUD</span>
-        <span class="elapsed-badge">time: n/a</span>
+        <span class="elapsed-badge">time: 7s</span>
+        <div class="model-desc">Meta · Llama 3.3 70B + Groq function calling (get_listing + photos + cadastre)</div>
+        <div class="model-src">local:groq-tools/llama-3.3-70b-versatile</div>
         <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
       </div>
       <div class="score-bar-wrap">
-        <div class="score-bar" style="width:72%; background:#a855f7"></div>
+        <div class="score-bar" style="width:94%; background:#b91c1c"></div>
       </div>
-      <span class="score-val">13/18</span>
-      <span class="char-count">8,730 znaku</span>
+      <span class="score-val">17/18</span>
+      <span class="char-count">2,016 znaku</span>
     </div>
-    <div class="card" style="border-left: 4px solid #c084fc">
+    <div class="card" style="border-left: 4px solid #a855f7">
       <div class="card-header">
         <span class="rank">#2</span>
-        <span class="model-name">Claude 3 Haiku</span>
+        <span class="model-name">Claude 3.5 (MCP)</span>
         <span class="badge badge-cloud">CLOUD</span>
-        <span class="elapsed-badge">time: 22s</span>
+        <span class="elapsed-badge">time: n/a</span>
+        <div class="model-desc">Anthropic · Claude Desktop s MCP tools (iterativní volání nástrojů)</div>
+        <div class="model-src">claude</div>
         <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
       </div>
       <div class="score-bar-wrap">
-        <div class="score-bar" style="width:44%; background:#c084fc"></div>
+        <div class="score-bar" style="width:89%; background:#a855f7"></div>
       </div>
-      <span class="score-val">8/18</span>
-      <span class="char-count">6,432 znaku</span>
+      <span class="score-val">16/18</span>
+      <span class="char-count">8,730 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #ea580c">
+      <div class="card-header">
+        <span class="rank">#3</span>
+        <span class="model-name">Mistral Large + ToolsLONGEST </span>
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 79s</span>
+        <div class="model-desc">Mistral AI · mistral-large-latest + function calling (tool use loop, stejná data jako Groq+Tools)</div>
+        <div class="model-src">local:mistral-tools/mistral-large-latest</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:89%; background:#ea580c"></div>
+      </div>
+      <span class="score-val">16/18</span>
+      <span class="char-count">10,333 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #4f46e5">
+      <div class="card-header">
+        <span class="rank">#4</span>
+        <span class="model-name">Claude Opus 4.6</span>
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 92s</span>
+        <div class="model-desc">Anthropic · nejvýkonnější model řady Claude 4</div>
+        <div class="model-src">local:claude/claude-opus-4-6</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:78%; background:#4f46e5"></div>
+      </div>
+      <span class="score-val">14/18</span>
+      <span class="char-count">8,770 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #7c3aed">
+      <div class="card-header">
+        <span class="rank">#5</span>
+        <span class="model-name">Claude Sonnet 4.6</span>
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 105s</span>
+        <div class="model-desc">Anthropic · vyvážený výkon/cena, Claude 4 střed</div>
+        <div class="model-src">local:claude/claude-sonnet-4-6</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:67%; background:#7c3aed"></div>
+      </div>
+      <span class="score-val">12/18</span>
+      <span class="char-count">8,771 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #6d28d9">
+      <div class="card-header">
+        <span class="rank">#6</span>
+        <span class="model-name">Claude Sonnet 4.5</span>
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 85s</span>
+        <div class="model-desc">Anthropic · Claude 3.7 Sonnet (září 2025)</div>
+        <div class="model-src">local:claude/claude-sonnet-4-5-20250929</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:61%; background:#6d28d9"></div>
+      </div>
+      <span class="score-val">11/18</span>
+      <span class="char-count">8,901 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #f97316">
+      <div class="card-header">
+        <span class="rank">#7</span>
+        <span class="model-name">Mistral Large</span>
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 71s</span>
+        <div class="model-desc">Mistral AI · vlajkový model, ~123B parametrů</div>
+        <div class="model-src">local:mistral/mistral-large-latest</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:61%; background:#f97316"></div>
+      </div>
+      <span class="score-val">11/18</span>
+      <span class="char-count">7,849 znaku</span>
     </div>
     <div class="card" style="border-left: 4px solid #0891b2">
       <div class="card-header">
-        <span class="rank">#3</span>
+        <span class="rank">#8</span>
         <span class="model-name">DeepSeek V3.1 671B</span>
         <span class="badge badge-cloud">CLOUD</span>
         <span class="elapsed-badge">time: 94s</span>
+        <div class="model-desc">DeepSeek · 671B MoE, čínský open-source, top tier</div>
+        <div class="model-src">local:ollama-cloud/deepseek-v3.1:671b</div>
         <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
       </div>
       <div class="score-bar-wrap">
-        <div class="score-bar" style="width:44%; background:#0891b2"></div>
+        <div class="score-bar" style="width:61%; background:#0891b2"></div>
       </div>
-      <span class="score-val">8/18</span>
+      <span class="score-val">11/18</span>
       <span class="char-count">6,068 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #c084fc">
+      <div class="card-header">
+        <span class="rank">#9</span>
+        <span class="model-name">Claude 3 Haiku</span>
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 22s</span>
+        <div class="model-desc">Anthropic · nejrychlejší/nejlevnější Claude 3</div>
+        <div class="model-src">local:claude/claude-3-haiku-20240307</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:56%; background:#c084fc"></div>
+      </div>
+      <span class="score-val">10/18</span>
+      <span class="char-count">6,432 znaku</span>
     </div>
     <div class="card" style="border-left: 4px solid #0d9488">
       <div class="card-header">
-        <span class="rank">#4</span>
+        <span class="rank">#10</span>
         <span class="model-name">Gemma3 27B</span>
         <span class="badge badge-cloud">CLOUD</span>
         <span class="elapsed-badge">time: 46s</span>
+        <div class="model-desc">Google · Gemma 3, 27B parametrů, open-weights</div>
+        <div class="model-src">local:ollama-cloud/gemma3:27b</div>
         <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
       </div>
       <div class="score-bar-wrap">
-        <div class="score-bar" style="width:44%; background:#0d9488"></div>
+        <div class="score-bar" style="width:56%; background:#0d9488"></div>
       </div>
-      <span class="score-val">8/18</span>
+      <span class="score-val">10/18</span>
       <span class="char-count">6,416 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #eab308">
+      <div class="card-header">
+        <span class="rank">#11</span>
+        <span class="model-name">Mistral S3.2 24B</span>
+        <span class="badge badge-local">LOCAL</span>
+        <span class="elapsed-badge">time: 121s</span>
+        <div class="model-desc">Mistral AI · Small 3.2, 24B, lokálně přes Ollama</div>
+        <div class="model-src">local:mistral-small3.2:24b</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:50%; background:#eab308"></div>
+      </div>
+      <span class="score-val">9/18</span>
+      <span class="char-count">5,493 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #16a34a">
+      <div class="card-header">
+        <span class="rank">#12</span>
+        <span class="model-name">Qwen2.5 14B</span>
+        <span class="badge badge-local">LOCAL</span>
+        <span class="elapsed-badge">time: n/a</span>
+        <div class="model-desc">Alibaba · Qwen 2.5, 14B parametrů, lokálně přes Ollama</div>
+        <div class="model-src">qwen-local</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:50%; background:#16a34a"></div>
+      </div>
+      <span class="score-val">9/18</span>
+      <span class="char-count">5,000 znaku</span>
     </div>
     <div class="card" style="border-left: 4px solid #dc2626">
       <div class="card-header">
-        <span class="rank">#5</span>
+        <span class="rank">#13</span>
         <span class="model-name">Groq Llama3.3 70B</span>
         <span class="badge badge-cloud">CLOUD</span>
         <span class="elapsed-badge">time: 6s</span>
+        <div class="model-desc">Meta · Llama 3.3 70B přes Groq API (plain prompt, bez nástrojů)</div>
+        <div class="model-src">local:groq/llama-3.3-70b-versatile</div>
         <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
       </div>
       <div class="score-bar-wrap">
@@ -121,107 +284,25 @@
       <span class="score-val">8/18</span>
       <span class="char-count">3,604 znaku</span>
     </div>
-    <div class="card" style="border-left: 4px solid #4f46e5">
-      <div class="card-header">
-        <span class="rank">#6</span>
-        <span class="model-name">Claude Opus 4.6</span>
-        <span class="badge badge-cloud">CLOUD</span>
-        <span class="elapsed-badge">time: 92s</span>
-        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
-      </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar" style="width:39%; background:#4f46e5"></div>
-      </div>
-      <span class="score-val">7/18</span>
-      <span class="char-count">8,770 znaku</span>
-    </div>
-    <div class="card" style="border-left: 4px solid #7c3aed">
-      <div class="card-header">
-        <span class="rank">#7</span>
-        <span class="model-name">Claude Sonnet 4.6</span>
-        <span class="badge badge-cloud">CLOUD</span>
-        <span class="elapsed-badge">time: 105s</span>
-        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
-      </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar" style="width:39%; background:#7c3aed"></div>
-      </div>
-      <span class="score-val">7/18</span>
-      <span class="char-count">8,771 znaku</span>
-    </div>
-    <div class="card" style="border-left: 4px solid #6d28d9">
-      <div class="card-header">
-        <span class="rank">#8</span>
-        <span class="model-name">Claude Sonnet 4.5LONGEST </span>
-        <span class="badge badge-cloud">CLOUD</span>
-        <span class="elapsed-badge">time: 85s</span>
-        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
-      </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar" style="width:39%; background:#6d28d9"></div>
-      </div>
-      <span class="score-val">7/18</span>
-      <span class="char-count">8,901 znaku</span>
-    </div>
-    <div class="card" style="border-left: 4px solid #eab308">
-      <div class="card-header">
-        <span class="rank">#9</span>
-        <span class="model-name">Mistral S3.2 24B</span>
-        <span class="badge badge-local">LOCAL</span>
-        <span class="elapsed-badge">time: 121s</span>
-        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
-      </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar" style="width:39%; background:#eab308"></div>
-      </div>
-      <span class="score-val">7/18</span>
-      <span class="char-count">5,493 znaku</span>
-    </div>
-    <div class="card" style="border-left: 4px solid #16a34a">
-      <div class="card-header">
-        <span class="rank">#10</span>
-        <span class="model-name">Qwen2.5 14B</span>
-        <span class="badge badge-local">LOCAL</span>
-        <span class="elapsed-badge">time: n/a</span>
-        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
-      </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar" style="width:39%; background:#16a34a"></div>
-      </div>
-      <span class="score-val">7/18</span>
-      <span class="char-count">5,000 znaku</span>
-    </div>
-    <div class="card" style="border-left: 4px solid #f97316">
-      <div class="card-header">
-        <span class="rank">#11</span>
-        <span class="model-name">Mistral Large</span>
-        <span class="badge badge-cloud">CLOUD</span>
-        <span class="elapsed-badge">time: 71s</span>
-        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
-      </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar" style="width:33%; background:#f97316"></div>
-      </div>
-      <span class="score-val">6/18</span>
-      <span class="char-count">7,849 znaku</span>
-    </div>
     <div class="card" style="border-left: 4px solid #6b7280">
       <div class="card-header">
-        <span class="rank">#12</span>
+        <span class="rank">#14</span>
         <span class="model-name">Qwen3.5 9B</span>
         <span class="badge badge-local">LOCAL</span>
         <span class="elapsed-badge">time: 116s</span>
+        <div class="model-desc">Alibaba · Qwen 3.5, 9B parametrů, nejmenší testovaný model</div>
+        <div class="model-src">local:qwen3.5:9b</div>
         <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
       </div>
       <div class="score-bar-wrap">
-        <div class="score-bar" style="width:22%; background:#6b7280"></div>
+        <div class="score-bar" style="width:39%; background:#6b7280"></div>
       </div>
-      <span class="score-val">4/18</span>
+      <span class="score-val">7/18</span>
       <span class="char-count">3,787 znaku</span>
     </div></div>
 
 <h2 style="color:#f1f5f9;margin-bottom:.5rem">Topic coverage matrix</h2>
-<table class="matrix"><thead><tr><th>Tema</th><th title="Claude Opus 4.6">Claude Opu</th><th title="Claude Sonnet 4.6">Claude Son</th><th title="Claude Sonnet 4.5">Claude Son</th><th title="Claude 3.5 (MCP)">Claude 3.5</th><th title="Claude 3 Haiku">Claude 3 H</th><th title="Mistral Large">Mistral La</th><th title="DeepSeek V3.1 671B">DeepSeek V</th><th title="Gemma3 27B">Gemma3 27B</th><th title="Mistral S3.2 24B">Mistral S3</th><th title="Groq Llama3.3 70B">Groq Llama</th><th title="Qwen2.5 14B">Qwen2.5 14</th><th title="Qwen3.5 9B">Qwen3.5 9B</th></tr></thead><tbody><tr><td>🗓 Odložené předání 2027</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>🏚 Stodola / hospodářská vada</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>💧 Rozbor studniční vody</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>⚖ Smluvní pokuta za prodlení</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>📐 Rohová parcela</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>💰 Hodnota po rekonstrukci</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>📊 Yield / hrubý výnos</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td></tr><tr><td>🏆 Bodovací tabulka / skóre</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>📈 ROI / investiční návratnost</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>❓ Otázky před koupí / DD</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td></tr><tr><td>⚠ Konkrétní vady (bullets)</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td></tr><tr><td>🏠 Max nabídková cena (Kč)</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr><tr><td>🔴 PENB chybějící</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>🌊 Povodňové riziko</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>📌 Srovnání Kč/m² s trhem</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>🇨🇿 Diakritika > 3 %</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr><tr><td>🗣 Česká slovní zásoba</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr><tr><td>🚫 Neodpovídá anglicky</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr></tbody></table>
+<table class="matrix"><thead><tr><th>Tema</th><th title="Claude Opus 4.6">Claude Opu</th><th title="Claude Sonnet 4.6">Claude Son</th><th title="Claude Sonnet 4.5">Claude Son</th><th title="Claude 3.5 (MCP)">Claude 3.5</th><th title="Claude 3 Haiku">Claude 3 H</th><th title="Mistral Large">Mistral La</th><th title="Mistral Large + Tools">Mistral La</th><th title="DeepSeek V3.1 671B">DeepSeek V</th><th title="Gemma3 27B">Gemma3 27B</th><th title="Mistral S3.2 24B">Mistral S3</th><th title="Groq Llama3.3 70B">Groq Llama</th><th title="Groq + Tools">Groq + Too</th><th title="Qwen2.5 14B">Qwen2.5 14</th><th title="Qwen3.5 9B">Qwen3.5 9B</th></tr></thead><tbody><tr><td>🗓 Odložené předání 2027</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>🏚 Stodola / hospodářská vada</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>💧 Rozbor studniční vody</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>⚖ Smluvní pokuta za prodlení</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>📐 Rohová parcela</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>💰 Hodnota po rekonstrukci</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>📊 Yield / hrubý výnos</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td></tr><tr><td>🏆 Bodovací tabulka / skóre</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>📈 ROI / investiční návratnost</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td></tr><tr><td>❓ Otázky před koupí / DD</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr><tr><td>⚠ Konkrétní vady (bullets)</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td></tr><tr><td>🏠 Max nabídková cena (Kč)</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr><tr><td>🔴 PENB chybějící</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr><tr><td>🌊 Povodňové riziko</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="hit">OK</td></tr><tr><td>📌 Srovnání Kč/m² s trhem</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="miss">-</td><td class="hit">OK</td><td class="miss">-</td><td class="miss">-</td></tr><tr><td>🇨🇿 Diakritika > 3 %</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr><tr><td>🗣 Česká slovní zásoba</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr><tr><td>🚫 Neodpovídá anglicky</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td><td class="hit">OK</td></tr></tbody></table>
 
 <h2 style="color:#f1f5f9;margin-bottom:.5rem">Plne texty analyz</h2>
 <div class="tabs"><button class="tab-btn" onclick="showTab(0)">Claude Opus 4.6</button>
@@ -230,12 +311,14 @@
 <button class="tab-btn" onclick="showTab(3)">Claude 3.5 (MCP)</button>
 <button class="tab-btn" onclick="showTab(4)">Claude 3 Haiku</button>
 <button class="tab-btn" onclick="showTab(5)">Mistral Large</button>
-<button class="tab-btn" onclick="showTab(6)">DeepSeek V3.1 671B</button>
-<button class="tab-btn" onclick="showTab(7)">Gemma3 27B</button>
-<button class="tab-btn" onclick="showTab(8)">Mistral S3.2 24B</button>
-<button class="tab-btn" onclick="showTab(9)">Groq Llama3.3 70B</button>
-<button class="tab-btn" onclick="showTab(10)">Qwen2.5 14B</button>
-<button class="tab-btn" onclick="showTab(11)">Qwen3.5 9B</button></div>
+<button class="tab-btn" onclick="showTab(6)">Mistral Large + Tools</button>
+<button class="tab-btn" onclick="showTab(7)">DeepSeek V3.1 671B</button>
+<button class="tab-btn" onclick="showTab(8)">Gemma3 27B</button>
+<button class="tab-btn" onclick="showTab(9)">Mistral S3.2 24B</button>
+<button class="tab-btn" onclick="showTab(10)">Groq Llama3.3 70B</button>
+<button class="tab-btn" onclick="showTab(11)">Groq + Tools</button>
+<button class="tab-btn" onclick="showTab(12)">Qwen2.5 14B</button>
+<button class="tab-btn" onclick="showTab(13)">Qwen3.5 9B</button></div>
 <div class="tab-panel" id="panel-0" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
 <br>
 <p>Citonice, okres Znojmo | Rodinný dům 5+1 | 240 m² / 558 m² | 4 200 000 Kč</p>
@@ -1442,7 +1525,243 @@
 <li><strong>Stav koupelny</strong> (rozsah rekonstrukce).</li>
 <li><strong>Dispozice 2. NP</strong> (možnost dostavby koupelny).</li>
 </ul></div>
-<div class="tab-panel" id="panel-6" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<div class="tab-panel" id="panel-6" style="display:none"><hr>
+<br>
+<h2>**ANALÝZA NEMOVITOSTI**</h2>
+<br>
+<p><strong>Citonice, okres Znojmo | Rodinný dům 5+1 | 240 m² / 558 m² | 4 200 000 Kč</strong></p>
+<br>
+<hr>
+<br>
+<h3>📋 **1. Základní parametry**</h3>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Citonice, okres Znojmo</td></tr>
+<tr><td>Dispozice</td><td>5+1</td></tr>
+<tr><td>Užitná plocha</td><td>240 m²</td></tr>
+<tr><td>Pozemek</td><td>558 m²</td></tr>
+<tr><td>Cena nabídková</td><td>4 200 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>**17 500 Kč/m²**</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům</td></tr>
+<tr><td>Stav</td><td>Existující (starší, částečně rekonstruovaný)</td></tr>
+<tr><td>Vytápění</td><td>Kombinované (plyn, tuhá paliva, krb)</td></tr>
+<tr><td>Zdroj vody</td><td>Vlastní studna</td></tr>
+<tr><td>Kanalizace</td><td>Z dat nelze určit (pravděpodobně septik)</td></tr>
+<tr><td>Zdroj</td><td>Sreality</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>**2. Konkrétní VADY a RIZIKA**</h3>
+<br>
+<p>#### <strong>⚠️ Středně důležité vady</strong></p>
+<ul>
+<li><strong>Stáří domu</strong>: Dům je starší, přesný rok výstavby není uveden. Z fotek je patrné, že jde o starší konstrukci (pravděpodobně 50.–80. léta).</li>
+<li><strong>Elektroinstalace</strong>: Z fotek není patrný stav elektroinstalace. Starší rozvody mohou být nebezpečné a vyžadovat kompletní výměnu (odhad nákladů: <strong>100–200 tis. Kč</strong>).</li>
+<li><strong>Kanalizace</strong>: Není uvedeno, zda je dům napojen na veřejnou kanalizaci nebo má septik. Septik může vyžadovat pravidelnou údržbu a čištění (náklady: <strong>10–30 tis. Kč/rok</strong>).</li>
+<li><strong>Stav podlah a stěn</strong>: Na fotkách jsou viditelné starší podlahy (linoleum, koberec) a stěny s tapetami nebo staršími nátěry. Může být potřeba renovace (odhad: <strong>50–150 tis. Kč</strong>).</li>
+<li><strong>Tepelná izolace</strong>: Z fotek není patrné, zda je dům zateplený. Starší domy často trpí vysokými náklady na vytápění.</li>
+<li><strong>Krbová kamna</strong>: Krbová kamna jsou doplňkovým zdrojem tepla, ale nejsou hlavním zdrojem. Mohou vyžadovat pravidelnou údržbu a kontrolu komína.</li>
+</ul>
+<br>
+<p>#### <strong>🔴 Kritická rizika</strong></p>
+<ul>
+<li><strong>Chybějící koupelna v 2. NP</strong>: Dispozice 5+1 naznačuje, že v patře může chybět koupelna. To výrazně snižuje komfort bydlení a může vyžadovat nákladnou rekonstrukci (odhad: <strong>150–300 tis. Kč</strong>).</li>
+<li><strong>Voda ze studny</strong>: Studna je sice vybavena novým čerpadlem, ale kvalita vody není garantována. Doporučuje se rozbor vody (náklady: <strong>5–10 tis. Kč</strong>).</li>
+<li><strong>Předání nemovitosti až v březnu/dubnu 2027</strong>: Prodejci požadují setrvání v domě až do jara 2027. To může být pro kupujícího rizikové, pokud potřebuje nemovitost využít dříve.</li>
+<li><strong>Chybějící PENB</strong>: Energetický průkaz není uveden. Starší domy často spadají do třídy <strong>E nebo horší</strong>, což znamená vysoké náklady na energie.</li>
+<li><strong>Zástavní práva a věcná břemena</strong>: Data z katastru nejsou k dispozici. Je nutné ověřit, zda na nemovitosti neváznou dluhy, exekuce nebo věcná břemena (např. právo cesty).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**3. Hodnocení ceny**</h3>
+<br>
+<p>#### <strong>Tržní Kč/m² v lokalitě</strong></p>
+<ul>
+<li>Průměrná cena rodinných domů v Citonicích a okolí se pohybuje v rozmezí <strong>15 000–22 000 Kč/m²</strong> (dle stavu a lokality).</li>
+<li>Nabídková cena <strong>17 500 Kč/m²</strong> se jeví jako <strong>průměrná až mírně podprůměrná</strong>, ale je nutné zohlednit stav domu a nutné rekonstrukce.</li>
+</ul>
+<br>
+<p>#### <strong>Maximální nabídková cena</strong></p>
+<ul>
+<li><strong>Nabídková cena</strong>: 4 200 000 Kč</li>
+<li><strong>Odhadované náklady na opravy</strong>:</li>
+</ul>
+<p>  - Elektroinstalace: <strong>150 000 Kč</strong></p>
+<p>  - Výměna oken (pokud nejsou vyměněna všechna): <strong>100 000 Kč</strong></p>
+<p>  - Rekonstrukce koupelny (pokud chybí v 2. NP): <strong>200 000 Kč</strong></p>
+<p>  - Renovace podlah a stěn: <strong>100 000 Kč</strong></p>
+<p>  - Ostatní (septik, studna, izolace): <strong>100 000 Kč</strong></p>
+<p>  - <strong>Celkem opravy</strong>: <strong>650 000 Kč</strong></p>
+<ul>
+<li><strong>Rezerva na vyjednávání (5 %)</strong>: <strong>210 000 Kč</strong></li>
+<li><strong>Maximální rozumná nabídková cena</strong>: <strong>4 200 000 – 650 000 – 210 000 = 3 340 000 Kč</strong></li>
+</ul>
+<br>
+<p>#### <strong>Celková investice</strong></p>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka (Kč)</td></tr>
+<tr><td>Kupní cena (max. nabídka)</td><td>3 340 000</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>133 600</td></tr>
+<tr><td>Právní a notářské služby</td><td>30 000</td></tr>
+<tr><td>Opravy a rekonstrukce</td><td>650 000</td></tr>
+<tr><td>**CELKOVÁ INVESTICE**</td><td>**4 153 600**</td></tr>
+</table>
+<br>
+<p>#### <strong>Hodnota po rekonstrukci</strong></p>
+<ul>
+<li>Po rekonstrukci by hodnota domu mohla dosáhnout <strong>4 500 000–5 000 000 Kč</strong> (v závislosti na kvalitě provedených prací).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**4. Yield a ROI**</h3>
+<br>
+<p>#### <strong>Odhadovaný nájem</strong></p>
+<ul>
+<li><strong>Dlouhodobý pronájem (5+1)</strong>: <strong>15 000–20 000 Kč/měsíc</strong></li>
+<li><strong>Roční hrubý příjem</strong>: <strong>180 000–240 000 Kč</strong></li>
+<li><strong>Roční čistý příjem (po nákladech)</strong>: <strong>135 000–180 000 Kč</strong></li>
+</ul>
+<br>
+<p>#### <strong>Hrubý yield</strong></p>
+<ul>
+<li><strong>Nižší scénář</strong>: (180 000 / 4 153 600) × 100 = <strong>4,3 %</strong></li>
+<li><strong>Vyšší scénář</strong>: (240 000 / 4 153 600) × 100 = <strong>5,8 %</strong></li>
+</ul>
+<br>
+<p>#### <strong>Návratnost investice (ROI)</strong></p>
+<ul>
+<li><strong>Prostá návratnost</strong>: 4 153 600 / 157 500 (průměrný čistý příjem) = <strong>26,4 let</strong></li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**5. Bodovací tabulka**</h3>
+<br>
+<table class="md-table">
+<tr><td>Kritérium</td><td>Hodnocení</td><td>Poznámka</td></tr>
+<tr><td>Lokalita</td><td>3/5</td><td>Klidná vesnice, ale závislost na autě</td></tr>
+<tr><td>Stav</td><td>2/5</td><td>Starší dům, nutné rekonstrukce</td></tr>
+<tr><td>Cena</td><td>4/5</td><td>Cena je podprůměrná, ale s riziky</td></tr>
+<tr><td>Potenciál</td><td>3/5</td><td>Možnost zvýšení hodnoty po rekonstrukci</td></tr>
+<tr><td>**SKÓRE**</td><td>**3/5**</td><td>**Podmíněně doporučeno**</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>**6. Povodňové riziko a PENB**</h3>
+<ul>
+<li><strong>Povodňové riziko</strong>: Citonice se nenacházejí v povodňové zóně (dle ČHMÚ). Riziko je <strong>nízké</strong>.</li>
+<li><strong>PENB</strong>: <strong>PENB chybí</strong>. Doporučuje se vyžádat si energetický průkaz před koupí.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**7. Specifika parcely a přístupu**</h3>
+<ul>
+<li><strong>Tvar a orientace pozemku</strong>: Pozemek je <strong>rohový</strong>, což může být výhodou pro přístup, ale nevýhodou pro soukromí.</li>
+<li><strong>Hranice pozemku</strong>: Z fotek není patrné, zda jsou hranice pozemku jasně vymezeny. Doporučuje se geodetické zaměření.</li>
+<li><strong>Věcná břemena</strong>: Data z katastru nejsou k dispozici. Je nutné ověřit, zda na pozemku neváznou věcná břemena (např. právo cesty).</li>
+<li><strong>Přístup</strong>: Dům má vlastní příjezdovou cestu a garáž. Přístup je <strong>dobrý</strong>.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**8. Předání nemovitosti**</h3>
+<ul>
+<li><strong>Podmínky předání</strong>: Prodejci požadují setrvání v domě až do <strong>března/dubna 2027</strong>. To může být pro kupujícího rizikové, pokud potřebuje nemovitost využít dříve.</li>
+<li><strong>Doporučení</strong>:</li>
+</ul>
+<p>  - V kupní smlouvě jasně stanovit <strong>datum předání</strong> a <strong>smluvní pokutu za prodlení</strong> (např. <strong>500 Kč/den</strong>).</p>
+<p>  - Zajistit <strong>zálohu</strong> (např. 10 % z kupní ceny) jako záruku dodržení termínu.</p>
+<br>
+<hr>
+<br>
+<h3>**9. Due Diligence otázky pro prodávajícího**</h3>
+<p>1. <strong>Jaký je přesný rok výstavby domu?</strong></p>
+<p>2. <strong>Je dům napojen na veřejnou kanalizaci, nebo má septik? Jak často se septik čistí?</strong></p>
+<p>3. <strong>Jaký je stav elektroinstalace? Kdy byla naposledy kontrolována?</strong></p>
+<p>4. <strong>Je v domě koupelna v 2. NP? Pokud ne, jaké jsou možnosti jejího zřízení?</strong></p>
+<p>5. <strong>Byly v posledních 5 letech provedeny nějaké rekonstrukce? Pokud ano, jaké?</strong></p>
+<p>6. <strong>Jaká je kvalita vody ze studny? Máte k dispozici rozbor vody?</strong></p>
+<p>7. <strong>Jsou na nemovitosti nějaká zástavní práva, exekuce nebo věcná břemena?</strong></p>
+<p>8. <strong>Jaký je stav střechy a izolace? Kdy byly naposledy provedeny opravy?</strong></p>
+<p>9. <strong>Je dům zateplený? Pokud ano, jakým způsobem?</strong></p>
+<p>10. <strong>Máte k dispozici energetický průkaz (PENB)?</strong></p>
+<br>
+<hr>
+<br>
+<h3>**10. Technický stav a katastr**</h3>
+<br>
+<p>#### <strong>Technický stav</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>⚠️</td><td>Z fotek nelze přesně posoudit. Doporučuje se odborná prohlídka.</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Vypadá udržovaně, ale není zřejmé, zda je zateplená.</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová, vyměněná.</td></tr>
+<tr><td>Dveře</td><td>⚠️</td><td>Starší, možná nutná výměna.</td></tr>
+<tr><td>Podlahy</td><td>⚠️</td><td>Starší (linoleum, koberec), možná nutná renovace.</td></tr>
+<tr><td>Elektroinstalace</td><td>⚠️</td><td>Z fotek nelze posoudit. Doporučuje se revize.</td></tr>
+<tr><td>Topení</td><td>✅</td><td>Kombinované (plyn, tuhá paliva, krb). Kotel na tuhá paliva z roku 2021.</td></tr>
+<tr><td>Koupelna</td><td>⚠️</td><td>Chybí v 2. NP, nutná rekonstrukce.</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Sklep je suchý, ale stav ostatních místností nelze posoudit.</td></tr>
+<tr><td>Kanalizace</td><td>⚠️</td><td>Pravděpodobně septik, stav neznámý.</td></tr>
+<tr><td>PENB</td><td>🔴</td><td>Chybí, nutné vyžádat.</td></tr>
+</table>
+<br>
+<p>#### <strong>Katastr</strong></p>
+<ul>
+<li><strong>Zástavní práva</strong>: Nelze ověřit (data z katastru nejsou k dispozici).</li>
+<li><strong>Věcná břemena</strong>: Nelze ověřit (data z katastru nejsou k dispozici).</li>
+<li><strong>Doporučení</strong>: Před koupí <strong>nutné ověřit v katastru nemovitostí</strong> (LV, zástavní práva, věcná břemena).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**11. VERDIKT**</h3>
+<p><strong>🟡 VYJEDNÁVAT – podmíněně doporučeno pro investory nebo vlastní bydlení s rezervou</strong></p>
+<br>
+<p>#### <strong>Odůvodnění:</strong></p>
+<p>✅ <strong>Výhody</strong>:</p>
+<ul>
+<li><strong>Cena pod tržním průměrem</strong> (17 500 Kč/m²).</li>
+<li><strong>Kombinované vytápění</strong> (plyn, tuhá paliva, krb) = nižší náklady na energie.</li>
+<li><strong>Vlastní studna</strong> = úspora za vodné.</li>
+<li><strong>Možnost předání až v roce 2027</strong> = čas na přípravu rekonstrukce.</li>
+<li><strong>Klidná lokalita</strong> s občanskou vybaveností.</li>
+</ul>
+<br>
+<p>⚠️ <strong>Nevýhody a rizika</strong>:</p>
+<ul>
+<li><strong>Starší dům</strong> s nutností rekonstrukcí (elektřina, koupelna, podlahy).</li>
+<li><strong>Chybějící koupelna v 2. NP</strong> = vyšší náklady na rekonstrukci.</li>
+<li><strong>PENB chybí</strong> = možné vysoké náklady na energie.</li>
+<li><strong>Předání až v roce 2027</strong> = riziko pro kupujícího, který potřebuje nemovitost dříve.</li>
+<li><strong>Není jasný stav kanalizace a elektroinstalace</strong> = nutná odborná prohlídka.</li>
+</ul>
+<br>
+<p>#### <strong>Maximální rozumná nabídková cena: 3 340 000 Kč</strong></p>
+<ul>
+<li><strong>Vyjednávací prostor</strong>: <strong>860 000 Kč (20,5 %)</strong> oproti nabídkové ceně.</li>
+</ul>
+<br>
+<p>#### <strong>Co prověřit před koupí:</strong></p>
+<p>1. <strong>Odbornou prohlídku domu</strong> (střecha, elektro, vlhkost, statika).</p>
+<p>2. <strong>Výpis z katastru nemovitostí</strong> (zástavní práva, věcná břemena).</p>
+<p>3. <strong>Rozbor vody ze studny</strong>.</p>
+<p>4. <strong>Stav kanalizace</strong> (septik vs. veřejná síť).</p>
+<p>5. <strong>Energetický průkaz (PENB)</strong>.</p>
+<p>6. <strong>Kolaudační rozhodnutí</strong> (zda dům splňuje všechny právní požadavky).</p>
+<p>7. <strong>Geodetické zaměření pozemku</strong> (hranice, výměra).</p>
+<p>8. <strong>Možnost zřízení koupelny v 2. NP</strong> (technické a právní aspekty).</p>
+<br>
+<hr>
+<p><em>Analýza zpracována na základě dostupných dat. Doporučuje se fyzická prohlídka a odborné posouzení nemovitosti.</em></p></div>
+<div class="tab-panel" id="panel-7" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
 <br>
 <p>Citonice | Dům 5+1 | 240 m² / 558 m² | 4 200 000 Kč</p>
 <br>
@@ -1646,7 +1965,7 @@
 <tr><td>Nesrovnalosti s inzerátem</td><td></td></tr>
 <tr><td>Vůně, sousedé, okolí</td><td></td></tr>
 </table></div>
-<div class="tab-panel" id="panel-7" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<div class="tab-panel" id="panel-8" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
 <br>
 <p>Citonice | Dům 5+1 | 240 m² / 558 m² | 4 200 000 Kč</p>
 <br>
@@ -1879,7 +2198,7 @@
 <p><strong>Můj rozpočet:</strong> _(max cena včetně případných oprav)_</p>
 <p><strong>Účel:</strong> _(vlastní bydlení / investice / pronájem)_</p>
 <p><strong>Timeline:</strong> _(jak rychle potřebuji koupit)_</p></div>
-<div class="tab-panel" id="panel-8" style="display:none"><h2>ANALÝZA NEMOVITOSTI</h2>
+<div class="tab-panel" id="panel-9" style="display:none"><h2>ANALÝZA NEMOVITOSTI</h2>
 <br>
 <p><strong>Citonice, okres Znojmo</strong> | <strong>House / Sale</strong> 5+1 | <strong>240 m² užitná plocha / 558 m² pozemek</strong> | <strong>4 200 000 Kč</strong></p>
 <br>
@@ -2070,7 +2389,7 @@
 <hr>
 <br>
 <p><em>Analýza zpracována na základě dat z inzerátu. Nemůže nahradit fyzickou prohlídku, posudek odborníka ani právní due diligence.</em></p></div>
-<div class="tab-panel" id="panel-9" style="display:none"><h2>ANALÝZA NEMOVITOSTI</h2>
+<div class="tab-panel" id="panel-10" style="display:none"><h2>ANALÝZA NEMOVITOSTI</h2>
 <br>
 <p>Citonice | Rodinný dům 5+1 | 240 m² | 4 200 000 Kč</p>
 <br>
@@ -2214,7 +2533,103 @@
 <hr>
 <br>
 <p><em>Analýza zpracována na základě dat z inzerátu. Nemůže nahradit fyzickou prohlídku, posudek odborníka ani právní due diligence.</em></p></div>
-<div class="tab-panel" id="panel-10" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<div class="tab-panel" id="panel-11" style="display:none"><h2>Základní parametry</h2>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Citonice, okres Znojmo</td></tr>
+<tr><td>Dispozice</td><td>5+1</td></tr>
+<tr><td>Užitná plocha</td><td>240 m²</td></tr>
+<tr><td>Pozemek</td><td>558 m²</td></tr>
+<tr><td>Cena nabídková</td><td>4 200 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>17 500 Kč/m²</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům</td></tr>
+<tr><td>Stav</td><td>Dobrý, částečně zrekonstruovaný</td></tr>
+</table>
+<br>
+<h2>Konkrétní VADY a RIZIKA</h2>
+<br>
+<ul>
+<li>Stáří domu a potenciální potřeba dalších rekonstrukcí</li>
+<li>Vlhkost ve sklepě</li>
+<li>Možné problémy s elektrickou instalací</li>
+<li>Střecha domu je stará a může vyžadovat brzkou výměnu</li>
+<li>Chybí energetický průkaz (PENB)</li>
+</ul>
+<br>
+<h2>Hodnocení ceny</h2>
+<br>
+<ul>
+<li>Tržní cena m² v lokalitě: 15 000 - 20 000 Kč/m²</li>
+<li>Maximální rozumná nabídková cena: 3 800 000 Kč</li>
+<li>CELKOVÁ INVESTICE = kupní cena + daň + notář + opravy: 4 200 000 Kč + 168 000 Kč (daň) + 30 000 Kč (notář) + 200 000 Kč (opravy) = 4 598 000 Kč</li>
+<li>Hodnota po rekonstrukci: 5 000 000 Kč</li>
+</ul>
+<br>
+<h2>Yield a ROI</h2>
+<br>
+<ul>
+<li>Hrubý výnos: 4,5 %</li>
+<li>Čistý výnos po nákladech: 3,5 %</li>
+<li>Payback period: 20 let</li>
+</ul>
+<br>
+<h2>Bodovací tabulka</h2>
+<br>
+<ul>
+<li>Lokalita: 4/5</li>
+<li>Stav: 3/5</li>
+<li>Cena: 4/5</li>
+<li>Potenciál: 4/5</li>
+<li>Celkové SKÓRE: 4/5</li>
+</ul>
+<br>
+<h2>Povodňové riziko a PENB</h2>
+<br>
+<ul>
+<li>Povodňové riziko: střední</li>
+<li>PENB: chybí</li>
+</ul>
+<br>
+<h2>Rohová parcela a studniční voda</h2>
+<br>
+<ul>
+<li>Rohová parcela: ano</li>
+<li>Studniční voda: ano, doporučuji laboratorní rozbor</li>
+</ul>
+<br>
+<h2>Odložené předání a smluvní pokuta</h2>
+<br>
+<ul>
+<li>Odložené předání: ano, datum předání 2027</li>
+<li>Smluvní pokuta za prodlení: doporučuji zahrnout do kupní smlouvy</li>
+</ul>
+<br>
+<h2>Due Diligence otázky pro prodávajícího</h2>
+<br>
+<ul>
+<li>Jaký je stav elektrické instalace?</li>
+<li>Jsou nějaké známé problémy se zásobováním vodou?</li>
+<li>Jaký je stav střechy a kdy byla poslední výměna?</li>
+</ul>
+<br>
+<h2>Technický stav</h2>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>Stará</td><td>Potřebuje výměnu</td></tr>
+<tr><td>Fasáda</td><td>Dobrý</td><td>Částečně zrekonstruovaná</td></tr>
+<tr><td>Okna</td><td>Dobrý</td><td>Částečně vyměněna</td></tr>
+<tr><td>Elektrorozvody</td><td>Staré</td><td>Potřebují rekonstrukci</td></tr>
+<tr><td>Topení</td><td>Dobrý</td><td>Částečně zrekonstruované</td></tr>
+<tr><td>Koupelna</td><td>Dobrý</td><td>Částečně zrekonstruovaná</td></tr>
+<tr><td>Vlhkost / plísně</td><td>Střední</td><td>Ve sklepě</td></tr>
+</table>
+<br>
+<h2>VERDIKT</h2>
+<br>
+<p>🟡 VYJEDNÁVAT – podmíněně doporučuji ke koupi pro vlastní bydlení.</p></div>
+<div class="tab-panel" id="panel-12" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
 <br>
 <p>Citonice | Rodinný dům 5+1 | 240 m² užitná plocha / 558 m² pozemek | 4 200 000 Kč</p>
 <br>
@@ -2414,7 +2829,7 @@
 <p><strong>Můj rozpočet:</strong> 5 000 000 Kč  </p>
 <p><strong>Účel:</strong> vlastní bydlení  </p>
 <p><strong>Timeline:</strong> 6 měsíců</p></div>
-<div class="tab-panel" id="panel-11" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<div class="tab-panel" id="panel-13" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
 <br>
 <p>Citonice | House 5+1 | 240 m² / 558 m² | 4 200 000 Kč</p>
 <br>

@@ -38,6 +38,7 @@ MODELS = [
     ("Claude Sonnet 4.5",       "local:claude/claude-sonnet-4-5-20250929",    "cloud", "#6d28d9", "Anthropic · Claude 3.7 Sonnet (září 2025)"),
     ("Claude 3 Haiku",          "local:claude/claude-3-haiku-20240307",       "cloud", "#c084fc", "Anthropic · nejrychlejší/nejlevnější Claude 3"),
     ("Mistral Large",           "local:mistral/mistral-large-latest",          "cloud", "#f97316", "Mistral AI · vlajkový model, ~123B parametrů"),
+    ("Mistral Large + Tools",   "local:mistral-tools/mistral-large-latest",    "cloud", "#ea580c", "Mistral AI · mistral-large-latest + function calling (tool use loop, stejná data jako Groq+Tools)"),
     ("DeepSeek V3.1 671B",      "local:ollama-cloud/deepseek-v3.1:671b",      "cloud", "#0891b2", "DeepSeek · 671B MoE, čínský open-source, top tier"),
     ("Gemma3 27B",              "local:ollama-cloud/gemma3:27b",               "cloud", "#0d9488", "Google · Gemma 3, 27B parametrů, open-weights"),
     # Groq
@@ -351,6 +352,7 @@ html = f"""<!DOCTYPE html>
   <b>Anthropic Claude Sonnet 4.5 / 4.6</b> – střední tier Claude 4, vyvážený výkon/cena<br>
   <b>Anthropic Claude Opus 4.6</b> – nejvýkonnější Claude 4, nejdražší<br>
   <b>Mistral Large</b> – vlajkový model Mistral AI, přibližně 123B parametrů<br>
+  <b>Mistral Large + Tools</b> – <em>stejný model</em>, ale s vícekrokovým function callingem (tool_choice="any"); porovnání plain vs tool use na Mistralu<br>
   <b>DeepSeek V3.1 671B</b> – čínský open-source gigant, 671B parametrů (MoE architektura)<br>
   <b>Gemma3 27B</b> – Google open-weights model, 27B parametrů<br>
   <b>Mistral Small 3.2 24B</b> – menší lokální Mistral, 24B parametrů<br>

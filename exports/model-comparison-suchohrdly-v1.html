@@ -1,0 +1,3158 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Benchmark Suchohrdly 6+2 – 05. 03. 2026 06:14</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:2rem}
+  h1{color:#f1f5f9;font-size:1.6rem;margin-bottom:.2rem}
+  .sub{color:#94a3b8;font-size:.9rem;margin-bottom:2rem}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem;margin-bottom:2rem}
+  .card{background:#1e293b;border-radius:.75rem;padding:1rem}
+  .card-header{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;margin-bottom:.6rem}
+  .rank{color:#94a3b8;font-size:.85rem;min-width:2rem}
+  .model-name{font-weight:700;font-size:1rem}
+  .badge{padding:.15rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700}
+  .badge-cloud{background:#1d4ed8;color:#bfdbfe}
+  .badge-local{background:#166534;color:#bbf7d0}
+  .elapsed-badge{font-size:.75rem;color:#94a3b8;margin-left:auto}
+  .model-desc{width:100%;font-size:.72rem;color:#64748b;margin-top:.15rem;font-style:italic}
+  .model-src{width:100%;font-size:.68rem;color:#475569;font-family:monospace;margin-top:.1rem}
+  .cz-row{width:100%;font-size:.8rem;letter-spacing:.1rem;margin-top:.2rem}
+  .cz.ok{color:#4ade80;font-weight:700}
+  .cz.fail{color:#f87171;opacity:.7}
+  .score-bar-wrap{background:#334155;border-radius:4px;height:8px;margin:.4rem 0}
+  .score-bar{height:8px;border-radius:4px}
+  .score-val{font-size:1.3rem;font-weight:700}
+  .char-count{font-size:.75rem;color:#94a3b8;margin-left:.8rem}
+  .matrix{width:100%;border-collapse:collapse;font-size:.78rem;margin-bottom:2rem;overflow-x:auto;display:block}
+  .matrix th,.matrix td{padding:.3rem .5rem;border:1px solid #334155;white-space:nowrap}
+  .matrix th{background:#1e293b;color:#94a3b8}
+  .hit{background:#052e16;color:#4ade80;text-align:center}
+  .miss{background:#1a0a0a;color:#f87171;text-align:center}
+  .md-table{border-collapse:collapse;width:100%;margin:.5rem 0}
+  .md-table th,.md-table td{border:1px solid #334155;padding:.3rem .6rem;text-align:left}
+  .md-table th{background:#1e293b}
+  .tabs{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1rem}
+  .tab-btn{background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:.4rem .9rem;border-radius:.4rem;cursor:pointer;font-size:.85rem}
+  .tab-btn:hover{background:#334155;color:#f1f5f9}
+  .tab-panel h1,.tab-panel h2,.tab-panel h3{color:#93c5fd}
+  .tab-panel p{line-height:1.6;color:#cbd5e1}
+  .tab-panel ul{padding-left:1.2rem;color:#cbd5e1}
+  .note{background:#1e3a5f;border-left:3px solid #3b82f6;padding:.7rem 1rem;border-radius:0 .5rem .5rem 0;margin-bottom:1.5rem;font-size:.85rem;color:#93c5fd}
+  .ref-note{background:#064e3b;border-left:3px solid #10b981;padding:.7rem 1rem;border-radius:0 .5rem .5rem 0;margin-bottom:1.5rem;font-size:.85rem;color:#6ee7b7}
+</style>
+</head>
+<body>
+<h1>Model Benchmark – Suchohrdly 6+2 · 182 m² · 6 990 000 Kč</h1>
+<div class="sub">Generováno 05. 03. 2026 06:14 · 14 modelů · 19 hodnoticích témat (16 obsah + 3 čeština) · Listing ID: 14fe1165-c84f-4dcd-b5aa-ca01ae563f22</div>
+
+<div class="ref-note">
+  📋 <strong>Referenční analýza:</strong> Claude Desktop V3 — psáno po osobní prohlídce 25. 2. 2026, s přístupem k MCP tools (get_listing, get_inspection_photos, zápis z prohlídky).
+  Dům patří do <strong>dědického řízení</strong> — prodej schvaluje soud (+2–3 měsíce). Klíčové závady: parkování, mostek, chybí kuchyňská linka.
+</div>
+
+<div class="note">
+  ⚠️ <strong>Metodika:</strong> Ostatní modely dostaly <strong>jednorázový textový prompt</strong> bez přístupu k fotkám prohlídky a zápisu z osobní návštěvy.
+  Skóre měří pokrytí témat relevantních pro <em>tento konkrétní inzerát + prohlídku</em> — ne obecnou kvalitu analýzy.
+</div>
+
+<details style="margin-bottom:1.5rem">
+<summary style="cursor:pointer;color:#94a3b8;font-size:.85rem;padding:.4rem 0">📖 Legenda – co znamenají jednotlivé modely a odznaky?</summary>
+<div style="background:#1e293b;border-radius:.5rem;padding:1rem;margin-top:.5rem;font-size:.82rem;color:#94a3b8;line-height:1.8">
+  <strong style="color:#e2e8f0">Odznaky na kartě:</strong><br>
+  <span style="background:#064e3b;color:#6ee7b7;padding:.1rem .4rem;border-radius:.25rem;font-size:.75rem;font-weight:700">REF</span> = referenční analýza (Claude Desktop s MCP tools po osobní prohlídce) &nbsp;·&nbsp;
+  <span style="background:#1d4ed8;color:#bfdbfe;padding:.1rem .4rem;border-radius:.25rem;font-size:.75rem;font-weight:700">CLOUD</span> = vzdálené API (platí se za tokeny) &nbsp;·&nbsp;
+  <span style="background:#166534;color:#bbf7d0;padding:.1rem .4rem;border-radius:.25rem;font-size:.75rem;font-weight:700">LOCAL</span> = lokálně přes Ollama (zdarma, pomalejší)<br><br>
+  <strong style="color:#e2e8f0">Modely: co jsou zač</strong><br>
+  <b>Claude Desktop V3 (REF)</b> – referenční analýza psaná po osobní prohlídce 25.2. s přístupem k fotkám + zápisu z návštěvy<br>
+  <b>Anthropic Claude 3 Haiku</b> – nejrychlejší a nejlevnější Claude, základní tier<br>
+  <b>Anthropic Claude Sonnet 4.5 / 4.6</b> – střední tier Claude 4, vyvážený výkon/cena<br>
+  <b>Anthropic Claude Opus 4.6</b> – nejvýkonnější Claude 4, nejdražší<br>
+  <b>Mistral Large</b> – vlajkový model Mistral AI, přibližně 123B parametrů<br>
+  <b>Mistral Large + Tools</b> – <em>stejný model</em>, ale s vícekrokovým function callingem (tool_choice="any"); porovnání plain vs tool use na Mistralu<br>
+  <b>DeepSeek V3.1 671B</b> – čínský open-source gigant, 671B parametrů (MoE architektura)<br>
+  <b>Gemma3 27B</b> – Google open-weights model, 27B parametrů<br>
+  <b>Mistral Small 3.2 24B</b> – menší lokální Mistral, 24B parametrů<br>
+  <b>Groq Llama 3.3 70B (plain)</b> – Meta Llama 3.3 70B přes Groq API, jednorázový textový prompt<br>
+  <b>Groq + Tools</b> – <em>stejný model</em> (Llama 3.3 70B), ale s vícekrokovým function callingem; model sám načte data z DB<br>
+  <b>Qwen 2.5 14B / Qwen 3.5 9B</b> – Alibaba open-source modely, nejmenší testované<br><br>
+  <strong style="color:#e2e8f0">Proč jsou Groq modely rychlejší?</strong> Groq používá vlastní LPU čipy optimalizované pro inferenci (ne GPU) → ~10× rychlejší než standardní GPU inference.
+</div>
+</details>
+
+<div class="grid">
+    <div class="card" style="border-left: 4px solid #059669">
+      <div class="card-header">
+        <span class="rank">#1</span>
+        <span class="model-name">🥇 Claude Desktop V3 (ref)</span>
+         <span style="background:#064e3b;color:#6ee7b7;padding:.1rem .4rem;border-radius:.25rem;font-size:.7rem;font-weight:700">REF</span>
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: n/a</span>
+        <div class="model-desc">Anthropic · Claude Desktop s MCP tools + zápis z prohlídky (referenční analýza V3)</div>
+        <div class="model-src">claude-desktop-v3</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:95%; background:#059669"></div>
+      </div>
+      <span class="score-val">18/19</span>
+      <span class="char-count">10,761 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #ea580c">
+      <div class="card-header">
+        <span class="rank">#2</span>
+        <span class="model-name">🥈 Mistral Large + Tools</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 86s</span>
+        <div class="model-desc">Mistral AI · mistral-large-latest + function calling (tool use loop, stejná data jako Groq+Tools)</div>
+        <div class="model-src">local:mistral-tools/mistral-large-latest</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:95%; background:#ea580c"></div>
+      </div>
+      <span class="score-val">18/19</span>
+      <span class="char-count">10,902 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #4f46e5">
+      <div class="card-header">
+        <span class="rank">#3</span>
+        <span class="model-name">🥉 Claude Opus 4.6</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 88s</span>
+        <div class="model-desc">Anthropic · nejvýkonnější model řady Claude 4</div>
+        <div class="model-src">local:claude/claude-opus-4-6</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:74%; background:#4f46e5"></div>
+      </div>
+      <span class="score-val">14/19</span>
+      <span class="char-count">8,601 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #6d28d9">
+      <div class="card-header">
+        <span class="rank">#4</span>
+        <span class="model-name">Claude Sonnet 4.5</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 99s</span>
+        <div class="model-desc">Anthropic · Claude 3.7 Sonnet (září 2025)</div>
+        <div class="model-src">local:claude/claude-sonnet-4-5-20250929</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:68%; background:#6d28d9"></div>
+      </div>
+      <span class="score-val">13/19</span>
+      <span class="char-count">8,590 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #f97316">
+      <div class="card-header">
+        <span class="rank">#5</span>
+        <span class="model-name">Mistral Large</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 82s</span>
+        <div class="model-desc">Mistral AI · vlajkový model, ~123B parametrů</div>
+        <div class="model-src">local:mistral/mistral-large-latest</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:63%; background:#f97316"></div>
+      </div>
+      <span class="score-val">12/19</span>
+      <span class="char-count">10,774 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #c084fc">
+      <div class="card-header">
+        <span class="rank">#6</span>
+        <span class="model-name">Claude 3 Haiku</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 17s</span>
+        <div class="model-desc">Anthropic · nejrychlejší/nejlevnější Claude 3</div>
+        <div class="model-src">local:claude/claude-3-haiku-20240307</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:58%; background:#c084fc"></div>
+      </div>
+      <span class="score-val">11/19</span>
+      <span class="char-count">5,444 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #0891b2">
+      <div class="card-header">
+        <span class="rank">#7</span>
+        <span class="model-name">DeepSeek V3.1 671B</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 126s</span>
+        <div class="model-desc">DeepSeek · 671B MoE, čínský open-source, top tier</div>
+        <div class="model-src">local:ollama-cloud/deepseek-v3.1:671b</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:58%; background:#0891b2"></div>
+      </div>
+      <span class="score-val">11/19</span>
+      <span class="char-count">5,803 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #0d9488">
+      <div class="card-header">
+        <span class="rank">#8</span>
+        <span class="model-name">Gemma3 27B</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 48s</span>
+        <div class="model-desc">Google · Gemma 3, 27B parametrů, open-weights</div>
+        <div class="model-src">local:ollama-cloud/gemma3:27b</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:58%; background:#0d9488"></div>
+      </div>
+      <span class="score-val">11/19</span>
+      <span class="char-count">6,766 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #7c3aed">
+      <div class="card-header">
+        <span class="rank">#9</span>
+        <span class="model-name">Claude Sonnet 4.6</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 99s</span>
+        <div class="model-desc">Anthropic · vyvážený výkon/cena, Claude 4 střed</div>
+        <div class="model-src">local:claude/claude-sonnet-4-6</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:53%; background:#7c3aed"></div>
+      </div>
+      <span class="score-val">10/19</span>
+      <span class="char-count">8,735 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #b91c1c">
+      <div class="card-header">
+        <span class="rank">#10</span>
+        <span class="model-name">Groq + Tools</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 6s</span>
+        <div class="model-desc">Meta · Llama 3.3 70B + Groq function calling (get_listing + photos + cadastre)</div>
+        <div class="model-src">local:groq-tools/llama-3.3-70b-versatile</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:47%; background:#b91c1c"></div>
+      </div>
+      <span class="score-val">9/19</span>
+      <span class="char-count">2,113 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #eab308">
+      <div class="card-header">
+        <span class="rank">#11</span>
+        <span class="model-name">Mistral S3.2 24B</span>
+        
+        <span class="badge badge-local">LOCAL</span>
+        <span class="elapsed-badge">time: 120s</span>
+        <div class="model-desc">Mistral AI · Small 3.2, 24B, lokálně přes Ollama</div>
+        <div class="model-src">local:mistral-small3.2:24b</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:47%; background:#eab308"></div>
+      </div>
+      <span class="score-val">9/19</span>
+      <span class="char-count">5,558 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #16a34a">
+      <div class="card-header">
+        <span class="rank">#12</span>
+        <span class="model-name">Qwen2.5 14B</span>
+        
+        <span class="badge badge-local">LOCAL</span>
+        <span class="elapsed-badge">time: 106s</span>
+        <div class="model-desc">Alibaba · Qwen 2.5, 14B parametrů, lokálně přes Ollama</div>
+        <div class="model-src">qwen-local</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:47%; background:#16a34a"></div>
+      </div>
+      <span class="score-val">9/19</span>
+      <span class="char-count">4,643 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #6b7280">
+      <div class="card-header">
+        <span class="rank">#13</span>
+        <span class="model-name">Qwen3.5 9B</span>
+        
+        <span class="badge badge-local">LOCAL</span>
+        <span class="elapsed-badge">time: 151s</span>
+        <div class="model-desc">Alibaba · Qwen 3.5, 9B parametrů, nejmenší testovaný model</div>
+        <div class="model-src">local:qwen3.5:9b</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:47%; background:#6b7280"></div>
+      </div>
+      <span class="score-val">9/19</span>
+      <span class="char-count">5,870 znaku</span>
+    </div>
+    <div class="card" style="border-left: 4px solid #dc2626">
+      <div class="card-header">
+        <span class="rank">#14</span>
+        <span class="model-name">Groq Llama 3.3 70B</span>
+        
+        <span class="badge badge-cloud">CLOUD</span>
+        <span class="elapsed-badge">time: 5s</span>
+        <div class="model-desc">Meta · Llama 3.3 70B přes Groq API (plain prompt, bez nástrojů)</div>
+        <div class="model-src">local:groq/llama-3.3-70b-versatile</div>
+        <div class="cz-row"><span class="cz ok" title="Diakritika OK">CZ</span> <span class="cz ok" title="Ceska slovni zasoba OK">SL</span> <span class="cz ok" title="Nepise anglicky">OK</span></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar" style="width:42%; background:#dc2626"></div>
+      </div>
+      <span class="score-val">8/19</span>
+      <span class="char-count">3,208 znaku</span>
+    </div></div>
+
+<h2 style="color:#f1f5f9;margin-bottom:.5rem">Topic coverage matrix</h2>
+<table class="matrix"><thead><tr><th>Téma</th><th title="Claude Desktop V3 (ref)">Claude Deskt</th><th title="Claude Opus 4.6">Claude Opus </th><th title="Claude Sonnet 4.6">Claude Sonne</th><th title="Claude Sonnet 4.5">Claude Sonne</th><th title="Claude 3 Haiku">Claude 3 Hai</th><th title="Mistral Large">Mistral Larg</th><th title="Mistral Large + Tools">Mistral Larg</th><th title="DeepSeek V3.1 671B">DeepSeek V3.</th><th title="Gemma3 27B">Gemma3 27B</th><th title="Groq Llama 3.3 70B">Groq Llama 3</th><th title="Groq + Tools">Groq + Tools</th><th title="Mistral S3.2 24B">Mistral S3.2</th><th title="Qwen2.5 14B">Qwen2.5 14B</th><th title="Qwen3.5 9B">Qwen3.5 9B</th></tr></thead><tbody><tr><td>⚖ Dědické řízení / soud</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td></tr><tr><td>🗓 Odložené převzetí (+2–3 měs.)</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td></tr><tr><td>🚗 Parkování neřešené</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td></tr><tr><td>🌊 Mostek / povodí zákaz</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td></tr><tr><td>🍳 Chybí kuchyňská linka</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td></tr><tr><td>🔧 Oprava střechy dílny</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td></tr><tr><td>🏠 Zateplení – tloušťka neověřena</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td></tr><tr><td>👨‍👩‍👧 Dvě b. jednotky / dvougenerační</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="hit">✓</td></tr><tr><td>📦 Sklep 55 m² – přidaná hodnota</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="hit">✓</td></tr><tr><td>💰 Finanční přehled / celk. náklady</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td></tr><tr><td>📊 Yield / výnos z pronájmu</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td></tr><tr><td>📈 ROI / návratnost investice</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td></tr><tr><td>📌 Srovnání Kč/m² s trhem</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td></tr><tr><td>❓ Otázky / Due Diligence</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td></tr><tr><td>🔴 PENB chybějící</td><td class="miss">–</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="miss">–</td></tr><tr><td>🏆 Bodovací tabulka X/5</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td><td class="hit">✓</td><td class="miss">–</td><td class="miss">–</td><td class="miss">–</td></tr><tr><td>🇨🇿 Diakritika > 3 %</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td></tr><tr><td>🗣 Česká slovní zásoba</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td></tr><tr><td>🚫 Neodpovídá anglicky</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td><td class="hit">✓</td></tr></tbody></table>
+
+<h2 style="color:#f1f5f9;margin-bottom:.5rem">Plné texty analýz</h2>
+<div class="tabs"><button class="tab-btn" onclick="showTab(0)">Claude Desktop V3 (ref)</button>
+<button class="tab-btn" onclick="showTab(1)">Claude Opus 4.6</button>
+<button class="tab-btn" onclick="showTab(2)">Claude Sonnet 4.6</button>
+<button class="tab-btn" onclick="showTab(3)">Claude Sonnet 4.5</button>
+<button class="tab-btn" onclick="showTab(4)">Claude 3 Haiku</button>
+<button class="tab-btn" onclick="showTab(5)">Mistral Large</button>
+<button class="tab-btn" onclick="showTab(6)">Mistral Large + Tools</button>
+<button class="tab-btn" onclick="showTab(7)">DeepSeek V3.1 671B</button>
+<button class="tab-btn" onclick="showTab(8)">Gemma3 27B</button>
+<button class="tab-btn" onclick="showTab(9)">Groq Llama 3.3 70B</button>
+<button class="tab-btn" onclick="showTab(10)">Groq + Tools</button>
+<button class="tab-btn" onclick="showTab(11)">Mistral S3.2 24B</button>
+<button class="tab-btn" onclick="showTab(12)">Qwen2.5 14B</button>
+<button class="tab-btn" onclick="showTab(13)">Qwen3.5 9B</button></div>
+<div class="tab-panel" id="panel-0" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p><strong>Prodej rodinného domu 6+2 · Suchohrdly</strong></p>
+<br>
+<p>182 m² · Pozemek 590 m² · Sklep 55 m² · 6 990 000 Kč</p>
+<br>
+<p>Prohlídka: 25. 2. 2026 · Analýza: 26. 2. 2026</p>
+<br>
+<p>  ----------------------- ------------------------- -----------------------</p>
+<p>    <strong>✅ PROHLÉDNUTO</strong>     <strong>⭐ Skóre: 4.2 / 5.0</strong>     <strong>👍 DOPORUČENO</strong></p>
+<br>
+<p>  ----------------------- ------------------------- -----------------------</p>
+<br>
+<p><strong>1. Základní informace</strong></p>
+<br>
+<p>  ---------------------- --------------------------------------------------------</p>
+<p>  <strong>Cena</strong>               6 990 000 Kč</p>
+<br>
+<p>  <strong>Cena za m²</strong>         cca 38 400 Kč/m² zastavěné plochy</p>
+<br>
+<p>  <strong>Lokalita</strong>           Suchohrdly, Jihomoravský kraj (těsně u Znojma)</p>
+<br>
+<p>  <strong>Dispozice</strong>          6+2 -- dvě samostatné bytové jednotky</p>
+<br>
+<p>  <strong>Zastavěná plocha</strong>   182 m²</p>
+<br>
+<p>  <strong>Plocha pozemku</strong>     590 m² (rovinatý)</p>
+<br>
+<p>  <strong>Sklep</strong>              55 m² -- 5 místností + spíž</p>
+<br>
+<p>  <strong>Stav</strong>               Po rekonstrukci · Ihned k nastěhování</p>
+<br>
+<p>  <strong>Datum prohlídky</strong>    25\. 2. 2026</p>
+<br>
+<p>  <strong>⚠️ Právní stav</strong>     DĚDICKÉ ŘÍZENÍ -- prodej schvaluje soud (+2--3 měsíce)</p>
+<br>
+<p>  <strong>Zdroj inzerátu</strong>     Prodejme.to</p>
+<p>  ---------------------- --------------------------------------------------------</p>
+<br>
+<p><strong>2. Zápis z prohlídky (25. 2. 2026)</strong></p>
+<br>
+<p>Níže jsou zachyceny přímé poznatky z osobní prohlídky nemovitosti.</p>
+<br>
+<p><strong>🔵 Pozitivní zjištění</strong></p>
+<br>
+<p>✅ <strong>Dům je suchý -- vlhkost minimální, a to i ve sklepě</strong></p>
+<br>
+<p>✅ <strong>Sklep nabízí opravdu hodně místa, vhodný na dílnu i skladování</strong></p>
+<br>
+<p>✅ <strong>Vytápění řešeno plynovým kotlem s možností přepnutí na krbová kamna s výměníkem</strong></p>
+<br>
+<p>✅ <strong>Z exteriéru je patrné zateplení fasády (tloušťka neověřena)</strong></p>
+<br>
+<p>✅ <strong>Majitel rekonstruoval pro sebe -- dílo nebylo dělané na prodej → vyšší pravděpodobnost kvality provedení</strong></p>
+<br>
+<p><strong>🟡 Věci k dořešení</strong></p>
+<br>
+<p>⚠️ Chybí kuchyňská linka v přízemí -- viditelné na fotkách prohlídky, nutno počítat do nákladů</p>
+<br>
+<p>⚠️ Nutný celý nový neprůhledný plot -- od cestičky i vzadu na pozemku</p>
+<br>
+<p>⚠️ Střecha dílny na pozemku potřebuje opravu (možná stačí nová IPA -- původní tam zřejmě byla)</p>
+<br>
+<p>⚠️ Do dílny se při prohlídce nedostali -- stav interiéru neznámý</p>
+<br>
+<p>⚠️ Tloušťka zateplení fasády neověřena</p>
+<br>
+<p>⚠️ Parkování -- žádné vlastní stání; nepsaná dohoda o parkování u sousedů (nevyužitá vrata) -- nespolehlivé</p>
+<br>
+<p>⚠️ Mostek vzadu NEREÁLNÝ -- povodí zakázalo pevné stavby; max. dočasný přejezd (odstranitelný)</p>
+<br>
+<p><strong>🔴 Právní rizika -- KLÍČOVÉ</strong></p>
+<br>
+<p>🔴 DĚDICKÉ ŘÍZENÍ -- majitel tragicky zahynul při rekonstrukci, prodej schvaluje soud (v dědictví jsou děti)</p>
+<br>
+<p>🔴 Odhad doby převodu: +2--3 měsíce navíc oproti standardní transakci</p>
+<br>
+<p>🔴 Před podpisem čehokoli ověřit přesný stav dědického řízení a podmínky soudního schválení</p>
+<br>
+<p><strong>3. Popis dispozice</strong></p>
+<br>
+<p><strong>Přízemí -- 4+1 (112 m²)</strong></p>
+<br>
+<ul>
+<li>2 ložnice</li>
+</ul>
+<br>
+<ul>
+<li>Kuchyně + obývací pokoj</li>
+</ul>
+<br>
+<ul>
+<li>Koupelna s vanou</li>
+</ul>
+<br>
+<ul>
+<li>Samostatná toaleta</li>
+</ul>
+<br>
+<p><strong>Podkroví -- 2+1 (70 m²)</strong></p>
+<br>
+<ul>
+<li>Kuchyně</li>
+</ul>
+<br>
+<ul>
+<li>Obývací pokoj se vstupem na lodžii</li>
+</ul>
+<br>
+<ul>
+<li>Ložnice</li>
+</ul>
+<br>
+<ul>
+<li>Samostatná toaleta</li>
+</ul>
+<br>
+<ul>
+<li>Sprchový kout v chodbě -- atypické řešení, pro plnohodnotné bydlení vhodné doplnit</li>
+</ul>
+<br>
+<ul>
+<li>Půda jako úložný prostor</li>
+</ul>
+<br>
+<p><strong>Sklep (55 m²)</strong></p>
+<br>
+<ul>
+<li>5 místností + spíž</li>
+</ul>
+<br>
+<ul>
+<li>Využitelný jako dílna, sklad, posilovna</li>
+</ul>
+<br>
+<ul>
+<li>Dle prohlídky: suchý, minimální vlhkost</li>
+</ul>
+<br>
+<p><strong>Pozemek (590 m²)</strong></p>
+<br>
+<ul>
+<li>Rovinatý, dobře využitelný</li>
+</ul>
+<br>
+<ul>
+<li>Zahradní domek</li>
+</ul>
+<br>
+<ul>
+<li>Dílna -- střecha k opravě, interiér neprohlédnut</li>
+</ul>
+<br>
+<ul>
+<li>Nutný nový neprůhledný plot -- od cestičky i vzadu ⚠️</li>
+</ul>
+<br>
+<ul>
+<li>Vjezd ze zadní části: mostek NEREÁLNÝ (povodí = zákaz pevných staveb), max. dočasný přejezd</li>
+</ul>
+<br>
+<ul>
+<li>Parkování: žádné vlastní, jen nepsaná dohoda se sousedy ⚠️</li>
+</ul>
+<br>
+<p><strong>4. Technický stav</strong></p>
+<br>
+<p>  ------------------------ ------------- -----------------------------------------------------------------</p>
+<p>  <strong>Prvek</strong>                <strong>Stav</strong>      <strong>Poznámka</strong></p>
+<br>
+<p>  <strong>Střecha (dům)</strong>        ✅ Nová       Vyměněna při rekonstrukci</p>
+<br>
+<p>  <strong>Fasáda / zateplení</strong>   ✅ Nová       Zateplení dle prohlídky přítomno, tloušťka neověřena</p>
+<br>
+<p>  <strong>Okna</strong>                 ✅ Plast.     Plastová okna v celém domě</p>
+<br>
+<p>  <strong>Elektroinstalace</strong>     ✅ Nová       Nové rozvody při rekonstrukci</p>
+<br>
+<p>  <strong>Koupelna</strong>             ✅ Nová       Přízemí -- koupelna s vanou; podkroví -- sprchový kout v chodbě</p>
+<br>
+<p>  <strong>Vytápění</strong>             ✅ OK         Plynový kotel + krbová kamna s výměníkem (přepínatelné)</p>
+<br>
+<p>  <strong>Ohřev vody</strong>           ✅ OK         Elektrický bojler</p>
+<br>
+<p>  <strong>Inž. sítě</strong>            ✅ Vše        Napojeno; voda dočasně odpojena -- snadno obnovitelné</p>
+<br>
+<p>  <strong>Vlhkost</strong>              ✅ Min.       Ověřeno osobně při prohlídce -- sklep i dům suchý</p>
+<br>
+<p>  <strong>Kuchyňská linka</strong>      ⚠️ Chybí      Nutno pořídit novou -- počítat do nákladů</p>
+<br>
+<p>  <strong>Střecha dílny</strong>        ⚠️ Oprava     Pravděpodobně stačí nová IPA fólie; interiér neprohlédnut</p>
+<p>  ------------------------ ------------- -----------------------------------------------------------------</p>
+<br>
+<p><strong>5. Silné stránky a rizika</strong></p>
+<br>
+<p>+---------------------------------------------------------+----------------------------------------------------------------+</p>
+<table class="md-table">
+<tr><td>**✅ SILNÉ STRÁNKY**</td><td>**⚠️ RIZIKA / NEVÝHODY**</td></tr>
+</table>
+<p>+---------------------------------------------------------+----------------------------------------------------------------+</p>
+<table class="md-table">
+<tr><td>• Výjimečný poměr cena/plocha v oblasti Znojemska</td><td>• Podkroví bez plnohodnotné koupelny</td></tr>
+<tr><td>• Dvě bytové jednotky = dvougenerační nebo pronájem</td><td>• Chybí kuchyňská linka v přízemí (vidět na fotkách prohlídky)</td></tr>
+<tr><td>• Dům suchý -- ověřeno osobně při prohlídce</td><td>• Nutný nový neprůhledný plot (cestička + záda pozemku)</td></tr>
+<tr><td>• Rekonstrukce pro vlastní potřebu = vyšší kvalita</td><td>• Parkování jen nepsanou dohodou se sousedy</td></tr>
+<tr><td>• Ihned k nastěhování, bez nutnosti okamžitých investic</td><td>• Střecha dílny k opravě, interiér dílny neznámý</td></tr>
+<tr><td>• Sklep 55 m² -- opravdu velká přidaná hodnota</td><td>• Mostek vzadu nereálný -- povodí zakázalo pevné stavby</td></tr>
+<tr><td>• Plynové i tuhé palivo = flexibilní vytápění</td><td>• Tloušťka zateplení fasády neověřena</td></tr>
+<tr><td>• Klidná obec přímo u Znojma, MŠ+ZŠ v obci</td><td>• 🔴 DĚDICKÉ ŘÍZENÍ -- soud, děti, +2--3 měsíce převodu</td></tr>
+</table>
+<p>+---------------------------------------------------------+----------------------------------------------------------------+</p>
+<br>
+<p><strong>6. Finanční přehled</strong></p>
+<br>
+<p>  ------------------------------------- --------------------------------</p>
+<p>  <strong>Položka</strong>                           <strong>Odhad (Kč)</strong></p>
+<br>
+<p>  <strong>Kupní cena</strong>                        6 990 000 Kč</p>
+<br>
+<p>  Nová kuchyňská linka (přízemí)        50 000 -- 150 000 Kč</p>
+<br>
+<p>  Oprava střechy dílny (IPA)            20 000 -- 60 000 Kč</p>
+<br>
+<p>  Koupelna podkroví (doplnění)          80 000 -- 200 000 Kč</p>
+<br>
+<p>  Nový neprůhledný plot                 50 000 -- 120 000 Kč</p>
+<br>
+<p>  <strong>Celkové náklady (odhad)</strong>           <strong>7 190 000 -- 7 520 000 Kč</strong></p>
+<br>
+<p>  Odh. příjem z pronájmu podkroví       8 000 -- 12 000 Kč / měsíc</p>
+<p>  ------------------------------------- --------------------------------</p>
+<br>
+<p><strong>7. Bodové hodnocení</strong></p>
+<br>
+<p>  ------------------------------ ---------------------- --------------------</p>
+<p>  <strong>Kategorie</strong>                  <strong>Hodnocení</strong>          <strong>Body</strong></p>
+<br>
+<p>  <strong>Stav nemovitosti</strong>           ●●●●○                  <strong>4/5</strong></p>
+<br>
+<p>  <strong>Poměr cena / hodnota</strong>       ●●●●○                  <strong>4/5</strong></p>
+<br>
+<p>  <strong>Lokalita</strong>                   ●●●○○                  <strong>3/5</strong></p>
+<br>
+<p>  <strong>Využitelnost / dispozice</strong>   ●●●●●                  <strong>5/5</strong></p>
+<br>
+<p>  <strong>Investiční potenciál</strong>       ●●●●○                  <strong>4/5</strong></p>
+<br>
+<p>  <strong>Vlhkost / technický stav</strong>   ●●●●●                  <strong>5/5</strong></p>
+<br>
+<p>  <strong>CELKOVÉ SKÓRE</strong>              <strong>●●●●○</strong>              <strong>4.2 / 5.0</strong></p>
+<p>  ------------------------------ ---------------------- --------------------</p>
+<br>
+<p><strong>8. Závěr a doporučení</strong></p>
+<br>
+<p>+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+</p>
+<table class="md-table">
+<tr><td>**👍 DOPORUČENO K VÁŽNÉMU ZVÁŽENÍ**</td></tr>
+<tr><td>Nemovitost při osobní prohlídce potvrdila klíčové přednosti inzerátu. Dům je suchý, po rekonstrukci provedené pro vlastní potřebu majitele a ihned obyvatelný. Kombinace dvou bytových jednotek, velkého sklepa a cenově přiměřené nabídky z něj dělá zajímavou příležitost jak pro dvougenerační bydlení, tak pro investory.</td></tr>
+<tr><td>Doporučujeme ověřit tloušťku zateplení a stav dílny před finálním rozhodnutím. Plánované náklady na dovybavení (kuchyň, koupelna podkroví, střecha dílny) odhadujeme na 150 000 -- 410 000 Kč.</td></tr>
+</table>
+<p>+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+</p>
+<br>
+<p>Analýzu zpracoval: Claude (AI asistent) · 26. 2. 2026</p></div>
+<div class="tab-panel" id="panel-1" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p>Suchohrdly, Jihomoravský kraj | Rodinný dům 6+2 | 182 m² / 590 m² | 6 990 000 Kč</p>
+<br>
+<hr>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj (u Znojma)</td></tr>
+<tr><td>Dispozice</td><td>6+2 (1NP: 4+1 / podkroví: 2+1)</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Sklep</td><td>55 m² (5 místností + spíž)</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 407 Kč/m²</td></tr>
+<tr><td>Typ stavby</td><td>Dvoupodlažní zděný RD</td></tr>
+<tr><td>Stav</td><td>Po částečné rekonstrukci</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva s výměníkem + plynový kotel</td></tr>
+<tr><td>Ohřev vody</td><td>Elektrický bojler</td></tr>
+<tr><td>Sítě</td><td>Všechny inženýrské sítě (voda dočasně odpojená)</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>1. ANALÝZA STAVU A KVALITY</h2>
+<br>
+<p><strong>Co bylo renovováno (dle popisu a fotek):</strong></p>
+<ul>
+<li>✅ Nová střecha (taškový kryt — červená, viditelné na fotkách) — zásadní investice, snižuje riziko zatékání</li>
+<li>✅ Nová fasáda — zateplení (nutno ověřit tloušťku izolace a PENB)</li>
+<li>✅ Nové rozvody elektřiny — důležité z hlediska bezpečnosti</li>
+<li>✅ Koupelna v 1NP — moderní provedení (velkoformátové obklady, vana + sprcha, LED osvětlení)</li>
+<li>✅ Plastová okna — úspora energií oproti starým dřevěným</li>
+<li>✅ Podlahy — dřevěné/laminátové v dobrém stavu v obou podlažích</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ Koupelna v 1NP působí kvalitně a moderně (Foto 2)</li>
+<li>✅ Prostorné místnosti s dobrým přirozeným osvětlením (Foto 1, 3, 4, 5, 6)</li>
+<li>✅ Nová střecha — klíčový prvek, eliminuje velký budoucí náklad</li>
+<li>✅ Dvougenerační potenciál — dvě samostatné bytové jednotky</li>
+<li>✅ Velký sklep 55 m² — výjimečně velký úložný/užitný prostor</li>
+<li>✅ Rovinatý pozemek 590 m² s hospodářským zázemím</li>
+<li>✅ Podkroví má dřevěný obklad stropu — příjemná atmosféra (Foto 4, 5, 6)</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ <strong>Voda dočasně odpojená</strong> — nutno ověřit důvod odpojení, stav vodovodní přípojky a reálnou cenu opětovného připojení</li>
+<li>⚠️ <strong>Podkroví — chybí plnohodnotná koupelna</strong> — sprchový kout je „atypicky&quot; umístěn v rohu chodby (Foto 12), pro dvougenerační bydlení nutno dobudovat</li>
+<li>⚠️ <strong>Kuchyně v podkroví</strong> (Foto 11) — velmi malá, základní vybavení, bude pravděpodobně vyžadovat investici</li>
+<li>⚠️ <strong>Kuchyně v 1NP</strong> (Foto 9) — funkční, ale designově starší, linka kombinuje dřevo a bílou MDF</li>
+<li>⚠️ <strong>Vytápění kotlem na tuhá paliva</strong> — pracné, neekologické, provozně náročné; plynový kotel jako záloha je plus, ale stáří obou kotlů neznámé</li>
+<li>⚠️ <strong>Zahradní domek a dílna</strong> — dílna potřebuje opravu střechy (uvedeno v inzerátu)</li>
+<li>⚠️ <strong>Koryto na pozemku / v blízkosti</strong> — inzerát zmiňuje „mostek přes koryto&quot; pro zadní vjezd → povodňové/záplavové riziko nutno prověřit</li>
+<li>⚠️ Foto 13 zmiňuje „broken window&quot; — nelze přesně lokalizovat, ověřit při prohlídce</li>
+<li>⚠️ Foto 15 — zahrada působí zanedbaně, zarostlá, staré zahradní konstrukce</li>
+<li>⚠️ Stav elektroinstalace v podkroví a sklepě — nelze z fotek posoudit detailně</li>
+<li>⚠️ Stav kanalizace (stáří, materiál potrubí) — z dat nelze určit</li>
+<li>⚠️ PENB chybí — vyžádat, může výrazně ovlivnit provozní náklady a hodnotu</li>
+</ul>
+<br>
+<hr>
+<br>
+<h2>2. HODNOCENÍ CENY</h2>
+<br>
+<p><strong>Srovnání s trhem:</strong></p>
+<ul>
+<li>Cena 38 407 Kč/m² za rodinný dům v obci Suchohrdly (nikoliv přímo Znojmo) po částečné rekonstrukci působí <strong>spíše na horní hranici</strong> místního trhu. Znojemsko je cenově dostupnější region JmK, srovnatelné nemovitosti se v okolí typicky nabízejí v rozmezí 28 000–40 000 Kč/m², přičemž horní hranice odpovídá domům po kompletní rekonstrukci bez nutnosti dalších investic.</li>
+<li>Dům NENÍ kompletně dokončen (chybí koupelna v podkroví, voda odpojená, dílna potřebuje opravu), což nabídkovou cenu relativně zvyšuje oproti skutečnému stavu.</li>
+</ul>
+<br>
+<p><strong>Odhad nutných investic:</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Odhad nákladů</td></tr>
+<tr><td>Dobudování koupelny v podkroví</td><td>150 000 – 300 000 Kč</td></tr>
+<tr><td>Opětovné připojení vody + revize přípojky</td><td>10 000 – 50 000 Kč</td></tr>
+<tr><td>Oprava střechy dílny</td><td>30 000 – 80 000 Kč</td></tr>
+<tr><td>Úprava zahrady (vyčištění, terénní práce)</td><td>20 000 – 60 000 Kč</td></tr>
+<tr><td>Revize/výměna topného systému (kotel na TP stárne)</td><td>50 000 – 150 000 Kč</td></tr>
+<tr><td>Modernizace kuchyně v podkroví</td><td>80 000 – 150 000 Kč</td></tr>
+<tr><td>Rezerva na nepředvídané (sklep, vlhkost, kanalizace)</td><td>100 000 – 200 000 Kč</td></tr>
+<tr><td>**Celkem odhadované opravy**</td><td>**440 000 – 990 000 Kč**</td></tr>
+</table>
+<br>
+<p><strong>Finanční kalkulace (celková investice):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Odhadované opravy</td><td>440 000 – 990 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 740 000 – 8 290 000 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**5 900 000 – 6 300 000 Kč**</td></tr>
+</table>
+<br>
+<p>Výpočet max. ceny: 6 990 000 − 700 000 (střed oprav) − 350 000 až 700 000 (vyjednávací rezerva 5–10 %) ≈ <strong>5 900 000 – 6 300 000 Kč</strong></p>
+<br>
+<hr>
+<br>
+<h2>3. LOKACE A OKOLÍ</h2>
+<br>
+<p><strong>Plusy:</strong></p>
+<ul>
+<li>✅ Těsná blízkost Znojma — městská vybavenost na dosah (cca 3 km do centra)</li>
+<li>✅ Klidná venkovská lokalita — vhodné pro rodinu s dětmi</li>
+<li>✅ V obci MŠ, ZŠ, prodejna COOP — základní občanská vybavenost přímo na místě</li>
+<li>✅ Znojemská vinařská oblast — atraktivní prostředí, Podyjí</li>
+</ul>
+<br>
+<p><strong>Mínusy / rizika:</strong></p>
+<ul>
+<li>⚠️ Venkovská poloha = závislost na osobním automobilu pro práci, větší nákupy, lékaře</li>
+<li>⚠️ <strong>Koryto v blízkosti pozemku</strong> — nutno ověřit záplavové území dle ČHMÚ a územního plánu</li>
+<li>⚠️ Nižší likvidita trhu — prodej v budoucnu může trvat déle než u městských nemovitostí</li>
+<li>⚠️ Znojemsko má nižší ekonomickou dynamiku — omezené pracovní příležitosti, nižší nájmy</li>
+<li>⚠️ Hluk, kriminalita a průmysl v okolí nelze z inzerátu posoudit — ověřit samostatně</li>
+</ul>
+<br>
+<hr>
+<br>
+<h2>4. TECHNICKÝ STAV</h2>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová, tašková krytina — klíčová investice provedena</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová dle popisu; ověřit tloušťku zateplení, PENB</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová — úspora energií, stáří nespecifikováno</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové dle popisu — vyžádat revizní zprávu</td></tr>
+<tr><td>Topení</td><td>⚠️</td><td>Kotel na tuhá paliva + plynový kotel; stáří neznámé, provozně náročné, neekologické</td></tr>
+<tr><td>Koupelna 1NP</td><td>✅</td><td>Moderní, kvalitní provedení (Foto 2)</td></tr>
+<tr><td>Koupelna podkroví</td><td>🔴</td><td>Chybí — pouze atypický sprchový kout na chodbě; nutná investice</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Ověřit při prohlídce, zejména ve sklepě (55 m², 5 místností)</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>⚠️</td><td>Voda dočasně odpojená — ověřit důvod, stav přípojky, náklady připojení</td></tr>
+<tr><td>Dílna / hosp. budovy</td><td>⚠️</td><td>Střecha dílny potřebuje opravu (uvedeno v inzerátu)</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Chybí — vyžádat; může být v horší třídě (kotel na TP)</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>5. DISPOZICE A VYUŽITELNOST</h2>
+<br>
+<p><strong>Dvougenerační bydlení:</strong></p>
+<ul>
+<li>Hlavní přednost domu — dvě samostatné bytové jednotky (4+1 v 1NP, 2+1 v podkroví)</li>
+<li>1NP (112 m²) je kompletně vybavené a připravené k bydlení — vhodné pro rodinu</li>
+<li>Podkroví (70 m²) je obyvatelné, ale vyžaduje dobudování koupelny pro plnohodnotné samostatné bydlení</li>
+<li>Samostatné vstupy z dat nelze potvrdit — ověřit při prohlídce</li>
+</ul>
+<br>
+<p><strong>Rodina:</strong></p>
+<ul>
+<li>Prostorná dispozice 6+2 poskytuje dostatek místností pro velkou rodinu</li>
+<li>Místnosti v 1NP jsou dobře prosvětlené (Foto 1, 3, 8)</li>
+<li>Podkroví má zajímavé prostory s dřevěnými stropy (Foto 4, 5, 6), lodžie je bonus</li>
+<li>Zahrada 590 m² — rovinatá, vhodná pro děti, nutno revitalizovat</li>
+</ul>
+<br>
+<p><strong>Investice / pronájem:</strong></p>
+<ul>
+<li>Potenciál pronajímat jedno patro — ale nutno dobudovat koupelnu v podkroví</li>
+<li>Znojemsko má nižší nájemní poptávku — spíše pro vlastní bydlení</li>
+</ul>
+<br>
+<p><strong>Bez půdorysu</strong> (pouze 1 foto půdorysu pro 1NP — Foto 20): dispozice 1NP se jeví logická a přehledná. Půdorys podkroví chybí.</p>
+<br>
+<hr>
+<br>
+<h2>6. RIZIKA A RED FLAGS</h2>
+<br>
+<p><strong>🔴 Kritické body:</strong></p>
+<ul>
+<li>🔴 <strong>Voda dočasně odpojená</strong> — Důvod neznámý. Může jít o administrativní záležitost, ale také o problém s přípojkou. Nutno ověřit PŘED koupí, včetně nákladů na opětovné připojení.</li>
+<li>🔴 <strong>Chybějící koupelna v podkroví</strong> — Pro dvougenerační využití nutná investice 150–300 tis. Kč; bez ní je podkroví jako samostatná jednotka nedostatečné.</li>
+<li>🔴 <strong>Koryto na/u pozemku</strong> — Zmíněno v kontextu vybudování mostku. Nutno ověřit záplavové riziko (ČHMÚ mapy, územní plán), pojistitelnost nemovitosti.</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body:</strong></p>
+<ul>
+<li>🟡 Topení na tuhá paliva — nekomfortní, neekologické, budoucí legislativní omezení; plynový kotel jako záloha je plus, ale stáří obou neznámé</li>
+<li>🟡 Střecha dílny potřebuje opravu — náklad 30–80 tis. Kč</li>
+<li>🟡 Zanedbaná zahrada — úpravy nutné, ale nepříliš nákladné</li>
+<li>🟡 PENB chybí — může odhalit vysokou energetickou náročnost</li>
+<li>🟡 Stáří plastových oken nespecifikováno — ověřit funkčnost těsnění</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika:</strong></p>
+<ul>
+<li>🟢 Právní stav — standardní ověření v KN (zástavní práva, exekuce)</li>
+<li>🟢 Konstrukční stav domu — zděná stavba, nová střecha, fasáda — základní nosné konstrukce by měly být v pořádku</li>
+<li>🟢 Občanská vybavenost obce — škola, školka, obch</li>
+</ul></div>
+<div class="tab-panel" id="panel-2" style="display:none"><h1>ANALÝZA NEMOVITOSTI</h1>
+<br>
+<p><strong>Suchohrdly (u Znojma) | Rodinný dům 6+2 | 182 m² / 590 m² pozemek | 6 990 000 Kč</strong></p>
+<br>
+<hr>
+<br>
+<h2>📋 Základní parametry</h2>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj (těsná blízkost Znojma)</td></tr>
+<tr><td>Dispozice</td><td>6+2 (přízemí 4+1 / 112 m² + podkroví 2+1 / 70 m²)</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Sklep</td><td>55 m² (5 místností + spíž)</td></tr>
+<tr><td>Pozemek</td><td>590 m² (rovinatý)</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>**38 407 Kč/m²**</td></tr>
+<tr><td>Typ stavby</td><td>Dvoupodlažní RD (přízemí + obytné podkroví)</td></tr>
+<tr><td>Stav</td><td>Po částečné rekonstrukci, ihned obyvatelný</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva s výměníkem + plynový kotel (záloha)</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to (PRODEJMETO)</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>1. ANALÝZA STAVU A KVALITY</h2>
+<br>
+<h3>Co bylo renovováno</h3>
+<ul>
+<li>✅ <strong>Nová střecha</strong> — klíčová investice, chrání celý dům; stáří nové střechy neupřesněno, ale popis explicitně uvádí</li>
+<li>✅ <strong>Nová fasáda</strong> — fotky (foto 13, 18, 19) potvrzují relativně čistý, světlý exteriér bez viditelných trhlin</li>
+<li>✅ <strong>Nové rozvody elektřiny</strong> — zásadní pro bezpečnost a pojistitelnost</li>
+<li>✅ <strong>Nová koupelna</strong> — foto 2 ukazuje moderní koupelnu s velkoplošnými šedými dlaždicemi, vana + sprcha, vypadá nově a kvalitně</li>
+<li>✅ <strong>Plastová okna</strong> — zmíněna v inzerátu, potvrzena na exteriérových fotkách</li>
+</ul>
+<br>
+<h3>Pozitiva dle fotografií a popisu</h3>
+<ul>
+<li>✅ Moderní koupelna v přízemí (foto 2) — kvalitní provedení, dešťová sprcha, čistý design</li>
+<li>✅ Světlé interiéry, dřevěné podlahy ve více místnostech (foto 1, 3, 4, 5, 6, 7)</li>
+<li>✅ Vysoké stropy v obytném podkroví s dřevěným podhledem — příjemný charakter prostoru (foto 4, 5, 6)</li>
+<li>✅ Velká lodžie v podkroví — přidaná hodnota</li>
+<li>✅ Obrovský sklep 55 m² / 5 místností — výjimečné úložné kapacity</li>
+<li>✅ Zahradní domek + dílna na pozemku</li>
+<li>✅ Napojení na všechny inženýrské sítě (voda, plyn, elektřina, zřejmě i kanalizace)</li>
+<li>✅ Dvougenerační potenciál — dvě bytové jednotky s oddělenými vstupy (dle popisu)</li>
+<li>✅ Rovinatý pozemek 590 m² — dobře využitelný</li>
+<li>✅ Kuchyně v podkroví (foto 11) — nová, světlá, funkční</li>
+<li>✅ Koupelna s oknem/světlíkem v podkroví (foto 12) — přirozené osvětlení</li>
+</ul>
+<br>
+<h3>Negativa / otázky</h3>
+<ul>
+<li>⚠️ <strong>Podkroví nemá plnohodnotnou koupelnu</strong> — sprchový kout je atypicky umístěn v chodbě/rohu místnosti (foto 12 naznačuje nestandardní řešení); pro dvougenerační bydlení je nutná dostavba samostatné koupelny v 2. NP (viz popis inzerátu)</li>
+<li>⚠️ <strong>Voda je dočasně odpojená</strong> — nutné ověřit příčinu a skutečný stav přípojky; standardní odpojení nebo skrytá závada?</li>
+<li>⚠️ <strong>Dílna vyžaduje opravu střechy</strong> — inzerát explicitně uvádí; rozsah nelze z fotek odhadnout</li>
+<li>⚠️ <strong>Kotel na tuhá paliva</strong> — stáří a stav neznámy, obsluha náročnější, pravděpodobné nahrazení nebo přechod výhradně na plyn v horizontu 3–7 let</li>
+<li>⚠️ <strong>Pozemek — přístup ze zadní části přes koryto</strong> — vybudování mostku = nutná investice, rozsah neuveden; koryto = riziko záplav? (ověřit ČHMÚ)</li>
+<li>⚠️ <strong>Zahrada na foto 15</strong> — overgrown, starší zahradní konstrukce, kovový nábytek; vyžaduje úpravu</li>
+<li>⚠️ Stav sklepa (vlhkost, plísně) nelze z fotek posoudit — doporučuji odbornou prohlídku</li>
+<li>⚠️ PENB (energetický průkaz) není v inzerátu zmíněn — vyžádat povinně</li>
+<li>⚠️ Foto 13 zmiňuje rozbité okno na exteriéru — ověřit při prohlídce</li>
+<li>⚠️ Dvougenerační využití předpokládá oddělené vstupy — způsob oddělení bytů není z fotek zcela jasný, ověřit při prohlídce</li>
+</ul>
+<br>
+<hr>
+<br>
+<h2>2. HODNOCENÍ CENY</h2>
+<br>
+<h3>Srovnání s trhem</h3>
+<p>Cena <strong>6 990 000 Kč za 182 m²</strong> (38 407 Kč/m²) u rekonstruované nemovitosti v obci těsně u Znojma působí na horní hranici místního trhu. Srovnatelné domy v obcích do 10 km od Znojma se pohybují v rozmezí 4 500 000–8 000 000 Kč v závislosti na stavu a velikosti. Cena je z hlediska plochy a stavu _spíše odpovídající až mírně vyšší_, přičemž absenci plnohodnotné koupelny v patře a nutné opravy (dílna, mostík, event. topení) cenu relativně zdražují.</p>
+<br>
+<h3>Finanční kalkulace (celková investice)</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 % — dle smlouvy)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Dostavba koupelny v 2. NP (podkroví)</td><td>150 000–300 000 Kč</td></tr>
+<tr><td>Oprava střechy dílny</td><td>30 000–100 000 Kč</td></tr>
+<tr><td>Vybudování mostku / vjezdu ze zadní části</td><td>50 000–150 000 Kč</td></tr>
+<tr><td>Výměna / upgrade kotle na tuhá paliva (výhled 5 let)</td><td>80 000–200 000 Kč</td></tr>
+<tr><td>Úprava zahrady + zahradní domek</td><td>30 000–80 000 Kč</td></tr>
+<tr><td>Rezerva na neočekávané opravy (sklep, rozvody, vlhkost)</td><td>100 000–200 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 739 600 – 8 329 600 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**viz sekce 8**</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>3. LOKACE A OKOLÍ</h2>
+<br>
+<h3>Plusy</h3>
+<ul>
+<li>✅ Suchohrdly leží těsně u Znojma — dobrá dostupnost veškerých služeb krajského města (nemocnice, úřady, obchody, zaměstnanost)</li>
+<li>✅ V obci: prodejna COOP, MŠ i ZŠ — pro rodiny s dětmi velmi praktické</li>
+<li>✅ Klidná část obce — foto 16 (letecký pohled) potvrzuje zástavbu rodinných domů, bez průmyslu v bezprostředním okolí</li>
+<li>✅ Jihomoravský kraj — oblíbený region, vinařská oblast, turistický potenciál</li>
+<li>✅ Blízkost Znojma = relativně vyšší likvidita trhu oproti vzdálenějším vesnicím</li>
+</ul>
+<br>
+<h3>Mínusy / rizika</h3>
+<ul>
+<li>⚠️ Venkovská lokalita = závislost na automobilu pro dojíždění do Znojma</li>
+<li>⚠️ <strong>Koryto na pozemku</strong> — povodňové riziko nutno ověřit v mapách ČHMÚ (povodňová zóna 1–4)</li>
+<li>⚠️ Hluk ze silnic, kriminalita a průmysl v okolí nelze z inzerátu posoudit — ověřit samostatně (mapy.cz, google street view, sousedé)</li>
+<li>⚠️ Nižší likvidita prodeje oproti samotné Znojmu — při dalším prodeji delší čas na trhu</li>
+</ul>
+<br>
+<hr>
+<br>
+<h2>4. TECHNICKÝ STAV</h2>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha (RD)</td><td>✅</td><td>Nová dle inzerátu; typ, stáří a záruka — ověřit doklady</td></tr>
+<tr><td>Střecha dílny</td><td>🔴</td><td>Inzerát explicitně uvádí potřebu opravy; rozsah neznámý</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová dle inzerátu; fotky (13, 18, 19) potvrzují dobrý stav</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová dle inzerátu; foto 13 naznačuje jedno rozbité — ověřit</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové dle inzerátu; doporučit revizní zprávu</td></tr>
+<tr><td>Topení</td><td>⚠️</td><td>Kotel na tuhá paliva + plynový záložní; stáří obou kotlů neznámo — ověřit</td></tr>
+<tr><td>Koupelna přízemí</td><td>✅</td><td>Nová, moderní (foto 2); vana + sprcha, kvalitní provedení</td></tr>
+<tr><td>Koupelna podkroví</td><td>🔴</td><td>Chybí — pouze atypický sprchový kout v chodbě; nutná dostavba</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Sklep 55 m² — ověřit při prohlídce; z fotek nelze posoudit</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>⚠️</td><td>Voda dočasně odpojená — ověřit příčinu a stav přípojky; kanalizace dle inzerátu napojena</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>V inzerátu neuvedeno — vyžádat povinně; tuhá paliva = pravděpodobně horší třída (D–F)</td></tr>
+<tr><td>Zahradní domek</td><td>⚠️</td><td>Stav neuveden; foto 15 naznačuje starší stav</td></tr>
+<tr><td>Dílna</td><td>🔴</td><td>Potřeba opravy střechy dle inzerátu</td></tr>
+<tr><td>Přístupová cesta</td><td>⚠️</td><td>Vjezd ze zadní části přes koryto vyžaduje mostík — nutná investice a stavební povolení</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>5. DISPOZICE A VYUŽITELNOST</h2>
+<br>
+<h3>Přízemí (4+1 / 112 m²)</h3>
+<ul>
+<li>Přehledná dispozice: 2 pokoje + kuchyně + obývací pokoj + koupelna s vanou + samostatné WC</li>
+<li>Vhodné pro rodinu s dětmi nebo jako hlavní bytová jednotka</li>
+<li>Foto 1, 8, 9 ukazují světlé místnosti, dřevěná podlaha, funkční kuchyň</li>
+</ul>
+<br>
+<h3>Podkroví (2+1 / 70 m²)</h3>
+<ul>
+<li>Kuchyně + obývací pokoj s lodžií + ložnice + WC + atypický sprchový kout v chodbě</li>
+<li>Foto 4, 5, 6 — vysoké stropy s dřevěným podhledem, příjemný charakter; světlé a moderní</li>
+<li>Vhodné pro druhý pár/generaci nebo pronájem — <strong>ALE</strong> chybí plnohodnotná koupelna → výrazně snižuje komfort a tržní nájemnost</li>
+</ul>
+<br>
+<h3>Sklep (55 m²)</h3>
+<ul>
+<li>5 místností + spíž — výjimečná kapacita; využití: sklady, dílna, posilovna, vinný sklep</li>
+</ul>
+<br>
+<h3>Zahrada (590 m²)</h3>
+<ul>
+<li>Rovinatá, zahradní domek, dílna — potenciál pro terasu, zahradní posezení, dětské hřiště</li>
+<li>Foto 15: aktuálně zarostlá, vyžaduje úpravu</li>
+</ul>
+<br>
+<h3>Hodnocení dispozice</h3>
+<ul>
+<li><strong>Dvougenerační bydlení</strong> — velmi dobrý potenciál po dostavbě koupelny v podkroví</li>
+<li><strong>Rodina</strong> — přízemí je plně funkční ihned, podkroví vhodné pro starší děti nebo hosty</li>
+<li><strong>Investice / pronájem</strong> — po dostavbě koupelny v podkroví lze pronajímat jako dvě oddělené jednotky</li>
+<li>Půdorys (foto 20) potvrzuje 112,79 m² pro přízemí — odpovídá popisu</li>
+</ul>
+<br>
+<hr>
+<br>
+<h2>6. RIZIKA A RED FLAGS</h2>
+<br>
+<h3>🔴 Kritické body</h3>
+<ul>
+<li><strong>Chybí koupelna v podkroví</strong> — pro dvougenerační bydlení nebo pronájem je investice nutná (150–300 tis. Kč)</li>
+<li><strong>Voda dočasně odpojená</strong> — nutno před podpisem objasnit příčinu; riziko skryté závady na přípojce</li>
+<li><strong>Střecha dílny vyžaduje opravu</strong> — rozsah a náklady před podpisem smlouvy upřesnit</li>
+<li><strong>Koryto na pozemku</strong> — zjistit povodňové riziko (ČHMÚ); mostík = investice + stavební řízení</li>
+</ul>
+<br>
+<h3>🟡 Středně důležité body</h3>
+<ul>
+<li>Stáří a stav kotlů (tuhá paliva + plyn) — pravděpodobná výměna v horizontu 3–7 let</li>
+<li>PENB chybí — při třídě E nebo horší může ovlivnit hypoteční podmínky</li>
+<li>Zahrada a zahradní domek — nízká priorita, ale vyžadují investici</li>
+</ul></div>
+<div class="tab-panel" id="panel-3" style="display:none"><h1>**ANALÝZA NEMOVITOSTI**</h1>
+<br>
+<p>Suchohrdly (u Znojma) | Rodinný dům 6+2 | 182 m² / 590 m² | 6 990 000 Kč</p>
+<br>
+<hr>
+<br>
+<h2>📋 **Základní parametry**</h2>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>6+2 (4+1 přízemí + 2+1 podkroví)</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 406 Kč/m²</td></tr>
+<tr><td>Typ stavby</td><td>Dvoupodlažní rodinný dům s podkrovím</td></tr>
+<tr><td>Stav</td><td>Po částečné rekonstrukci (střecha, fasáda, elektrika, koupelna v přízemí)</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva + plynový kotel (nevyužívaný)</td></tr>
+<tr><td>Sklep</td><td>55 m² (5 místností + spíž)</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>1. ANALÝZA STAVU A KVALITY</h2>
+<br>
+<h3>**Co bylo renovováno:**</h3>
+<ul>
+<li>✅ <strong>Nová střecha</strong> — klíčové pro dlouhodobou hodnotu, eliminuje riziko zatékání (očekávaná životnost 20–30 let)</li>
+<li>✅ <strong>Nová fasáda</strong> — zlepšuje tepelnou izolaci a estetiku domu</li>
+<li>✅ <strong>Nové rozvody elektřiny</strong> — bezpečnost a splnění současných norem</li>
+<li>✅ <strong>Nová koupelna v přízemí</strong> — moderní provedení s vanou, obklady dle fotek vypadají aktuálně</li>
+<li>✅ <strong>Plastová okna</strong> — předpoklad trojskla, lepší izolace než dřevěná</li>
+</ul>
+<br>
+<h3>**Pozitiva dle fotografií a popisu:**</h3>
+<ul>
+<li>✅ Dvě samostatné bytové jednotky (4+1 + 2+1) — vhodné pro dvougenerační bydlení nebo pronájem jedné části</li>
+<li>✅ Prostorný sklep 55 m² — využitelný jako dílna, posilovna nebo skladovací prostory</li>
+<li>✅ Rovinatý pozemek 590 m² s potenciálem zadního vjezdu</li>
+<li>✅ Přízemí má moderní koupelnu s vanou a samostatnou toaletou</li>
+<li>✅ V obci je mateřská i základní škola, prodejna COOP — důležité pro rodiny s dětmi</li>
+<li>✅ Klidná lokalita s blízkostí Znojma (15–20 min autem)</li>
+<li>✅ Podkroví má lodžii — příjemný prvek pro relaxaci</li>
+</ul>
+<br>
+<h3>**Negativa / otázky:**</h3>
+<ul>
+<li>🔴 <strong>Voda dočasně odpojená</strong> — nutné zjistit důvod (dluh? technický problém?) a náklady na opětovné připojení</li>
+<li>🔴 <strong>Podkroví nemá plnohodnotnou koupelnu</strong> — pouze sprchový kout v chodbě + WC, pro dvougenerační bydlení bude nutné dobudovat koupelnu (náklady 150–250 tis. Kč)</li>
+<li>🔴 <strong>Koryto na pozemku</strong> — nutno ověřit povodňové riziko (ČHMÚ) a náklady na vybudování mostku pro zadní vjezd (50–150 tis. Kč)</li>
+<li>⚠️ <strong>Topení kotlem na tuhá paliva</strong> — zastaralé, fyzicky náročné, vyžaduje pravidelnou obsluhu. Plynový kotel je k dispozici, ale není jasné, zda je funkční. Doporučuji přechod na moderní zdroj (tepelné čerpadlo 200–400 tis. Kč nebo upgrade plynu 50–100 tis. Kč)</li>
+<li>⚠️ <strong>Střecha dílny vyžaduje opravu</strong> — náklady 30–80 tis. Kč dle rozsahu</li>
+<li>⚠️ <strong>Kanalizace není specifikována</strong> — ověřit, zda jde o veřejnou síť nebo septik (септик = náklady na údržbu)</li>
+<li>⚠️ <strong>Energetický štítek (PENB) chybí</strong> — nutné vyžádat, pravděpodobně třída D–F kvůli topení na tuhá paliva</li>
+<li>⚠️ <strong>Z fotek nelze posoudit:</strong> stav izolací, vlhkost ve sklepě, stav plynového rozvodu, kvalita dřevěných stropů v podkroví</li>
+</ul>
+<br>
+<hr>
+<br>
+<h2>2. HODNOCENÍ CENY</h2>
+<br>
+<h3>**Srovnání s trhem:**</h3>
+<p>Cena 6 990 000 Kč za 182 m² (38 406 Kč/m²) v obci u Znojma s částečnou rekonstrukcí <strong>působí v kontextu spíše jako průměrná až mírně vyšší</strong>, zejména s ohledem na:</p>
+<ul>
+<li>Potřebu dostavby koupelny v podkroví</li>
+<li>Odpojení vody a nutnost opravy dílny</li>
+<li>Zastaralý topný systém</li>
+<li>Venkovskou polohu s nižší likviditou trhu</li>
+</ul>
+<br>
+<p>Podobné domy v regionu se pohybují v rozmezí 30–45 tis. Kč/m² dle stavu a vybavenosti.</p>
+<br>
+<h3>**Finanční kalkulace (celková investice):**</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Opětovné připojení vody</td><td>5 000 – 20 000 Kč</td></tr>
+<tr><td>Dostavba koupelny v podkroví (vč. instalací)</td><td>150 000 – 250 000 Kč</td></tr>
+<tr><td>Oprava střechy dílny</td><td>30 000 – 80 000 Kč</td></tr>
+<tr><td>Výměna topného systému (TČ nebo upgrade plynu)</td><td>100 000 – 400 000 Kč</td></tr>
+<tr><td>Vybudování mostku (pokud chcete zadní vjezd)</td><td>50 000 – 150 000 Kč</td></tr>
+<tr><td>Rezerva na drobné opravy</td><td>50 000 – 100 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 685 000 – 8 300 000 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**6 300 000 – 6 500 000 Kč**</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>3. LOKACE A OKOLÍ</h2>
+<br>
+<h3>**Plusy:**</h3>
+<ul>
+<li>✅ Klidná venkovská obec s kompletní občanskou vybaveností (škola MŠ+ZŠ, obchod COOP)</li>
+<li>✅ Blízkost Znojma (15–20 km) — dostupnost práce, služeb, kultury</li>
+<li>✅ Vhodné pro rodiny s dětmi hledající klid a bezpečí</li>
+</ul>
+<br>
+<h3>**Mínusy:**</h3>
+<ul>
+<li>⚠️ <strong>Závislost na autě</strong> — venkov bez MHD, denní dojíždění nutné</li>
+<li>⚠️ <strong>Nižší likvidita trhu</strong> — při prodeji může trvat déle najít kupce</li>
+<li>⚠️ <strong>Koryto na pozemku</strong> — ověřit povodňové riziko na ČHMÚ (historical data)</li>
+</ul>
+<br>
+<h3>**Co nelze z dat posoudit:**</h3>
+<ul>
+<li>Hluk ze silnice (dle fotek se zdá klidné)</li>
+<li>Kriminalita a bezpečnost okolí</li>
+<li>Průmyslové provozy v blízkosti</li>
+<li>Kvalita sousedských vztahů</li>
+</ul>
+<br>
+<hr>
+<br>
+<h2>4. TECHNICKÝ STAV</h2>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová — klíčové pozitivum, 20–30 let životnost</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová — zateplená, moderní vzhled</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová (předpoklad trojsklo)</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové — bezpečnost zajištěna</td></tr>
+<tr><td>Topení</td><td>🔴</td><td>Kotel na tuhá paliva = zastaralé, fyzicky náročné; plynový kotel nevyužívaný — funkčnost ověřit</td></tr>
+<tr><td>Koupelna přízemí</td><td>✅</td><td>Moderní, po rekonstrukci</td></tr>
+<tr><td>Koupelna podkroví</td><td>🔴</td><td>Pouze sprchový kout v chodbě — nutno dobudovat plnohodnotnou koupelnu</td></tr>
+<tr><td>Voda</td><td>🔴</td><td>Dočasně odpojená — zjistit důvod a náklady na připojení</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Nelze posoudit z fotek, ověřit sklep a podkroví při prohlídce</td></tr>
+<tr><td>Kanalizace</td><td>⚠️</td><td>Není specifikováno (veřejná/septik) — ověřit</td></tr>
+<tr><td>Střecha dílny</td><td>🔴</td><td>Vyžaduje opravu (30–80 tis. Kč)</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Chybí — vyžádat, očekávána třída D–F</td></tr>
+<tr><td>Izolace (tepelné, zvukové)</td><td>⚠️</td><td>Nelze posoudit — ověřit při prohlídce</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h2>5. DISPOZICE A VYUŽITELNOST</h2>
+<br>
+<h3>**Přízemí (4+1, 112 m²):**</h3>
+<ul>
+<li>2 pokoje + obývací pokoj + kuchyně + koupelna s vanou + WC</li>
+<li>Vhodné pro hlavní rodinu nebo rodiče v dvougeneračním bydlení</li>
+</ul>
+<br>
+<h3>**Podkroví (2+1, 70 m²):**</h3>
+<ul>
+<li>Kuchyně + obývací pokoj s lodžií + ložnice + WC + sprchový kout v chodbě</li>
+<li><strong>Nevýhoda:</strong> Chybí plnohodnotná koupelna — limituje pohodlí dvougeneračního bydlení</li>
+<li><strong>Výhoda:</strong> Lodžie s výhledem, možnost pronájmu po dostavbě koupelny</li>
+</ul>
+<br>
+<h3>**Sklep (55 m²):**</h3>
+<ul>
+<li>5 místností + spíž — skvělé pro skladování, dílnu, posilovnu</li>
+</ul>
+<br>
+<h3>**Pozemek (590 m²):**</h3>
+<ul>
+<li>Rovinatý, využitelný pro zahradu, dětské hřiště, parkování</li>
+<li>Zahradní domek + dílna (nutná oprava střechy)</li>
+<li>Potenciál zadního vjezdu přes koryto (nutný mostek)</li>
+</ul>
+<br>
+<h3>**Pro koho je dům vhodný:**</h3>
+<ul>
+<li>✅ Rodiny hledající dvougenerační bydlení (po dostavbě koupelny v podkroví)</li>
+<li>✅ Páry s dětmi s potřebou velkého skladovacího prostoru</li>
+<li>✅ Investoři do pronájmu (pronájem jedné jednotky, druhá vlastní)</li>
+<li>⚠️ Méně vhodné pro ty, kdo chtějí moderní, plně vybavený dům bez nutnosti dalších investic</li>
+</ul>
+<br>
+<hr>
+<br>
+<h2>6. RIZIKA A RED FLAGS</h2>
+<br>
+<h3>**🔴 Kritické body** (vyžadují řešení před koupí nebo výraznou slevu):</h3>
+<ul>
+<li><strong>Voda odpojená</strong> — nutno zjistit důvod (dluh? porucha?), jinak nelze dům plně užívat; náklady na připojení 5–20 tis. Kč</li>
+<li><strong>Chybí koupelna v podkroví</strong> — pro dvougenerační bydlení nezbytná investice 150–250 tis. Kč</li>
+<li><strong>Koryto na pozemku</strong> — ověřit povodňové riziko na ČHMÚ; mostek pro vjezd = 50–150 tis. Kč</li>
+</ul>
+<br>
+<h3>**🟡 Středně důležité body** (ověřit při prohlídce nebo vyjednávání):</h3>
+<ul>
+<li><strong>Topení na tuhá paliva</strong> — fyzicky náročné, zastaralé; výměna za moderní zdroj 100–400 tis. Kč</li>
+<li><strong>Plynový kotel nevyužívaný</strong> — ověřit funkčnost a důvod nečinnosti</li>
+<li><strong>Střecha dílny vyžaduje opravu</strong> — 30–80 tis. Kč</li>
+<li><strong>Kanalizace nespecifikována</strong> — septik = vyšší provozní náklady než veřejná síť</li>
+<li><strong>PENB chybí</strong> — očekávána nízká třída (D–F), vliv na hodnotu a provozní náklady</li>
+</ul>
+<br>
+<h3>**🟢 Nízká rizika:**</h3>
+<ul>
+<li><strong>Právní spory</strong> — standardní ověření v KN</li>
+<li><strong>Povodňové riziko</strong> — dle fotek se nezdá kritické, ale ověřit kvůli korytu</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**📋 Co ověřit v katastru nemovitostí (KN):**</h3>
+<br>
+<table class="md-table">
+<tr><td>Co ověřit</td><td>Proč</td><td>Závažnost</td></tr>
+<tr><td>Zástavní práva (hypotéky, exekuce) na LV</td><td>Kupující může přebrat dluh prodávajícího</td><td>🔴 Kritické</td></tr>
+<tr><td>Věcná břemena (průchod, vedení sítí, nájemní právo)</td><td>Omezuje užívání nemovitosti</td><td>🟡 Střední</td></tr>
+<tr><td>Skutečná výměra pozemku (590 m²) vs. inzerát</td><td>Rozdíl = argument pro slevu</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Druh pozemku (zahrada / zastavěná plocha)</td><td>Orná půda = omezení stavby</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Přístupová cesta – vlastní, nebo cizí pozemek?</td><td>Bez přístupu nelze nemovitost užívat ani prodat</td><td>🔴 Kritické</td></tr>
+<tr><td>Koryto — zápis věcného břemene nebo omezení</td><td>Může bránit zadnímu vjezdu nebo stavbě</td><td>🟡 Střední</td></tr>
+</table>
+<br>
+<p><em>Link na nahlížení.cuzk.cz je dostupný na detailu inzerátu.</em></p>
+<br>
+<hr>
+<br>
+<h2>7. INVESTIČNÍ ANALÝZA</h2>
+<br>
+<h3>**Odhadovaný nájem:**</h3>
+<ul>
+<li><strong>Přízemí (4+1, 112 m²):</strong> 12 000 – 15 000 Kč/měsíc (venkovská lokalita u Znoj</li>
+</ul></div>
+<div class="tab-panel" id="panel-4" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p>Suchohrdly, Jihomoravský kraj | House / Sale 6+2 | 182 m² / 590 m² | 6 990 000 Kč</p>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>6+2</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 351 Kč</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům</td></tr>
+<tr><td>Stav</td><td>Existující, po rekonstrukci</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva, plynový kotel</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<h3>1. ANALÝZA STAVU A KVALITY</h3>
+<br>
+<p><strong>Co bylo renovováno</strong> (dle popisu nebo fotek):</p>
+<ul>
+<li>Nová střecha</li>
+<li>Nová fasáda</li>
+<li>Nové rozvody elektřiny</li>
+<li>Nová koupelna</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ Dům prošel kompletní rekonstrukcí</li>
+<li>✅ Připravený k okamžitému nastěhování</li>
+<li>✅ Moderní kuchyně a koupelna</li>
+<li>✅ Velký sklep a půda pro úložné prostory</li>
+<li>✅ Dvougenerační potenciál s 2 bytovými jednotkami</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ Chybějící samostatná koupelna v podkroví</li>
+<li>⚠️ Nutnost opravy střechy nad dílnou</li>
+<li>⚠️ Dočasně odpojená voda, nutnost opětovného připojení</li>
+<li>⚠️ Nejasnost ohledně přístupu přes koryto na pozemku</li>
+</ul>
+<br>
+<h3>2. HODNOCENÍ CENY</h3>
+<br>
+<p><strong>Srovnání s trhem:</strong></p>
+<ul>
+<li>Cena 6 990 000 Kč za 182 m² působí v kontextu parametrů spíše vyšší.</li>
+</ul>
+<br>
+<p><strong>Finanční kalkulace (celková investice):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Oprava střechy nad dílnou</td><td>200 000 - 500 000 Kč</td></tr>
+<tr><td>Dostavba koupelny v podkroví</td><td>150 000 - 250 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 649 600 - 8 049 600 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**6 900 000 - 7 200 000 Kč**</td></tr>
+</table>
+<br>
+<h3>3. LOKACE A OKOLÍ</h3>
+<br>
+<ul>
+<li>+ Klidná část obce Suchohrdly, hned vedle Znojma</li>
+<li>+ Dostupnost základních služeb (prodejna, školy)</li>
+<li>- Venkovská lokalita = závislost na automobilu</li>
+<li>⚠️ Možné povodňové riziko z koryta na pozemku, nutno ověřit</li>
+</ul>
+<br>
+<h3>4. TECHNICKÝ STAV</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové</td></tr>
+<tr><td>Topení</td><td>⚠️</td><td>Kotel na tuhá paliva, plynový kotel</td></tr>
+<tr><td>Koupelna</td><td>⚠️</td><td>Nová v 1. NP, chybí v 2. NP</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Nutno ověřit, zejména ve sklepě</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>⚠️</td><td>Voda dočasně odpojená, nutno připojit</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Vyžádat</td></tr>
+</table>
+<br>
+<h3>5. DISPOZICE A VYUŽITELNOST</h3>
+<br>
+<ul>
+<li>Dvougenerační potenciál (1. NP 4+1, 2. NP 2+1)</li>
+<li>Velký sklep a půda pro úložné prostory</li>
+<li>Zahrada s dílnou a možností příjezdu ze zadní části</li>
+<li>Pozemek o velikosti 590 m² s potenciálem dalšího využití</li>
+</ul>
+<br>
+<h3>6. RIZIKA A RED FLAGS</h3>
+<br>
+<p><strong>🔴 Kritické body:</strong></p>
+<ul>
+<li>Chybějící koupelna v 2. NP</li>
+<li>Nejasnost ohledně přístupu přes koryto na pozemku</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body:</strong></p>
+<ul>
+<li>Starší topný systém (výměna do 5 let)</li>
+<li>Dočasně odpojená voda, nutno znovu připojit</li>
+<li>Nutnost opravy střechy nad dílnou</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika:</strong></p>
+<ul>
+<li>Standardní právní ověření v katastru nemovitostí</li>
+<li>Povodňové riziko nutno ověřit, ale v popisu není kritické</li>
+</ul>
+<br>
+<p><strong>📋 Co ověřit v katastru nemovitostí (KN):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Co ověřit</td><td>Proč</td><td>Závažnost</td></tr>
+<tr><td>Zástavní práva (hypotéky, exekuce) na LV</td><td>Kupující může přebrat dluh prodávajícího</td><td>🔴 Kritické</td></tr>
+<tr><td>Věcná břemena (průchod, vedení sítí, nájemní právo)</td><td>Omezuje užívání nemovitosti</td><td>🟡 Střední</td></tr>
+<tr><td>Skutečná výměra pozemku vs. inzerát</td><td>Rozdíl = argument pro slevu nebo problém při kolaudaci</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Druh pozemku (zahrada / zastavěná plocha / orná půda)</td><td>Orná půda má omezení stavby a jiný převod</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Přístupová cesta – vlastní, nebo cizí pozemek?</td><td>Bez přístupu nelze nemovitost užívat ani prodat</td><td>🔴 Kritické</td></tr>
+</table>
+<br>
+<h3>7. INVESTIČNÍ ANALÝZA</h3>
+<br>
+<p><strong>Odhadni reálný nájem</strong> (rozmezí) v Kč/měsíc:</p>
+<ul>
+<li>Dlouhodobý pronájem (celý dům): 30 000 - 35 000 Kč/měsíc</li>
+<li>Dvougenerační využití (1. NP vlastní + 2. NP pronájem): 40 000 - 45 000 Kč/měsíc</li>
+</ul>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>40 000 - 45 000 Kč/měsíc</td></tr>
+<tr><td>Roční příjem hrubý</td><td>480 000 - 540 000 Kč</td></tr>
+<tr><td>Celková investice (vč. úprav)</td><td>7 649 600 - 8 049 600 Kč</td></tr>
+<tr><td>Hrubý yield (nižší scénář)</td><td>5,9 - 6,7 %</td></tr>
+<tr><td>Hrubý yield (vyšší scénář)</td><td>6,7 - 7,0 %</td></tr>
+<tr><td>Čistý yield po nákladech (~25 %)</td><td>4,4 - 5,3 %</td></tr>
+<tr><td>Prostá návratnost (payback)</td><td>18,8 - 15,0 let</td></tr>
+</table>
+<br>
+<p>_Odhad nájmu je hrubý, nutno ověřit na lokálním trhu._</p>
+<br>
+<h3>8. DOPORUČENÍ</h3>
+<br>
+<p><strong>🟡 VYJEDNÁVAT – podmíněně doporučuji ke koupi pro investici do dlouhodobého pronájmu</strong></p>
+<br>
+<p><strong>Odůvodnění:</strong></p>
+<ul>
+<li>Nemovitost prošla kompletní rekonstrukcí a je připravená k okamžitému nastěhování</li>
+<li>Dispozice domu (6+2) a dvougenerační potenciál jsou vhodné pro investiční účely</li>
+<li>Kvalita a stav domu jsou na dobré úrovni, s výjimkou chybějící koupelny v 2. NP a nutnosti opravy dílny</li>
+<li>Lokalita v těsné blízkosti Znojma je dobrá, ale venkovská poloha může omezovat likviditu při případném prodeji</li>
+</ul>
+<br>
+<p><strong>Maximální rozumná nabídková cena:</strong>  </p>
+<p><strong>6 900 000 - 7 200 000 Kč</strong>  </p>
+<p>_(vyjednávací prostor: 790 000 - 1 090 000 Kč / 11 - 16 % oproti nabídkové ceně)_</p>
+<br>
+<p><strong>Co prověřit při prohlídce / před podpisem:</strong></p>
+<ul>
+<li>Kolaudační rozhodnutí nebo oznámení o užívání stavby</li>
+<li>Výpis z katastru — zástavní práva, věcná břemena, vlastnická práva k pozemku</li>
+<li>Energetický průkaz (PENB) — ověřit třídu energetické náročnosti</li>
+<li>Stav a provedení oprav (koupelna, dílna, přístup přes koryto)</li>
+<li>Reálná cena pronájmu pro 1. i 2. NP</li>
+</ul>
+<br>
+<hr>
+<br>
+<p><em>Analýza zpracována na základě dat z inzerátu. Nemůže nahradit fyzickou prohlídku, posudek odborníka ani právní due diligence.</em></p></div>
+<div class="tab-panel" id="panel-5" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p><strong>Suchohrdly, Jihomoravský kraj</strong> | <strong>Dům 6+2</strong> | <strong>182 m² / 590 m² pozemek</strong> | <strong>6 990 000 Kč</strong></p>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>6+2 (4+1 v 1NP + 2+1 v podkroví)</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>**38 407 Kč/m²**</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům, dvoupodlažní</td></tr>
+<tr><td>Stav</td><td>Částečně rekonstruovaný</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva + plynový kotel (záložní)</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>1. ANALÝZA STAVU A KVALITY</h3>
+<br>
+<p><strong>Co bylo renovováno (důležité pro hodnotu a úspory):</strong></p>
+<ul>
+<li>✅ <strong>Nová střecha</strong> – eliminuje riziko zatékání a snižuje náklady na údržbu.</li>
+<li>✅ <strong>Nová fasáda</strong> – zlepšuje tepelnou izolaci a estetiku, prodlužuje životnost domu.</li>
+<li>✅ <strong>Nové rozvody elektřiny</strong> – bezpečnost a modernizace, snižuje riziko požáru.</li>
+<li>✅ <strong>Rekonstruovaná koupelna v 1NP</strong> – funkční a moderní (viz Foto 2).</li>
+<li>✅ <strong>Plastová okna</strong> – zlepšují tepelnou a hlukovou izolaci.</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ <strong>Prostornost</strong> – 182 m² + 55 m² sklep nabízí dostatek úložného prostoru (dílna, sklad, posilovna).</li>
+<li>✅ <strong>Dvougenerační bydlení</strong> – samostatné bytové jednotky v 1NP a podkroví (možnost pronájmu nebo ubytování rodiny).</li>
+<li>✅ <strong>Lodžie v podkroví</strong> – příjemný venkovní prostor s výhledem (Foto 5).</li>
+<li>✅ <strong>Rovinatý pozemek 590 m²</strong> – snadná údržba a možnost rozšíření (např. garáž, bazén).</li>
+<li>✅ <strong>Zahradní domek a dílna</strong> – využitelné pro hobby nebo skladování (nutná oprava střechy dílny).</li>
+<li>✅ <strong>Klidná lokalita</strong> – Suchohrdly jsou blízko Znojma (dobrá dostupnost služeb).</li>
+<li>✅ <strong>Napojení na inženýrské sítě</strong> – voda dočasně odpojena, ale snadno obnovitelná.</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ <strong>Chybějící koupelna v podkroví</strong> – pro plnohodnotné bydlení nutná dostavba (odhad nákladů: <strong>150–250 tis. Kč</strong>).</li>
+<li>⚠️ <strong>Atypické řešení sprchy v podkroví</strong> – sprchový kout v rohu chodby (viz popis) není praktické (Foto 12).</li>
+<li>⚠️ <strong>Stará otopná soustava</strong> – kotel na tuhá paliva + plynový kotel (záložní) je zastaralé a neekologické. Výměna za tepelné čerpadlo nebo plynový kondenzační kotel by stála <strong>150–400 tis. Kč</strong>.</li>
+<li>⚠️ <strong>Voda dočasně odpojena</strong> – nutné ověřit důvod a náklady na opětovné připojení (možná administrativa nebo dluh).</li>
+<li>⚠️ <strong>Střecha zahradního domku a dílny</strong> – vyžaduje opravu (odhad: <strong>50–100 tis. Kč</strong>).</li>
+<li>⚠️ <strong>Vjezd na pozemek ze zadní části</strong> – nutný mostek přes koryto (odhad: <strong>100–200 tis. Kč</strong>).</li>
+<li>⚠️ <strong>Stav podlah a stěn v podkroví</strong> – z fotek nelze posoudit kvalitu izolace a případné vlhkosti (doporučit odbornou prohlídku).</li>
+<li>⚠️ <strong>PENB (energetický štítek)</strong> – chybí, nutné vyžádat (třída C a horší snižuje hodnotu nemovitosti).</li>
+<li>⚠️ <strong>Kanalizace</strong> – není uvedeno, zda je napojena na veřejnou síť nebo septik (septik = vyšší náklady na údržbu).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>2. HODNOCENÍ CENY</h3>
+<br>
+<p><strong>Srovnání s trhem:</strong></p>
+<ul>
+<li>Cena <strong>6 990 000 Kč</strong> za <strong>182 m²</strong> (tj. <strong>38 407 Kč/m²</strong>) je v kontextu částečně rekonstruovaného domu v okolí Znojma <strong>spíše nízká až odpovídající</strong>.</li>
+<li>Konkurence v této lokalitě nabízí podobné domy (150–200 m²) v rozmezí <strong>4–6 mil. Kč</strong>, ale často bez rekonstrukcí nebo s horším stavem.</li>
+<li><strong>Argument pro vyjednávání:</strong> Chybějící koupelna v podkroví, staré topení a nutné úpravy (mostek, střecha dílny) snižují reálnou hodnotu.</li>
+</ul>
+<br>
+<p><strong>Finanční kalkulace (celková investice):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka (Kč)</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>279 600</td></tr>
+<tr><td>Právní poradenství + notář</td><td>30 000</td></tr>
+<tr><td>Oprava střechy dílny</td><td>50 000–100 000</td></tr>
+<tr><td>Dostavba koupelny v podkroví</td><td>150 000–250 000</td></tr>
+<tr><td>Výměna topení</td><td>150 000–400 000</td></tr>
+<tr><td>Mostek přes koryto</td><td>100 000–200 000</td></tr>
+<tr><td>Opětovné připojení vody</td><td>20 000–50 000</td></tr>
+<tr><td>Rezerva na neočekávané náklady</td><td>100 000</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 869 600–8 449 600**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**5 800 000–6 200 000 Kč**</td></tr>
+</table>
+<br>
+<p><strong>Vyjednávací prostor:</strong></p>
+<ul>
+<li><strong>790 000–1 190 000 Kč</strong> (11–17 % slevy oproti nabídkové ceně).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>3. LOKACE A OKOLÍ</h3>
+<ul>
+<li>✅ <strong>Výhody:</strong></li>
+</ul>
+<p>  - Klidná část obce Suchohrdly, blízko Znojma (dobrá dostupnost služeb, škol, nákupů).</p>
+<p>  - V obci COOP, MŠ, ZŠ – vhodné pro rodiny s dětmi.</p>
+<p>  - Dobrá dopravní dostupnost (blízkost Znojma = pracovní příležitosti).</p>
+<ul>
+<li>⚠️ <strong>Nevýhody / rizika:</strong></li>
+</ul>
+<p>  - <strong>Závislost na autě</strong> – venkovská lokalita bez MHD.</p>
+<p>  - <strong>Povodňové riziko</strong> – koryto u pozemku (nutné ověřit v územním plánu a u ČHMÚ).</p>
+<p>  - <strong>Nízká likvidita trhu</strong> – prodej nemovitosti v této lokalitě může trvat déle.</p>
+<p>  - <strong>Hluk ze silnice</strong> – z fotek nelze posoudit, ověřit při prohlídce.</p>
+<br>
+<hr>
+<br>
+<h3>4. TECHNICKÝ STAV</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová, snižuje riziko zatékání.</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová, zlepšuje izolaci.</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová, dobrá izolace.</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové, bezpečné.</td></tr>
+<tr><td>Topení</td><td>🔴</td><td>Kotel na tuhá paliva + plynový kotel – zastaralé, neekologické.</td></tr>
+<tr><td>Koupelna (1NP)</td><td>✅</td><td>Rekonstruovaná, moderní (Foto 2).</td></tr>
+<tr><td>Koupelna (podkroví)</td><td>🔴</td><td>Chybí, nutná dostavba.</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Nelze posoudit z fotek – ověřit ve sklepě a podkroví.</td></tr>
+<tr><td>Kanalizace</td><td>⚠️</td><td>Nejasné, zda veřejná síť nebo septik (septik = vyšší náklady).</td></tr>
+<tr><td>PENB</td><td>⚠️</td><td>Chybí, nutné vyžádat (třída C a horší snižuje hodnotu).</td></tr>
+<tr><td>Sklep</td><td>✅</td><td>55 m², dobře využitelný (dílna, sklad).</td></tr>
+<tr><td>Zahrada</td><td>🟡</td><td>Rovinatá, ale vyžaduje údržbu (zahradní domek, dílna).</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>5. DISPOZICE A VYUŽITELNOST</h3>
+<ul>
+<li>✅ <strong>Výhody:</strong></li>
+</ul>
+<p>  - <strong>Dvougenerační bydlení</strong> – samostatné byty v 1NP (4+1) a podkroví (2+1).</p>
+<p>  - <strong>Prostornost</strong> – 182 m² + 55 m² sklep nabízí dostatek prostoru pro velkou rodinu nebo pronájem.</p>
+<p>  - <strong>Lodžie v podkroví</strong> – příjemný venkovní prostor (Foto 5).</p>
+<p>  - <strong>Půda v podkroví</strong> – úložný prostor.</p>
+<ul>
+<li>⚠️ <strong>Nevýhody:</strong></li>
+</ul>
+<p>  - <strong>Chybějící koupelna v podkroví</strong> – nutná dostavba pro komfortní bydlení.</p>
+<p>  - <strong>Atypická sprcha v podkroví</strong> – nepraktické umístění (v rohu chodby).</p>
+<p>  - <strong>Nevyužitý potenciál zahrady</strong> – zahradní domek a dílna vyžadují úpravy.</p>
+<br>
+<hr>
+<br>
+<h3>6. RIZIKA A RED FLAGS</h3>
+<br>
+<p><strong>🔴 Kritické body:</strong></p>
+<ul>
+<li><strong>Chybějící koupelna v podkroví</strong> – nutná dostavba pro plnohodnotné bydlení.</li>
+<li><strong>Staré topení</strong> – kotel na tuhá paliva je neekonomický a neekologický.</li>
+<li><strong>Voda dočasně odpojena</strong> – nutné ověřit důvod a náklady na opětovné připojení.</li>
+<li><strong>Povodňové riziko</strong> – koryto u pozemku (nutné ověřit v územním plánu).</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body:</strong></p>
+<ul>
+<li><strong>Střecha dílny a zahradního domku</strong> – vyžaduje opravu.</li>
+<li><strong>Vjezd na pozemek</strong> – nutný mostek přes koryto.</li>
+<li><strong>Kanalizace</strong> – nejasné, zda veřejná síť nebo septik.</li>
+<li><strong>PENB</strong> – chybí, může ovlivnit hodnotu a náklady na energie.</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika:</strong></p>
+<ul>
+<li>Právní spory – standardní ověření v KN.</li>
+<li>Zástavní práva – ověřit v katastru.</li>
+</ul>
+<br>
+<p><strong>📋 Co ověřit v katastru nemovitostí (KN):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Co ověřit</td><td>Proč</td><td>Závažnost</td></tr>
+<tr><td>Zástavní práva (hypotéky)</td><td>Kupující může přebrat dluh prodávajícího.</td><td>🔴 Kritické</td></tr>
+<tr><td>Věcná břemena (průchod, sítě)</td><td>Omezuje užívání nemovitosti.</td><td>🟡 Střední</td></tr>
+<tr><td>Skutečná výměra pozemku</td><td>Rozdíl = argument pro slevu nebo problém při kolaudaci.</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Druh pozemku</td><td>Orná půda má omezení pro stavbu.</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Přístupová cesta</td><td>Bez přístupu nelze nemovitost užívat ani prodat.</td><td>🔴 Kritické</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>7. INVESTIČNÍ ANALÝZA</h3>
+<br>
+<p><strong>Odhad reálného nájmu:</strong></p>
+<ul>
+<li><strong>1NP (4+1, 112 m²):</strong> 15 000–18 000 Kč/měsíc.</li>
+<li><strong>Podkroví (2+1, 70 m²):</strong> 10 000–13 000 Kč/měsíc.</li>
+<li><strong>Celkem (oba byty):</strong> 25 000–31 000 Kč/měsíc.</li>
+</ul>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>25 000–31 000 Kč</td></tr>
+<tr><td>Roční příjem hrubý</td><td>300 000–372 000 Kč</td></tr>
+<tr><td>Celková investice</td><td>7 869 600–8 449 600 Kč</td></tr>
+<tr><td>Hrubý yield (nižší scénář)</td><td>**3,5–3,8 %**</td></tr>
+<tr><td>Hrubý yield (vyšší scénář)</td><td>**4,4–4,7 %**</td></tr>
+<tr><td>Čistý yield po nákladech</td><td>**2,6–3,5 %**</td></tr>
+<tr><td>Prostá návratnost</td><td>**21–28 let**</td></tr>
+</table>
+<br>
+<p><strong>Závěr k investici:</strong></p>
+<ul>
+<li><strong>Nízký yield</strong> – návratnost je dlouhá, vhodné spíše pro vlastní bydlení.</li>
+<li><strong>Pro pronájem</strong> by bylo nutné snížit kupní cenu nebo investovat do úprav (koupelna v podkroví, topení).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>8. DOPORUČENÍ</h3>
+<br>
+<p><strong>🟡 VERDIKT – VYJEDNÁVAT, PODMÍNĚNĚ DOPORUČUJI KE KOUPI PRO VLASTNÍ BYDLENÍ</strong></p>
+<br>
+<p><strong>Odůvodnění:</strong></p>
+<p>1. <strong>Prostornost a potenciál</strong> – dům nabízí 182 m² + sklep, vhodný pro velkou rodinu nebo dvougenerační bydlení.</p>
+<p>2. <strong>Částečná rekonstrukce</strong> – nová střecha, fasáda, okna a elektřina snižují riziko budoucích nákladů.</p>
+<p>3. <strong>Klidná lokalita blízko Znojma</strong> – dobrá dostupnost služeb a pracovních příležitostí.</p>
+<p>4. <strong>Nízká cena za m²</strong> – 38 407 Kč/m² je podprůměrné pro tuto lokalitu.</p>
+<br>
+<p><strong>Nevýhody a podmínky:</strong></p>
+<ul>
+<li>Nutné <strong>dostavět koupelnu v podkroví</strong> (150–250 tis. Kč).</li>
+<li><strong>Vyměnit topení</strong> (150–400 tis. Kč) za ekologičtější variantu.</li>
+<li><strong>Ověřit důvod odpojení vody</strong> a náklady na opětovné připojení.</li>
+<li><strong>Zajistit PENB</strong> a ověřit povodňové riziko.</li>
+</ul>
+<br>
+<p><strong>Maximální rozumná nabídková cena:</strong></p>
+<p><strong>5 800 000–6 200 000 Kč</strong> (sleva <strong>790 000–1 190 000 Kč</strong> oproti nabídkové ceně).</p>
+<br>
+<p><strong>Co prověřit při prohlídce / před podpisem:</strong></p>
+<ul>
+<li>Kolaudační rozhodnutí nebo oznámení o už</li>
+</ul></div>
+<div class="tab-panel" id="panel-6" style="display:none"><hr>
+<br>
+<p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p><strong>Suchohrdly, Jihomoravský kraj</strong> | <strong>Dům 6+2</strong> | <strong>182 m² užitné plochy / 590 m² pozemek</strong> | <strong>6 990 000 Kč</strong></p>
+<br>
+<hr>
+<br>
+<h3>📋 **Základní parametry**</h3>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>6+2</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>**38 407 Kč/m²**</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům</td></tr>
+<tr><td>Stav</td><td>Rekonstruovaný (částečně)</td></tr>
+<tr><td>Vytápění</td><td>Plynový kotel + krbová kamna s výměníkem + tuhá paliva</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+<tr><td>Energetický štítek</td><td>**PENB chybí**</td></tr>
+<tr><td>Parkování</td><td>Neoficiální dohoda se sousedy</td></tr>
+<tr><td>Přístup na pozemek</td><td>Přední část + možný přejezd přes koryto (odstranitelný můstek)</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>**1. KONKRÉTNÍ VADY A RIZIKA**</h3>
+<br>
+<p>#### <strong>⚠️ Konstrukce a stavba</strong></p>
+<ul>
+<li><strong>Dědické řízení</strong>:</li>
+</ul>
+<p>  - Nemovitost je součástí dědictví po tragicky zesnulém majiteli. Probíhá dědické řízení, které může trvat <strong>2–3 měsíce</strong> (v závislosti na počtu dědiců a jejich dohodě).</p>
+<p>  - <strong>Riziko</strong>: Prodávajícím bude pravděpodobně <strong>soud</strong> (jako opatrovník dědiců), což může proces prodloužit a zkomplikovat.</p>
+<p>  - <strong>Doporučení do kupní smlouvy</strong>:</p>
+<p>    - <strong>Podmínka suspenzivní</strong> (účinnost smlouvy až po pravomocném rozhodnutí soudu o dědictví).</p>
+<p>    - <strong>Záloha na úschově</strong> (např. 10 % z ceny) jako jistota pro kupujícího.</p>
+<p>    - <strong>Sankce za prodlení</strong> (např. 0,1 % z ceny za každý den prodlení po lhůtě 3 měsíců od podpisu smlouvy).</p>
+<br>
+<ul>
+<li><strong>Střecha dílny</strong>:</li>
+</ul>
+<p>  - Vypadá původně, ale není jasné, zda je potřeba kompletní výměna nebo jen nová krytina (IPO).</p>
+<p>  - <strong>Riziko</strong>: Pokud bude nutná výměna, náklady <strong>100–200 tis. Kč</strong>.</p>
+<br>
+<ul>
+<li><strong>Vlhkost a sklep</strong>:</li>
+</ul>
+<p>  - Dle prohlídky je dům suchý, ale sklep má <strong>55 m²</strong> a je třeba ověřit, zda není vlhkost v některých místech skrytá (zejména u starších rekonstrukcí).</p>
+<p>  - <strong>Doporučení</strong>: Odborné měření vlhkosti před koupí.</p>
+<br>
+<ul>
+<li><strong>Elektroinstalace a rozvody</strong>:</li>
+</ul>
+<p>  - Částečně zrekonstruované, ale není jasné, zda jsou splněny současné normy (např. pro jištění nebo uzemnění).</p>
+<p>  - <strong>Riziko</strong>: Možné dodatečné náklady na revizi a úpravy (<strong>30–80 tis. Kč</strong>).</p>
+<br>
+<ul>
+<li><strong>Voda dočasně odpojena</strong>:</li>
+</ul>
+<p>  - Nutné znovu připojit, což může znamenat administrativní průtahy nebo poplatky (<strong>10–30 tis. Kč</strong>).</p>
+<br>
+<ul>
+<li><strong>Plot a přístup na pozemek</strong>:</li>
+</ul>
+<p>  - Chybí neprůhledný plot od cestičky a vzadu na pozemku.</p>
+<p>  - <strong>Náklady na plot</strong>: <strong>150–300 Kč/m²</strong> → cca <strong>100–200 tis. Kč</strong> (podle materiálu).</p>
+<p>  - <strong>Přejezd přes koryto</strong>: Můstek je dočasný a musí být odstranitelný (povodí zakázalo pevné stavby). To komplikuje trvalý přístup ze zadní části pozemku.</p>
+<br>
+<ul>
+<li><strong>Parkování</strong>:</li>
+</ul>
+<p>  - Neoficiální dohoda se sousedy → <strong>riziko změny podmínek</strong> po prodeji.</p>
+<br>
+<hr>
+<br>
+<p>#### <strong>🔴 Kritická rizika</strong></p>
+<ul>
+<li><strong>Dědické řízení</strong>: Prodleva v převodu vlastnictví a nejistota ohledně schválení prodeje soudem.</li>
+<li><strong>Chybějící koupelna v podkroví</strong>: Nutná dostavba (<strong>150–250 tis. Kč</strong>).</li>
+<li><strong>Střecha dílny</strong>: Nejasný stav → riziko vysokých nákladů na opravu.</li>
+<li><strong>Voda odpojena</strong>: Nutné znovu připojit, možné komplikace s úřady.</li>
+<li><strong>Povodňové riziko</strong>: Koryto u pozemku → nutné ověřit v <strong>povodňovém plánu obce</strong> (viz sekce 6).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**2. HODNOCENÍ CENY**</h3>
+<br>
+<p>#### <strong>Tržní srovnání (Kč/m²)</strong></p>
+<ul>
+<li>Průměrná cena rodinných domů v <strong>Suchohrdlech a okolí Znojma</strong>: <strong>35 000–45 000 Kč/m²</strong> (dle stavu a lokality).</li>
+<li><strong>Tato nemovitost</strong>: <strong>38 407 Kč/m²</strong> → <strong>cena odpovídá spodní hranici trhu</strong>, ale s ohledem na vady a rizika je <strong>mírně nadhodnocená</strong>.</li>
+</ul>
+<br>
+<p>#### <strong>Finanční kalkulace</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka (Kč)</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>279 600</td></tr>
+<tr><td>Právní poradenství + notář</td><td>30 000</td></tr>
+<tr><td>Opravy a úpravy:</td><td></td></tr>
+<tr><td>- Dostavba koupelny v podkroví</td><td>200 000</td></tr>
+<tr><td>- Nový plot</td><td>150 000</td></tr>
+<tr><td>- Oprava střechy dílny</td><td>150 000</td></tr>
+<tr><td>- Revize elektroinstalace</td><td>50 000</td></tr>
+<tr><td>- Připojení vody</td><td>20 000</td></tr>
+<tr><td>- Kuchyňská linka</td><td>80 000</td></tr>
+<tr><td>**CELKOVÁ INVESTICE**</td><td>**7 949 600**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**5 800 000–6 200 000 Kč**</td></tr>
+</table>
+<br>
+<ul>
+<li><strong>Hodnota po rekonstrukci</strong>: <strong>8 000 000–9 000 000 Kč</strong> (dle kvality úprav).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**3. YIELD A ROI**</h3>
+<br>
+<p>#### <strong>Odhad nájmu</strong></p>
+<ul>
+<li><strong>Dlouhodobý pronájem (celý dům)</strong>: <strong>25 000–35 000 Kč/měsíc</strong> (dle úprav a vybavení).</li>
+<li><strong>Dvougenerační využití</strong>:</li>
+</ul>
+<p>  - 1. NP (4+1): <strong>15 000–20 000 Kč/měsíc</strong></p>
+<p>  - 2. NP (2+1): <strong>10 000–15 000 Kč/měsíc</strong></p>
+<p>  - <strong>Celkem</strong>: <strong>25 000–35 000 Kč/měsíc</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>25 000–35 000 Kč</td></tr>
+<tr><td>Roční příjem hrubý</td><td>300 000–420 000 Kč</td></tr>
+<tr><td>Celková investice</td><td>7 949 600 Kč</td></tr>
+<tr><td>**Hrubý yield**</td><td>**3,8–5,3 %**</td></tr>
+<tr><td>Čistý yield (po nákladech)</td><td>**2,8–4,0 %**</td></tr>
+<tr><td>**Prostá návratnost (ROI)**</td><td>**19–27 let**</td></tr>
+</table>
+<br>
+<ul>
+<li><strong>Poznámka</strong>: Yield je <strong>nízký</strong> pro investiční nemovitost, vhodnější pro <strong>vlastní bydlení</strong>.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**4. BODOVACÍ TABULKA**</h3>
+<br>
+<table class="md-table">
+<tr><td>Kritérium</td><td>Hodnocení</td><td>Poznámka</td></tr>
+<tr><td>**Lokalita**</td><td>4/5</td><td>Klidná část obce, blízko Znojma, ale špatné parkování a přístup.</td></tr>
+<tr><td>**Stav**</td><td>3/5</td><td>Částečná rekonstrukce, ale mnoho nedodělků a rizik.</td></tr>
+<tr><td>**Cena**</td><td>3/5</td><td>Odpovídá trhu, ale s ohledem na vady je potřeba slevit.</td></tr>
+<tr><td>**Potenciál**</td><td>4/5</td><td>Velký dům s možností dvougeneračního bydlení, ale vyžaduje investice.</td></tr>
+<tr><td>**SKÓRE**</td><td>**3,5/5**</td><td>**🟡 Podmíněně doporučeno** (pouze po slevě a vyřešení rizik).</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>**5. POVODŇOVÉ RIZIKO A PENB**</h3>
+<ul>
+<li><strong>Povodňové riziko</strong>:</li>
+</ul>
+<p>  - Pozemek sousedí s <strong>korytem</strong>, které může být v době povodní problémové.</p>
+<p>  - <strong>Doporučení</strong>: Ověřit v <strong>povodňovém plánu obce</strong> (na úřadě nebo ČHMÚ) a zjistit, zda je nemovitost v <strong>zátopovém území</strong>.</p>
+<ul>
+<li><strong>PENB</strong>: <strong>Chybí</strong> → nutné vyžádat od prodávajícího nebo nechat zpracovat (<strong>5–10 tis. Kč</strong>).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>**6. SPECIFIKA PARCELY A PŘÍSTUPU**</h3>
+<ul>
+<li><strong>Tvar a orientace pozemku</strong>:</li>
+</ul>
+<p>  - Rovinatý, obdélníkový pozemek s <strong>dobrou orientací</strong> (pravděpodobně jih nebo jihovýchod).</p>
+<p>  - <strong>Zahrada</strong>: Vhodná pro pěstování nebo relaxaci.</p>
+<ul>
+<li><strong>Hranice pozemku</strong>:</li>
+</ul>
+<p>  - Chybí neprůhledný plot → <strong>nutné vybudovat</strong> (náklady <strong>100–200 tis. Kč</strong>).</p>
+<ul>
+<li><strong>Přístup</strong>:</li>
+</ul>
+<p>  - <strong>Přední část</strong>: Standardní vstup.</p>
+<p>  - <strong>Zadní část</strong>: Možný přejezd přes koryto, ale pouze dočasný (můstek musí být odstranitelný).</p>
+<ul>
+<li><strong>Věcná břemena</strong>:</li>
+</ul>
+<p>  - Z katastru nejsou data → <strong>nutné ověřit</strong> (např. průchod sousedů, vedení sítí).</p>
+<br>
+<hr>
+<br>
+<h3>**7. ODLOŽENÉ PŘEDÁNÍ A SMLUVNÍ POKUTA**</h3>
+<ul>
+<li><strong>Termín předání</strong>: Dle dohody, ale <strong>zpoždění pravděpodobné</strong> (kvůli dědickému řízení).</li>
+<li><strong>Doporučení do kupní smlouvy</strong>:</li>
+</ul>
+<p>  - <strong>Smluvní pokuta za prodlení</strong>: Např. <strong>0,1 % z kupní ceny za každý den prodlení</strong> (max. 5 % z ceny).</p>
+<p>  - <strong>Záloha na úschově</strong>: 10 % z ceny jako jistota pro kupujícího.</p>
+<br>
+<hr>
+<br>
+<h3>**8. DUE DILIGENCE OTÁZKY PRO PRODÁVAJÍCÍHO**</h3>
+<p>1. <strong>Jaký je aktuální stav dědického řízení?</strong> (Kdy lze očekávat rozhodnutí soudu?)</p>
+<p>2. <strong>Je možné získat kopii kolaudačního rozhodnutí nebo oznámení o užívání stavby?</strong></p>
+<p>3. <strong>Jaké jsou přesné podmínky pro opětovné připojení vody?</strong> (Kdo zajistí a za jakou cenu?)</p>
+<p>4. <strong>Jaké jsou zkušenosti s vlhkostí ve sklepě?</strong> (Byly provedeny nějaké hydroizolační práce?)</p>
+<p>5. <strong>Jaké jsou možnosti trvalého přístupu na pozemek ze zadní části?</strong> (Je možné vybudovat pevný přejezd přes koryto?)</p>
+<p>6. <strong>Jaké jsou zkušenosti se sousedy ohledně parkování?</strong> (Existuje nějaká písemná dohoda?)</p>
+<p>7. <strong>Je k dispozici energetický průkaz (PENB)?</strong> Pokud ne, je možné ho nechat zpracovat?</p>
+<p>8. <strong>Jaké byly náklady na rekonstrukci a jaké práce byly provedeny?</strong> (Konkrétní seznam prací a materiálů.)</p>
+<br>
+<hr>
+<br>
+<h3>**9. TECHNICKÝ STAV A KATASTR**</h3>
+<br>
+<p>#### <strong>Technický stav</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>**Střecha (hlavní budova)**</td><td>✅</td><td>Nová (dle inzerátu).</td></tr>
+<tr><td>**Střecha (dílna)**</td><td>⚠️</td><td>Původní, možná nutná oprava.</td></tr>
+<tr><td>**Fasáda**</td><td>✅</td><td>Zateplená (tloušťka neznámá).</td></tr>
+<tr><td>**Okna**</td><td>✅</td><td>Plastová (pravděpodobně nová).</td></tr>
+<tr><td>**Elektroinstalace**</td><td>⚠️</td><td>Částečně zrekonstruovaná, nutná revize.</td></tr>
+<tr><td>**Topení**</td><td>🟡</td><td>Plynový kotel + krbová kamna + tuhá paliva.</td></tr>
+<tr><td>**Koupelna (1. NP)**</td><td>✅</td><td>Rekonstruovaná.</td></tr>
+<tr><td>**Koupelna (2. NP)**</td><td>🔴</td><td>Chybí, nutná dostavba.</td></tr>
+<tr><td>**Vlhkost**</td><td>✅</td><td>Dle prohlídky suchý sklep.</td></tr>
+<tr><td>**Kanalizace**</td><td>✅</td><td>Napojeno na veřejnou síť.</td></tr>
+<tr><td>**Voda**</td><td>⚠️</td><td>Dočasně odpojena, nutné znovu připojit.</td></tr>
+</table>
+<br>
+<p>#### <strong>Katastr (zástavní práva a věcná břemena)</strong></p>
+<ul>
+<li><strong>Data z katastru nejsou k dispozici</strong> → <strong>nutné ověřit</strong>:</li>
+</ul>
+<p>  - <strong>Zástavní práva</strong> (hypotéky, exekuce).</p>
+<p>  - <strong>Věcná břemena</strong> (průchod, vedení sítí, nájemní práva).</p>
+<p>  - <strong>Skutečná výměra pozemku</strong> (zda odpovídá inzerátu).</p>
+<p>  - <strong>Druh pozemku</strong> (zastavěná plocha, zahrada, orná půda).</p>
+<br>
+<hr>
+<br>
+<h3>**10. VERDIKT**</h3>
+<p><strong>🟡 PODMÍNĚNĚ DOPORUČENO</strong> (pouze pro vlastní bydlení po slevě a vyřešení rizik)</p>
+<br>
+<p>#### <strong>Odůvodnění:</strong></p>
+<p>✅ <strong>Výhody</strong>:</p>
+<ul>
+<li>Velký dům s dispozicí <strong>6+2</strong> a <strong>590 m² pozemku</strong> v klidné lokalitě blízko Znojma.</li>
+<li>Částečná rekonstrukce (nová střecha, fasáda, okna, koupelna).</li>
+<li>Možnost dvougeneračního bydlení nebo pronájmu.</li>
+<li>Suchý sklep s velkým úložným prostorem.</li>
+</ul>
+<br>
+<p>⚠️ <strong>Rizika a nevýhody</strong>:</p>
+<ul>
+<li><strong>Dědické řízení</strong> → prodleva v převodu a nejistota.</li>
+<li><strong>Chybějící koupelna v podkroví</strong> → nutná dostavba (<strong>150–250 tis. Kč</strong>).</li>
+<li><strong>Nejasný stav střechy dílny</strong> → možné vysoké náklady na opravu.</li>
+<li><strong>Voda odpojena</strong> → nutné znovu připojit.</li>
+<li><strong>Chybí plot a parkování</strong> → dodatečné náklady (<strong>100–200 tis. Kč</strong>).</li>
+<li><strong>Povodňové riziko</strong> → nutné ověřit.</li>
+</ul>
+<br>
+<p>#### <strong>Maximální rozumná nabídková cena</strong>:</p>
+<p><strong>5 800 000–6 200 000 Kč</strong> (sleva <strong>11–17 %</strong> oproti nabídkové ceně).</p>
+<br>
+<p>#### <strong>Co prověřit před koupí:</strong></p>
+<p>1. <strong>Dědické řízení</strong> (stav a předpokládaný termín rozhodnutí soudu).</p>
+<p>2. <strong>Kolaudační rozhodnutí</strong> (zda</p></div>
+<div class="tab-panel" id="panel-7" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p>Suchohrdly | Dům k prodeji 6+2 | 182 m² / 590 m² | 6 990 000 Kč</p>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>2 bytové jednotky (4+1 v 1NP, 2+1 v 2NP)</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 406 Kč</td></tr>
+<tr><td>Typ stavby</td><td>Dvoupodlažní rodinný dům</td></tr>
+<tr><td>Stav</td><td>Po rekonstrukci, k okamžitému nastěhování</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva + plynový kotel</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>1. ANALÝZA STAVU A KVALITY</h3>
+<br>
+<p><strong>Co bylo renovováno:</strong></p>
+<ul>
+<li>Nová střecha</li>
+<li>Nová fasáda</li>
+<li>Nové rozvody elektřiny</li>
+<li>Nová koupelna v 1NP</li>
+<li>Plastová okna</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ Dům prošel částečnou rekonstrukcí (střecha, fasáda, elektro)</li>
+<li>✅ Možnost dvougeneračního bydlení (2 samostatné jednotky)</li>
+<li>✅ Velký sklep (55 m²) - vhodný pro skladování/dílnu</li>
+<li>✅ Plastová okna</li>
+<li>✅ Zahradní domek a dílna na pozemku</li>
+<li>✅ Napojení na všechny inženýrské sítě</li>
+<li>✅ Klidná lokalita s dobrou dostupností Znojma</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ V podkroví chybí plnohodnotná koupelna (pouze sprchový kout v rohu místnosti)</li>
+<li>⚠️ Voda je aktuálně odpojená (nutno znovu připojit)</li>
+<li>⚠️ U zahradní dílny je potřeba úprava střechy</li>
+<li>⚠️ Starší systém vytápění (kotel na tuhá paliva + plynový kotel)</li>
+<li>⚠️ Nutnost vybudování mostku pro vjezd ze zadní části (přes koryto)</li>
+<li>⚠️ Z fotek nelze posoudit kvalitu provedených rekonstrukcí - doporučena odborná prohlídka</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>2. HODNOCENÍ CENY</h3>
+<br>
+<p><strong>Srovnání s trhem:</strong></p>
+<p>Cena 6 990 000 Kč za 182 m² působí v kontextu parametrů spíše odpovídající trhu, ale s ohledem na nutné investice do dokončení by mohla být mírně nadhodnocená.</p>
+<br>
+<p><strong>Finanční kalkulace (celková investice):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Dokončení koupelny v podkroví</td><td>150 000 - 250 000 Kč</td></tr>
+<tr><td>Úprava střechy zahradní dílny</td><td>50 000 - 100 000 Kč</td></tr>
+<tr><td>Vybudování mostku pro vjezd</td><td>100 000 - 200 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 599 600 - 7 849 600 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**6 200 000 - 6 500 000 Kč**</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>3. LOKACE A OKOLÍ</h3>
+<br>
+<ul>
+<li><strong>Plusy:</strong> Klidná část obce, výborná dostupnost Znojma, prodejna potravin COOP v blízkosti, mateřská a základní škola v obci</li>
+<li><strong>Mínusy:</strong> Venkovská poloha - závislost na automobilové dopravě, nižší likvidita trhu s nemovitostmi</li>
+<li><strong>Rizika:</strong> Přítomnost koryta na pozemku - nutno ověřit povodňové riziko u ČHMÚ</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>4. TECHNICKÝ STAV</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové</td></tr>
+<tr><td>Topení</td><td>⚠️</td><td>Kotel na tuhá paliva + plynový kotel (starší systém)</td></tr>
+<tr><td>Koupelna</td><td>🔴</td><td>V podkroví chybí plnohodnotná koupelna</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Ze snímků nelze posoudit - ověřit při prohlídce</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>⚠️</td><td>Veřejná síť (voda dočasně odpojená)</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Neuvedeno - vyžádat</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>5. DISPOZICE A VYUŽITELNOST</h3>
+<br>
+<ul>
+<li>Ideální pro větší rodiny nebo dvougenerační bydlení</li>
+<li>Možnost pronájmu jedné z jednotek</li>
+<li>Dobré úložné prostory (sklep 55 m²)</li>
+<li>Zahrada vhodná pro relaxaci</li>
+<li>Podkroví potřebuje dovybavení koupelny pro plnohodnotné využití</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>6. RIZIKA A RED FLAGS</h3>
+<br>
+<p><strong>🔴 Kritické body:</strong></p>
+<ul>
+<li>Chybí plnohodnotná koupelna v podkroví</li>
+<li>Voda odpojená - nutno znovu připojit</li>
+<li>Přítomnost koryta - povodňové riziko</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body:</strong></p>
+<ul>
+<li>Starší topný systém - možná nutnost výměny</li>
+<li>Nutnost úpravy střechy zahradní dílny</li>
+<li>Vybudování mostku pro vjezd</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika:</strong></p>
+<ul>
+<li>Právní spory - standardní ověření v KN</li>
+</ul>
+<br>
+<p><strong>📋 Co ověřit v katastru nemovitostí (KN):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Co ověřit</td><td>Proč</td><td>Závažnost</td></tr>
+<tr><td>Zástavní práva</td><td>Převzetí dluhu prodávajícího</td><td>🔴 Kritické</td></tr>
+<tr><td>Věcná břemena</td><td>Omezení užívání nemovitosti</td><td>🟡 Střední</td></tr>
+<tr><td>Výměra pozemku</td><td>Soulad s inzerátem</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Druh pozemku</td><td>Omezení stavby</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Přístupová cesta</td><td>Zajištění přístupu</td><td>🔴 Kritické</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>7. INVESTIČNÍ ANALÝZA</h3>
+<br>
+<p><strong>Odhad reálného nájmu:</strong> 15 000 - 20 000 Kč/měsíc (celý dům)</p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>15 000 - 20 000 Kč</td></tr>
+<tr><td>Roční příjem hrubý</td><td>180 000 - 240 000 Kč</td></tr>
+<tr><td>Celková investice</td><td>7 600 000 - 7 850 000 Kč</td></tr>
+<tr><td>Hrubý yield (nižší scénář)</td><td>2,3 %</td></tr>
+<tr><td>Hrubý yield (vyšší scénář)</td><td>3,2 %</td></tr>
+<tr><td>Čistý yield po nákladech (~25 %)</td><td>1,7 - 2,4 %</td></tr>
+<tr><td>Prostá návratnost (payback)</td><td>42 - 44 let</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>8. DOPORUČENÍ</h3>
+<br>
+<p><strong>🟡 VYJEDNÁVAT - podmíněně doporučuji ke koupi pro větší rodiny</strong></p>
+<br>
+<p><strong>Odůvodnění:</strong></p>
+<ul>
+<li>Částečná rekonstrukce snížila nutnost velkých investic</li>
+<li>Dobrá lokalita s dostupností Znojma</li>
+<li>Možnost dvougeneračního bydlení</li>
+<li>Nutnost dokončení koupelny a dalších úprav</li>
+<li>Starší topný systém může vyžadovat brzkou výměnu</li>
+</ul>
+<br>
+<p><strong>Maximální rozumná nabídková cena:</strong>  </p>
+<p><strong>6 200 000 - 6 500 000 Kč</strong>  </p>
+<p><em>(vyjednávací prostor: 490 000 - 790 000 Kč / 7-11 % oproti nabídkové ceně)</em></p>
+<br>
+<p><strong>Co prověřit při prohlídce / před podpisem:</strong></p>
+<p>1. Kolaudační rozhodnutí pro úpravy podkroví</p>
+<p>2. Výpis z katastru nemovitostí</p>
+<p>3. Energetický průkaz (PENB)</p>
+<p>4. Stav vodovodního připojení</p>
+<p>5. Kvalita provedených rekonstrukcí</p>
+<p>6. Vlhkost ve sklepě a podkroví</p>
+<p>7. Stav topného systému</p>
+<p>8. Povodňové riziko koryta</p>
+<p>9. Možnost připojení vody</p>
+<p>10. Odhad nákladů na dokončení koupelny</p>
+<br>
+<hr>
+<br>
+<p><em>Analýza zpracována na základě dat z inzerátu. Nemůže nahradit fyzickou prohlídku, posudek odborníka ani právní due diligence.</em></p>
+<br>
+<hr>
+<br>
+<h2>POZNÁMKY Z PROHLÍDKY *(vyplň ručně po prohlídce - AI tuto sekci NEVYPLŇUJE, buňky nechej prázdné)*</h2>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Poznámka</td></tr>
+<tr><td>Celkový dojem</td><td></td></tr>
+<tr><td>Co se mi líbilo</td><td></td></tr>
+<tr><td>Co mě znepokojilo</td><td></td></tr>
+<tr><td>Co říkal makléř / prodejce</td><td></td></tr>
+<tr><td>Nesrovnalosti s inzerátem</td><td></td></tr>
+<tr><td>Vůně, sousedé, okolí</td><td></td></tr>
+</table></div>
+<div class="tab-panel" id="panel-8" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p>Suchohrdly | House 6+2 | 182 m² / 590 m² | 6 990 000 Kč</p>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>6+2</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 022 Kč</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům</td></tr>
+<tr><td>Stav</td><td>Existující</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva, plynový kotel</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>1. ANALÝZA STAVU A KVALITY</h3>
+<br>
+<p><strong>Co bylo renovováno:</strong></p>
+<ul>
+<li>Nová střecha (důležité pro dlouhodobou udržitelnost a minimalizaci budoucích nákladů).</li>
+<li>Nová fasáda (estetický dojem, tepelná izolace).</li>
+<li>Rozvody elektřiny (bezpečnost, funkčnost).</li>
+<li>Koupelna (zvýšení komfortu a hodnoty).</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ Prostorná dispozice 6+2 vhodná pro rodinu.</li>
+<li>✅ Pozemek 590 m² nabízí prostor pro relaxaci a aktivity.</li>
+<li>✅ Částečná rekonstrukce (střecha, fasáda, rozvody, koupelna).</li>
+<li>✅ Sklep 55 m² poskytuje dostatek úložného prostoru.</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ Starší topný systém (kotel na tuhá paliva – nutná revize, potenciální výměna).</li>
+<li>⚠️ Voda dočasně odpojená – ověřit důvod a náklady na opětovné připojení.</li>
+<li>⚠️ Chybějící koupelna v podkroví (nutná dostavba).</li>
+<li>⚠️ Stav zahrady (potřeba úpravy).</li>
+<li>⚠️ Stav dílny na pozemku (potřeba opravy střechy).</li>
+<li>⚠️ „Stav elektroinstalace mimo rekonstruované části nelze z fotek posoudit, doporučuji odbornou prohlídku.“</li>
+<li>⚠️ „Stav kanalizace a vodovodu nelze z fotek posoudit, doporučuji odbornou prohlídku.“</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>2. HODNOCENÍ CENY</h3>
+<br>
+<p><strong>Srovnání s trhem:</strong></p>
+<ul>
+<li>Cena 6 990 000 Kč za 182 m² působí v kontextu parametrů spíše odpovídající. V okolí Znojma se podobné nemovitosti prodávají v podobném cenovém rozpětí.</li>
+</ul>
+<br>
+<p><strong>Finanční kalkulace (celková investice)</strong>:</p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 % — dle smlouvy)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Dostavba koupelny v podkroví</td><td>150 000 – 250 000 Kč</td></tr>
+<tr><td>Výměna topného systému</td><td>100 000 – 400 000 Kč</td></tr>
+<tr><td>Oprava dílny</td><td>20 000 – 50 000 Kč</td></tr>
+<tr><td>Úprava zahrady</td><td>30 000 – 70 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 499 600 – 8 569 600 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**6 200 000 – 6 600 000 Kč**</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>3. LOKACE A OKOLÍ</h3>
+<br>
+<ul>
+<li>Plusy: Klidná část obce, blízkost Znojma, dostupnost základní a mateřské školy, prodejna potravin v obci.</li>
+<li>Mínusy: Venkovská poloha = závislost na autě, potenciálně omezená občanská vybavenost.</li>
+<li>Rizika lokality: Nízká likvidita trhu v menší obci. Hluk, kriminalita a průmysl v okolí nelze z inzerátu posoudit — ověřit samostatně.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>4. TECHNICKÝ STAV</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová, bez zjevných problémů.</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová, zateplení nebylo z fotografií identifikováno.</td></tr>
+<tr><td>Okna</td><td>⚠️</td><td>Plastová, stáří nelze určit, doporučuji ověřit těsnost.</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Rekonstruované, bez zjevných problémů.</td></tr>
+<tr><td>Topení</td><td>⚠️</td><td>Kotel na tuhá paliva, stáří neznámé, doporučuji revizi.</td></tr>
+<tr><td>Koupelna</td><td>✅/⚠️</td><td>Rekonstruovaná v přízemí, v podkroví chybí.</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Ověřit při prohlídce, zejména ve sklepě a v podkroví.</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>⚠️</td><td>Ověřit napojení na veřejnou síť.</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Vyžádat, vliv na hodnotu a energetickou náročnost.</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>5. DISPOZICE A VYUŽITELNOST</h3>
+<br>
+<ul>
+<li>Vhodné pro rodinu s dětmi nebo dvě generace.</li>
+<li>Dispozice 6+2 nabízí dostatek prostoru.</li>
+<li>Dvougenerační potenciál (po dostavbě koupelny v podkroví).</li>
+<li>Zahrada s potenciálem pro relaxaci a aktivity.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>6. RIZIKA A RED FLAGS</h3>
+<br>
+<p><strong>🔴 Kritické body:</strong></p>
+<ul>
+<li>Chybějící koupelna v podkroví (nutná investice).</li>
+<li>Voda dočasně odpojená (ověřit důvod a náklady na připojení).</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body:</strong></p>
+<ul>
+<li>Starší topný systém (potenciální výměna).</li>
+<li>Stav dílny na pozemku (potřeba opravy).</li>
+<li>Stav zahrady (potřeba úpravy).</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika:</strong></p>
+<ul>
+<li>Rekonstrukce střechy a fasády (snižuje budoucí náklady).</li>
+</ul>
+<br>
+<p><strong>📋 Co ověřit v katastru nemovitostí (KN):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Co ověřit</td><td>Proč</td><td>Závažnost</td></tr>
+<tr><td>Zástavní práva (hypotéky, exekuce) na LV</td><td>Kupující může přebrat dluh prodávajícího</td><td>🔴 Kritické</td></tr>
+<tr><td>Věcná břemena (průchod, vedení sítí, nájemní právo)</td><td>Omezuje užívání nemovitosti</td><td>🟡 Střední</td></tr>
+<tr><td>Skutečná výměra pozemku vs. inzerát</td><td>Rozdíl = argument pro slevu nebo problém při kolaudaci</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Druh pozemku (zahrada / zastavěná plocha / orná půda)</td><td>Orná půda má omezení stavby a jiný převod</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Přístupová cesta – vlastní, nebo cizí pozemek?</td><td>Bez přístupu nelze nemovitost užívat ani prodat</td><td>🔴 Kritické</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>7. INVESTIČNÍ ANALÝZA</h3>
+<br>
+<p><strong>Odhadni reálný nájem:</strong></p>
+<ul>
+<li>Dlouhodobý pronájem (rodina / pár): 18 000 – 25 000 Kč/měsíc.</li>
+</ul>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>20 000 Kč/měsíc</td></tr>
+<tr><td>Roční příjem hrubý</td><td>240 000 Kč</td></tr>
+<tr><td>Celková investice (vč. úprav)</td><td>7 499 600 – 8 569 600 Kč</td></tr>
+<tr><td>Hrubý yield (nižší scénář)</td><td>3,2 %</td></tr>
+<tr><td>Hrubý yield (vyšší scénář)</td><td>2,8 %</td></tr>
+<tr><td>Čistý yield po nákladech (~25 %)</td><td>0,8 – 1,0 %</td></tr>
+<tr><td>Prostá návratnost (payback)</td><td>31 – 36 let</td></tr>
+</table>
+<br>
+<p>_Odhad nájmu je hrubý, nutno ověřit na lokálním trhu._</p>
+<br>
+<hr>
+<br>
+<h3>8. DOPORUČENÍ</h3>
+<br>
+<p>🟡 <strong>VYJEDNÁVAT</strong> – podmíněně doporučuji ke koupi pro vlastní bydlení.</p>
+<br>
+<p><strong>Odůvodnění:</strong></p>
+<ul>
+<li>Prostorná dispozice a pozemek.</li>
+<li>Částečná rekonstrukce snižuje budoucí náklady.</li>
+<li>Nutná investice do dostavby koupelny a případné výměny topného systému.</li>
+<li>Potenciál pro dvougenerační bydlení.</li>
+<li>Odpovídající cena v kontextu lokality a parametrů.</li>
+</ul>
+<br>
+<p><strong>Maximální rozumná nabídková cena:</strong></p>
+<p><strong>6 200 000 – 6 600 000 Kč</strong></p>
+<p>_(vyjednávací prostor: 390 000 – 790 000 Kč / 5,3 – 11,4 % oproti nabídkové ceně)_</p>
+<br>
+<p><strong>Co prověřit při prohlídce / před podpisem:</strong></p>
+<ul>
+<li>Stav elektroinstalace mimo rekonstruované části.</li>
+<li>Stav kanalizace a vodovodu.</li>
+<li>Důvod odpojení vody.</li>
+<li>Revize kotle na tuhá paliva.</li>
+<li>Energetický štítek (PENB).</li>
+<li>Vlastnické právo a případná zástavní práva v katastru nemovitostí.</li>
+<li>Stav střechy dílny.</li>
+<li>Vlhkost ve sklepě a podkroví.</li>
+<li>Přístupová cesta a její vlastnictví.</li>
+<li>Možnost napojení na plyn.</li>
+<li>Zjištění případných omezení v územním plánu.</li>
+</ul>
+<br>
+<hr>
+<br>
+<p><em>Analýza zpracována na základě dat z inzerátu. Nemůže nahradit fyzickou prohlídku, posudek odborníka ani právní due diligence.</em></p>
+<br>
+<hr>
+<br>
+<h3>POZNÁMKY Z PROHLÍDKY _(vyplň ručně po prohlídce — AI tuto sekci NEVYPLŇUJE, buňky nechej prázdné)_</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Poznámka</td></tr>
+<tr><td>Celkový dojem</td><td></td></tr>
+<tr><td>Co se mi líbilo</td><td></td></tr>
+<tr><td>Co mě znepokojilo</td><td></td></tr>
+<tr><td>Co říkal makléř / prodejce</td><td></td></tr>
+<tr><td>Nesrovnalosti s inzerátem</td><td></td></tr>
+<tr><td>Vůně, sousedé, okolí</td><td></td></tr>
+</table>
+<br>
+<h3>DOPLŇUJÍCÍ KONTEXT _(pro lidského uživatele, AI může ignorovat pokud není vyplněno)_</h3>
+<br>
+<p><strong>Můj rozpočet:</strong> _(max cena včetně případných oprav)_</p>
+<p><strong>Účel:</strong> _(vlastní bydlení / investice / pronájem)_</p>
+<p><strong>Timeline:</strong> _(jak rychle potřebuji koupit)_</p></div>
+<div class="tab-panel" id="panel-9" style="display:none"><h2>ANALÝZA NEMOVITOSTI</h2>
+<br>
+<p>Suchohrdly | Rodinný dům 6+2 | 182 m² / 590 m² | 6 990 000 Kč</p>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly</td></tr>
+<tr><td>Dispozice</td><td>6+2</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 344 Kč/m²</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům</td></tr>
+<tr><td>Stav</td><td>Rekonstruovaný</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva, plynový kotel</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<h3>1. ANALÝZA STAVU A KVALITY</h3>
+<br>
+<p><strong>Co bylo renovováno:</strong></p>
+<ul>
+<li>Nová střecha</li>
+<li>Fasáda</li>
+<li>Rozvody elektřiny</li>
+<li>Koupelna</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ Nová střecha</li>
+<li>✅ Nová fasáda</li>
+<li>✅ Rekonstruovaná koupelna</li>
+<li>✅ Velký pozemek</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ Voda je dočasně odpojená</li>
+<li>⚠️ Nutnost úpravy střechy u zahradního domku</li>
+<li>⚠️ Možnost vybudování mostku přes koryto</li>
+</ul>
+<br>
+<h3>2. HODNOCENÍ CENY</h3>
+<br>
+<p><strong>Srovnání s trhem:</strong></p>
+<ul>
+<li>Cena 6 990 000 Kč za 182 m² působí v kontextu parametrů spíše vyšší.</li>
+</ul>
+<br>
+<p><strong>Finanční kalkulace (celková investice)</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Opravy (odhad)</td><td>200 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 499 600 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**6 200 000 Kč**</td></tr>
+</table>
+<br>
+<h3>3. LOKACE A OKOLÍ</h3>
+<br>
+<ul>
+<li>Plusy: klidná lokalita, blízkost Znojma, prodejna potravin COOP, mateřská a základní škola</li>
+<li>Mínusy: voda je dočasně odpojená, nutnost úpravy střechy u zahradního domku</li>
+</ul>
+<br>
+<h3>4. TECHNICKÝ STAV</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Rekonstruované</td></tr>
+<tr><td>Topení</td><td>✅</td><td>Kotel na tuhá paliva, plynový kotel</td></tr>
+<tr><td>Koupelna</td><td>✅</td><td>Rekonstruovaná</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Ověřeno při prohlídce</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>⚠️</td><td>Voda je dočasně odpojená</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Vyžádat</td></tr>
+</table>
+<br>
+<h3>5. DISPOZICE A VYUŽITELNOST</h3>
+<br>
+<ul>
+<li>Dům nabízí dvě bytové jednotky, vhodné pro větší rodiny nebo dvougenerační bydlení</li>
+<li>Dispozice 6+2, užitná plocha 182 m²</li>
+<li>Velký pozemek 590 m²</li>
+</ul>
+<br>
+<h3>6. RIZIKA A RED FLAGS</h3>
+<br>
+<p><strong>🔴 Kritické body:</strong></p>
+<ul>
+<li>Voda je dočasně odpojená</li>
+<li>Nutnost úpravy střechy u zahradního domku</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body:</strong></p>
+<ul>
+<li>Možnost vybudování mostku přes koryto</li>
+<li>Ověření technického stavu domu</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika:</strong></p>
+<ul>
+<li>Klidná lokalita</li>
+</ul>
+<br>
+<h3>7. INVESTIČNÍ ANALÝZA</h3>
+<br>
+<p><strong>Odhadovaný nájem:</strong> 25 000 - 30 000 Kč/měsíc</p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>25 000 - 30 000 Kč</td></tr>
+<tr><td>Roční příjem hrubý</td><td>300 000 - 360 000 Kč</td></tr>
+<tr><td>Celková investice (vč. úprav)</td><td>7 499 600 Kč</td></tr>
+<tr><td>Hrubý yield (nižší scénář)</td><td>4 %</td></tr>
+<tr><td>Hrubý yield (vyšší scénář)</td><td>4,8 %</td></tr>
+<tr><td>Čistý yield po nákladech (~25 %)</td><td>3 %</td></tr>
+<tr><td>Prostá návratnost (payback)</td><td>20 - 25 let</td></tr>
+</table>
+<br>
+<h3>8. DOPORUČENÍ</h3>
+<br>
+<p><strong>🟡 VYJEDNÁVAT – podmíněně doporučuji ke koupi pro vlastní bydlení</strong></p>
+<br>
+<p><strong>Odůvodnění:</strong></p>
+<ul>
+<li>Nová střecha a fasáda</li>
+<li>Rekonstruovaná koupelna</li>
+<li>Velký pozemek</li>
+<li>Možnost dvougeneračního bydlení</li>
+</ul>
+<br>
+<p><strong>Maximální rozumná nabídková cena:</strong> <strong>6 200 000 Kč</strong></p>
+<br>
+<p><strong>Co prověřit při prohlídce / před podpisem:</strong></p>
+<ul>
+<li>Technický stav domu</li>
+<li>Voda a kanalizace</li>
+<li>Energetický štítek (PENB)</li>
+<li>Úprava střechy u zahradního domku</li>
+<li>Možnost vybudování mostku přes koryto</li>
+</ul></div>
+<div class="tab-panel" id="panel-10" style="display:none"><h2>1. Základní parametry</h2>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>6+2</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 302 Kč/m²</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům</td></tr>
+<tr><td>Stav</td><td>Rekonstruovaný</td></tr>
+</table>
+<br>
+<h2>2. Konkrétní VADY a RIZIKA</h2>
+<br>
+<ul>
+<li>Střecha: nová, ale bez detailního popisu</li>
+<li>Vlhkost: žádná zmínka</li>
+<li>Elektrika: částečně rekonstruovaná</li>
+<li>Stav hospodářských budov: jeden zahradní domek a menší dílna, které vyžadují údržbu</li>
+<li>Kvalita vody ze studny: není zmíněna, doporučuji laboratorní rozbor</li>
+<li>Povodňové riziko: lokalita se nachází v blízkosti koryta, doporučuji ověřit riziko</li>
+</ul>
+<br>
+<h2>3. Hodnocení ceny</h2>
+<br>
+<ul>
+<li>Tržní cena m² v lokalitě: nelze určit z dostupných dat</li>
+<li>Maximální nabídková cena: 6 000 000 Kč</li>
+<li>CELKOVÁ INVESTICE = 6 000 000 Kč (kupní cena) + 278 000 Kč (daň) + 30 000 Kč (notář) + 200 000 Kč (odhadované opravy) = 6 508 000 Kč</li>
+<li>Hodnota po rekonstrukci: nelze určit z dostupných dat</li>
+</ul>
+<br>
+<h2>4. Yield</h2>
+<br>
+<ul>
+<li>Hrubý výnos: nelze určit z dostupných dat</li>
+<li>ROI (navratnost investice): nelze určit z dostupných dat</li>
+</ul>
+<br>
+<h2>5. Bodovací tabulka</h2>
+<br>
+<ul>
+<li>Lokalita: 4/5</li>
+<li>Stav: 3/5</li>
+<li>Cena: 4/5</li>
+<li>Potenciál: 4/5</li>
+<li>Celkové SKÓRE: 15/20</li>
+</ul>
+<br>
+<h2>6. Povodňové riziko lokality · PENB</h2>
+<br>
+<ul>
+<li>Povodňové riziko: nelze určit z dostupných dat</li>
+<li>PENB: chybí</li>
+</ul>
+<br>
+<h2>7. Rohová parcela · Rozbor studniční vody</h2>
+<br>
+<ul>
+<li>Rohová parcela: ano</li>
+<li>Rozbor studniční vody: doporučuji laboratorní rozbor</li>
+</ul>
+<br>
+<h2>8. Odložené předání (datum předání 2027) · smluvní pokuta za prodlení</h2>
+<br>
+<ul>
+<li>Odložené předání: datum předání 2027</li>
+<li>Smluvní pokuta za prodlení: doporučuji zahrnout do kupní smlouvy</li>
+</ul>
+<br>
+<h2>9. Due Diligence otázky pro prodávajícího</h2>
+<br>
+<ul>
+<li>Jaký je stav hospodářských budov?</li>
+<li>Jaká je kvalita vody ze studny?</li>
+<li>Jaké jsou plány na budoucí rozvoj lokality?</li>
+<li>Jaké jsou náklady na údržbu a opravy nemovitosti?</li>
+</ul>
+<br>
+<h2>10. Technický stav · katastr</h2>
+<br>
+<ul>
+<li>Technický stav: částečně rekonstruovaný</li>
+<li>Katastr: zástavní práva a věcná břemena nejsou uvedena</li>
+</ul>
+<br>
+<h2>11. VERDIKT</h2>
+<br>
+<p>🟡 VYJEDNÁVAT – podmíněně doporučuji ke koupi pro vlastní bydlení nebo investici, s ohledem na potřebu dalších oprav a údržby.</p></div>
+<div class="tab-panel" id="panel-11" style="display:none"><h2>ANALÝZA NEMOVITOSTI</h2>
+<br>
+<p><strong>Suchohrdly</strong> | <strong>House / Sale</strong> 6+2 | <strong>182 m²</strong> / <strong>590 m²</strong> | <strong>6 990 000 Kč</strong></p>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>6+2</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 461 Kč/m²</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům</td></tr>
+<tr><td>Stav</td><td>Rekonstruovaný</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva s výměníkem, plynový kotel</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>1. ANALÝZA STAVU A KVALITY</h3>
+<br>
+<p><strong>Co bylo renovováno</strong> (dle popisu nebo fotek):</p>
+<ul>
+<li>Nová střecha</li>
+<li>Nová fasáda</li>
+<li>Nové rozvody elektřiny</li>
+<li>Nová koupelna</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ Nová střecha a fasáda</li>
+<li>✅ Plastová okna</li>
+<li>✅ Moderní koupelna s vanou a sprchovým koutem</li>
+<li>✅ Velký sklep (55 m²) s možností využití</li>
+<li>✅ Velký pozemek (590 m²) s možností dalšího využití</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ Voda je dočasně odpojená</li>
+<li>⚠️ V obytném podkroví chybí samostatná koupelna</li>
+<li>⚠️ Střecha zahradního domku a dílny vyžaduje úpravy</li>
+<li>⚠️ Vjezd na pozemek ze zadní části zahrady vyžaduje vybudování mostku přes koryto</li>
+<li>⚠️ Stav topení nelze z fotek posoudit, doporučuji odbornou prohlídku</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>2. HODNOCENÍ CENY</h3>
+<br>
+<p><strong>Srovnání s trhem:</strong></p>
+<ul>
+<li>Cena 6 990 000 Kč za 182 m² působí v kontextu parametrů spíše vyšší.</li>
+</ul>
+<br>
+<p><strong>Finanční kalkulace (celková investice):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 %)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Úpravy střechy zahradního domku a dílny</td><td>~100 000 Kč</td></tr>
+<tr><td>Vybavení koupelny v obytném podkroví</td><td>~150 000 Kč</td></tr>
+<tr><td>Vybudování mostku přes koryto</td><td>~50 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**7 549 600 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**6 500 000 Kč**</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>3. LOKACE A OKOLÍ</h3>
+<br>
+<ul>
+<li>Plusy: Klidná část obce Suchohrdly, blízkost Znojma, dostupnost základních služeb (prodejna potravin COOP, mateřská a základní škola).</li>
+<li>Mínusy: Venkovská poloha, závislost na autě, nutnost vybudování mostku přes koryto.</li>
+<li>Rizika lokality: Venkovská poloha = závislost na auto, nízká likvidita trhu, povodňové riziko (ověřit dle ČHMÚ).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>4. TECHNICKÝ STAV</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová střecha</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová fasáda</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová okna</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové rozvody elektřiny</td></tr>
+<tr><td>Topení</td><td>⚠️</td><td>Kotel na tuhá paliva s výměníkem, plynový kotel</td></tr>
+<tr><td>Koupelna</td><td>✅/⚠️</td><td>Moderní koupelna v přízemí, chybí samostatná koupelna v obytném podkroví</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Ověřit při prohlídce, zejm. sklep</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>⚠️</td><td>Voda je dočasně odpojená</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Vyžádat, vliv na hodnotu</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>5. DISPOZICE A VYUŽITELNOST</h3>
+<br>
+<ul>
+<li>Rodina / pár / investice do nájmu.</li>
+<li>Přízemí: 4+1 (112 m²) s kuchyní, obývací pokoj, koupelna s vanou, toaleta.</li>
+<li>Obytné podkroví: 2+1 (70 m²) s kuchyní, obývací pokoj, ložnice, toaleta, sprchový kout v rohu místnosti.</li>
+<li>Velký sklep (55 m²) s možností využití.</li>
+<li>Velký pozemek (590 m²) s možností dalšího využití.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>6. RIZIKA A RED FLAGS</h3>
+<br>
+<p><strong>🔴 Kritické body:</strong></p>
+<ul>
+<li>Voda je dočasně odpojená</li>
+<li>V obytném podkroví chybí samostatná koupelna</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body:</strong></p>
+<ul>
+<li>Střecha zahradního domku a dílny vyžaduje úpravy</li>
+<li>Vjezd na pozemek ze zadní části zahrady vyžaduje vybudování mostku přes koryto</li>
+<li>Stav topení nelze z fotek posoudit, doporučuji odbornou prohlídku</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika:</strong></p>
+<ul>
+<li>Pravděpodobně žádné</li>
+</ul>
+<br>
+<p><strong>📋 Co ověřit v katastru nemovitostí (KN):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Co ověřit</td><td>Proč</td><td>Závažnost</td></tr>
+<tr><td>Zástavní práva (hypotéky, exekuce) na LV</td><td>Kupující může přebrat dluh prodávajícího</td><td>🔴 Kritické</td></tr>
+<tr><td>Věcná břemena (průchod, vedení sítí, nájemní právo)</td><td>Omezuje užívání nemovitosti</td><td>🟡 Střední</td></tr>
+<tr><td>Skutečná výměra pozemku vs. inzerát</td><td>Rozdíl = argument pro slevu nebo problém při kolaudaci</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Druh pozemku (zahrada / zastavěná plocha / orná půda)</td><td>Orná půda má omezení stavby a jiný převod</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Přístupová cesta – vlastní, nebo cizí pozemek?</td><td>Bez přístupu nelze nemovitost užívat ani prodat</td><td>🔴 Kritické</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>7. INVESTIČNÍ ANALÝZA</h3>
+<br>
+<p><strong>Odhadni reálný nájem</strong> (rozmezí) v Kč/měsíc:</p>
+<ul>
+<li>Dlouhodobý pronájem (rodina / pár): 25 000 - 35 000 Kč/měsíc</li>
+</ul>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>25 000 - 35 000 Kč/měsíc</td></tr>
+<tr><td>Roční příjem hrubý</td><td>300 000 - 420 000 Kč</td></tr>
+<tr><td>Celková investice (vč. úprav)</td><td>7 549 600 Kč</td></tr>
+<tr><td>Hrubý yield (nižší scénář)</td><td>4,0 %</td></tr>
+<tr><td>Hrubý yield (vyšší scénář)</td><td>5,6 %</td></tr>
+<tr><td>Čistý yield po nákladech (~25 %)</td><td>3,0 % - 4,2 %</td></tr>
+<tr><td>Prostá návratnost (payback)</td><td>18,2 - 25,2 let</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>8. DOPORUČENÍ</h3>
+<br>
+<p><strong>🟡 VERDIKT</strong> – Vyjednávat – podmíněně doporučuji ke koupi pro vlastní bydlení</p>
+<br>
+<p><strong>Odůvodnění:</strong></p>
+<ul>
+<li>Dům prošel rekonstrukcí, ale jsou některé nedostatky, které je třeba řešit.</li>
+<li>Velký pozemek a sklep nabízejí možnosti dalšího využití.</li>
+<li>Klidná lokalita s dostupností základních služeb.</li>
+<li>Cena je vyšší, ale s ohledem na rekonstrukce a velký pozemek je možné vyjednat slevu.</li>
+</ul>
+<br>
+<p><strong>Maximální rozumná nabídková cena:</strong></p>
+<p><strong>6 500 000 Kč</strong> – sleva 490 000 Kč / 7 % oproti nabídkové ceně</p>
+<br>
+<p><strong>Co prověřit při prohlídce / před podpisem:</strong></p>
+<ul>
+<li>Kolaudační rozhodnutí nebo oznámení o užívání stavby</li>
+<li>Výpis z katastru – zástavní práva, věcná břemena</li>
+<li>Energetický průkaz (PENB) – třída A/B je žádoucí</li>
+<li>Stav topení a vodovodního systému</li>
+<li>Možnost vybudování mostku přes koryto</li>
+<li>Stav střechy zahradního domku a dílny</li>
+</ul>
+<br>
+<hr>
+<br>
+<p><em>Analýza zpracována na základě dat z inzerátu. Nemůže nahradit fyzickou prohlídku, posudek odborníka ani právní due diligence.</em></p></div>
+<div class="tab-panel" id="panel-12" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p>Suchohrdly | House 6+2 | 182 m² užitná plocha / 590 m² pozemek | 6 990 000 Kč</p>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj</td></tr>
+<tr><td>Dispozice</td><td>6+2</td></tr>
+<tr><td>Užitná plocha</td><td>182 m²</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 412 Kč/m²</td></tr>
+<tr><td>Typ stavby</td><td>Dvoupodlažní dům</td></tr>
+<tr><td>Stav</td><td>Existující, rekonstruovaný</td></tr>
+<tr><td>Vytápění</td><td>Kotl na tuhá paliva s výměníkem, plynový kotl</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>1. ANALÝZA STAVU A KVALITY</h3>
+<br>
+<p><strong>Co bylo renovováno</strong> (dle popisu nebo fotek):</p>
+<ul>
+<li>Nová střecha</li>
+<li>Fasáda</li>
+<li>Rozvody elektřiny</li>
+<li>Koupelna</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ Nová střecha a fasáda</li>
+<li>✅ Plastová okna</li>
+<li>✅ Dvě bytové jednotky (112 m² a 70 m²)</li>
+<li>✅ Základní elektrické rozvody</li>
+<li>✅ Prostor pro další úpravy podle potřeb</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ Chybí samostatná koupelna v podkrovní části</li>
+<li>⚠️ Aktuálně je voda dočasně odpojena</li>
+<li>⚠️ Zahrada a dílna potřebují zpracování (střecha a vjezd na pozemek)</li>
+<li>⚠️ Starší systém vytápění (kotl na tuhá paliva)</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>2. HODNOCENÍ CENY</h3>
+<br>
+<p><strong>Srovnání s trhem</strong>:</p>
+<ul>
+<li>Cena 6 990 000 Kč za 182 m² působí v kontextu parametrů spíše vyšší.</li>
+</ul>
+<br>
+<p><strong>Finanční kalkulace (celková investice):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 % — dle smlouvy)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Doplnění koupelny v podkrovní části</td><td>150 000 Kč</td></tr>
+<tr><td>Nová střecha pro zahradyk a dílnu</td><td>150 000 Kč</td></tr>
+<tr><td>Vybudování mostku pro vjezd na pozemek</td><td>50 000 Kč</td></tr>
+<tr><td>Výměna systému vytápění</td><td>250 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**8 899 600 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**7 200 000 Kč**</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>3. LOKACE A OKOLÍ</h3>
+<br>
+<p><strong>Plusy:</strong></p>
+<ul>
+<li>Klidné a přístupné místo mezi Suchohrdly a Znojmem</li>
+<li>Představa budovy COOP a mateřské školy v okolí</li>
+</ul>
+<br>
+<p><strong>Mínusy:</strong></p>
+<ul>
+<li>Venkovská poloha s nižší likviditou</li>
+<li>Rozsah práce na zahradě (střecha a vjezd)</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>4. TECHNICKÝ STAV</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová střecha</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Rekonstrukce</td></tr>
+<tr><td>Okna</td><td>✅</td><td>Plastová okna</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové rozvody</td></tr>
+<tr><td>Topení</td><td>⚠️</td><td>Starší systém na tuhá paliva, nutná výměna</td></tr>
+<tr><td>Koupelna</td><td>⚠️</td><td>Chybí samostatná v podkrovní části</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Ověřit při prohlídce</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>⚠️</td><td>Dočasně odpojena, znovu připojit</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Ověřit při prohlídce</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>5. DISPOZICE A VYUŽITELNOST</h3>
+<br>
+<ul>
+<li>Rodina / pár / investice do nájmu.</li>
+<li>Světlost, návaznost místností, využitelnost zahrady.</li>
+<li>Dvougenerační potenciál.</li>
+<li>Půdorys z fotek zjevný: 4+1 v přízemí, 2+1 ve podkrovní části.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>6. RIZIKA A RED FLAGS</h3>
+<br>
+<p><strong>🔴 Kritické body:</strong></p>
+<ul>
+<li>Chybí samostatná koupelna v podkrovní části</li>
+<li>Starší systém vytápění (kotl na tuhá paliva)</li>
+<li>Aktuálně je voda dočasně odpojena</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body:</strong></p>
+<ul>
+<li>Zahrada a dílna potřebují úpravy (střecha a vjezd)</li>
+<li>Starší topný systém</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika:</strong></p>
+<ul>
+<li>Příslušné úpravy střechy a vjezdu</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>7. INVESTIČNÍ ANALÝZA</h3>
+<br>
+<p><strong>Odhadni reálný nájem</strong> (rozmezí) v Kč/měsíc:</p>
+<ul>
+<li>8 000 - 10 000 Kč/měsíc (doporučený nájem pro 6+2 dispozici)</li>
+</ul>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>8 000 - 10 000 Kč</td></tr>
+<tr><td>Roční příjem hrubý</td><td>96 000 - 120 000 Kč</td></tr>
+<tr><td>Celková investice (vč. úprav)</td><td>8 899 600 Kč</td></tr>
+<tr><td>Hrubý yield (nižší scénář)</td><td>1,1 %</td></tr>
+<tr><td>Hrubý yield (vyšší scénář)</td><td>1,3 %</td></tr>
+<tr><td>Čistý yield po nákladech (~25 %)</td><td>0,8 % - 1,0 %</td></tr>
+<tr><td>Prostá návratnost (payback)</td><td>9 - 12 let</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>8. DOPORUČENÍ</h3>
+<br>
+<p><strong>🟡 VYJEDNÁVAT – podmíněně doporučuji ke koupi pro vlastní bydlení</strong></p>
+<br>
+<p><strong>Odůvodnění:</strong></p>
+<ul>
+<li>Stáří systému vytápění a chybějící samostatná koupelna v podkrovní části</li>
+<li>Rozsah práce na zahradě a vjezdu na pozemek</li>
+<li>Cena z pohledu trhu vyšší, s rozsáhlými úpravami</li>
+</ul>
+<br>
+<p><strong>Maximální rozumná nabídková cena:</strong>  </p>
+<p><strong>7 200 000 Kč</strong> — vyjednávací prostor: 890 000 Kč / 12,73 %</p>
+<br>
+<p><strong>Co prověřit při prohlídce / před podpisem:</strong></p>
+<ul>
+<li>Kolaudační rozhodnutí nebo oznámení o užívání stavby</li>
+<li>Výpis z katastru — zástavní práva, věcná břemena</li>
+<li>Energetický průkaz (PENB)</li>
+<li>Skutečná výměra pozemku</li>
+</ul>
+<br>
+<hr>
+<br>
+<p><em>Analýza zpracována na základě dat z inzerátu. Nemůže nahradit fyzickou prohlídku, posudek odborníka ani právní due diligence.</em></p>
+<br>
+<hr>
+<br>
+<h3>POZNÁMKY Z PROHLÍDKY</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Poznámka</td></tr>
+<tr><td>Celkový dojem</td><td></td></tr>
+<tr><td>Co se mi líbilo</td><td></td></tr>
+<tr><td>Co mě znepokojilo</td><td></td></tr>
+<tr><td>Co říkal makléř / prodejce</td><td></td></tr>
+<tr><td>Nesrovnalosti s inzerátem</td><td></td></tr>
+<tr><td>Vůně, sousedé, okolí</td><td></td></tr>
+</table>
+<br>
+<hr>
+<br>
+<p><em>Analýza je stručná a kompaktní, připravená na základě zadaných dat a fotek. Používání emoji ikon je přímým způsobem určení kritických bodů a středně důležitích bodů.</em></p></div>
+<div class="tab-panel" id="panel-13" style="display:none"><p><strong>ANALÝZA NEMOVITOSTI</strong></p>
+<br>
+<p>Suchohrdly | House 6+2 | 182 m² / 590 m² | 6 990 000 Kč</p>
+<br>
+<p>📋 <strong>Základní parametry</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Parametr</td><td>Hodnota</td></tr>
+<tr><td>Adresa</td><td>Suchohrdly, Jihomoravský kraj (těsně vedle Znojma)</td></tr>
+<tr><td>Dispozice</td><td>6+2 (Přízemí 4+1 / Podkroví 2+1)</td></tr>
+<tr><td>Užitná plocha</td><td>182 m² (Přízemí 112 m² + Podkroví 70 m²)</td></tr>
+<tr><td>Pozemek</td><td>590 m²</td></tr>
+<tr><td>Cena nabídková</td><td>6 990 000 Kč</td></tr>
+<tr><td>Cena za m² užitné plochy</td><td>38 406 Kč/m²</td></tr>
+<tr><td>Typ stavby</td><td>Rodinný dům (dvoupodlažní)</td></tr>
+<tr><td>Stav</td><td>Existující, rekonstruovaný (nová střecha, fasáda, rozvody)</td></tr>
+<tr><td>Vytápění</td><td>Kotel na tuhá paliva + výměník + plynový kotel (záložní) + elektrický bojler</td></tr>
+<tr><td>Zdroj</td><td>Prodejme.to</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>1. ANALÝZA STAVU A KVALITY</h3>
+<br>
+<p><strong>Co bylo renovováno:</strong></p>
+<ul>
+<li>✅ <strong>Střecha:</strong> Nová střecha na domě i dílně (dle textu &quot;nová střecha&quot;, ale pro dílnu je nutná úprava).</li>
+<li>✅ <strong>Fasáda:</strong> Nová fasáda.</li>
+<li>✅ <strong>Rozvody:</strong> Nové rozvody elektřiny.</li>
+<li>✅ <strong>Koupelna:</strong> Nová koupelna v přízemí (vanová, sprcha).</li>
+<li>✅ <strong>Podkroví:</strong> Upraveno k bydlení (sprchový kout, kuchyně, obývací pokoj).</li>
+</ul>
+<br>
+<p><strong>Pozitiva dle fotografií a popisu:</strong></p>
+<ul>
+<li>✅ <strong>Vnitřní vybavenost:</strong> Čisté, světlé prostory s bílými stěnami a dřevěnými podlahami.</li>
+<li>✅ <strong>Prostornost:</strong> Velká místnost v přízemí (12-15 stop šířka), vysoké stropy.</li>
+<li>✅ <strong>Příprava na nastěhování:</strong> Nemovitost je připravena k okamžitému užívání (kromě vody).</li>
+<li>✅ <strong>Úložné prostory:</strong> Velký sklep 55 m² rozdělený do 5 místností + půda v podkroví.</li>
+<li>✅ <strong>Lokalita:</strong> Klidná část obce, blízkost Znojma, dostupnost školy a COOP.</li>
+</ul>
+<br>
+<p><strong>Negativa / otázky:</strong></p>
+<ul>
+<li>⚠️ <strong>Voda:</strong> Voda je aktuálně dočasně odpojená (nutí připojení).</li>
+<li>⚠️ <strong>Okna:</strong> Dle popisu fotek 13 je vidět &quot;rozbity okno&quot; (potřebuje výměnu).</li>
+<li>⚠️ <strong>Přístup ze zadu:</strong> Vjezd ze zadní části zahrady vyžaduje vybudování mostku přes koryto.</li>
+<li>⚠️ <strong>Dílna:</strong> Střecha dílny potřebuje úpravu.</li>
+<li>⚠️ <strong>Zahrada:</strong> Pozadí zahrady je přerostlé, staré zahradní stavby (domek, dílna) vyžadují údržbu.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>2. HODNOCENÍ CENY</h3>
+<br>
+<p><strong>Srovnání s trhem:</strong></p>
+<ul>
+<li>Cena 6 990 000 Kč za 182 m² v lokalitě Suchohrdly (blízko Znojma) působí spíše <strong>vyšší</strong>. Pro venkovskou oblast je typická cena kolem 25–35 Kč/m². Tato nemovitost má prémiové parametry (nová střecha, rekonstrukce), ale vysoká cena za m² naznačuje prostor pro vyjednávání.</li>
+</ul>
+<br>
+<p><strong>Finanční kalkulace (celková investice):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Částka</td></tr>
+<tr><td>Kupní cena (nabídková)</td><td>6 990 000 Kč</td></tr>
+<tr><td>Daň z nabytí (4 % — dle smlouvy)</td><td>279 600 Kč</td></tr>
+<tr><td>Právní poradenství + notář</td><td>~30 000 Kč</td></tr>
+<tr><td>Doplňkové opravy (voda, okno, mostek, střecha dílny)</td><td>~450 000 – 600 000 Kč</td></tr>
+<tr><td>**CELKOVÁ INVESTICE (odhad)**</td><td>**~7 750 000 – 8 000 000 Kč**</td></tr>
+<tr><td>**Maximální rozumná nabídková cena**</td><td>**6 200 000 – 6 400 000 Kč**</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>3. LOKACE A OKOLÍ</h3>
+<br>
+<ul>
+<li>✅ <strong>Dostupnost:</strong> Těsná blízkost Znojma (výborná dostupnost města).</li>
+<li>✅ <strong>Služby:</strong> Prodejna COOP, mateřská a základní škola v obci.</li>
+<li>⚠️ <strong>Charakter:</strong> Venkovská poloha = závislost na autě.</li>
+<li>⚠️ <strong>Rizika lokality:</strong> Nízká likvidita trhu pro venkovské nemovitosti. Povodňové riziko nelze z inzerátu posoudit (ověřit dle ČHMÚ).</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>4. TECHNICKÝ STAV</h3>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Stav</td><td>Poznámka</td></tr>
+<tr><td>Střecha</td><td>✅</td><td>Nová na domě, úprava nutná u dílny</td></tr>
+<tr><td>Fasáda</td><td>✅</td><td>Nová</td></tr>
+<tr><td>Okna</td><td>⚠️</td><td>Plastová (dle popisu), ale 1 rozbité okno (Foto 13)</td></tr>
+<tr><td>Elektrorozvody</td><td>✅</td><td>Nové rozvody</td></tr>
+<tr><td>Topení</td><td>🟡</td><td>Kotel na tuhá paliva + plynový kotel (záloha) + elektrický bojler</td></tr>
+<tr><td>Koupelna</td><td>✅</td><td>Nová v přízemí, podkroví má sprchu bez samostatné koupelny</td></tr>
+<tr><td>Vlhkost / plísně</td><td>⚠️</td><td>Ověřit při prohlídce (sklep 55 m²)</td></tr>
+<tr><td>Kanalizace / vodovod</td><td>🔴</td><td>Voda dočasně odpojená, připojení nutné</td></tr>
+<tr><td>Energetický štítek (PENB)</td><td>⚠️</td><td>Vyžádat před koupí</td></tr>
+</table>
+<br>
+<hr>
+<br>
+<h3>5. DISPOZICE A VYUŽITELNOST</h3>
+<br>
+<ul>
+<li><strong>Přízemí (4+1):</strong> Vhodné pro starší generaci nebo hlavní byt (2 pokoje, kuchyně, obývací pokoj, koupelna s vanou + WC).</li>
+<li><strong>Podkroví (2+1):</strong> Vhodné pro mladší generaci (ložnice, obývací pokoj s lodžií, kuchyň, sprcha).</li>
+<li><strong>Dvougenerační potenciál:</strong> Velmi vysoký díky dvěma samostatným bytovým jednotkám.</li>
+<li><strong>Sklep 55 m²:</strong> Rozdělen do 5 místností – ideální pro skladování, dílnu nebo posilovnu.</li>
+<li><strong>Pozemek:</strong> Rozeznatelný, rovinatý, zahrada i dílna součástí.</li>
+</ul>
+<br>
+<hr>
+<br>
+<h3>6. RIZIKA A RED FLAGS</h3>
+<br>
+<p><strong>🔴 Kritické body</strong> (vyžadují řešení před koupí nebo výraznou slevou):</p>
+<ul>
+<li>🔴 <strong>Voda dočasně odpojená:</strong> Nutnost připojení a případné náklady na rozvody.</li>
+<li>🔴 <strong>Rozbité okno:</strong> Dle popisu fotek 13 (nutná výměna).</li>
+<li>🔴 <strong>Přístup ze zadu:</strong> Vybudování mostku přes koryto je nutnost, ne volba.</li>
+</ul>
+<br>
+<p><strong>🟡 Středně důležité body</strong> (ověřit při prohlídce nebo vyjednávání):</p>
+<ul>
+<li>🟡 <strong>Stav dílny:</strong> Střecha dílny potřebuje úpravu.</li>
+<li>🟡 <strong>Zahrada:</strong> Přerostlá, staré stavby vyžadují údržbu.</li>
+<li>🟡 <strong>Vytápění:</strong> Kotel na tuhá paliva (ekologie a náklady), plyn jako záloha.</li>
+</ul>
+<br>
+<p><strong>🟢 Nízká rizika</strong>:</p>
+<ul>
+<li>🟢 <strong>Právní spory:</strong> Standardní ověření KN, povodňové riziko nízké (pokud nebyla hlášena).</li>
+</ul>
+<br>
+<p><strong>📋 Co ověřit v katastru nemovitostí (KN):</strong></p>
+<br>
+<table class="md-table">
+<tr><td>Co ověřit</td><td>Proč</td><td>Závažnost</td></tr>
+<tr><td>Zástavní práva (hypotéky, exekuce) na LV</td><td>Kupující může přebrat dluh prodávajícího</td><td>🔴 Kritické</td></tr>
+<tr><td>Věcná břemena (průchod, vedení sítí, nájemní právo)</td><td>Omezuje užívání nemovitosti</td><td>🟡 Střední</td></tr>
+<tr><td>Skutečná výměra pozemku vs. inzerát</td><td>Rozdíl = argument pro slevu nebo problém při kolaudaci</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Druh pozemku (zahrada / zastavěná plocha / orná půda)</td><td>Orná půda má omezení stavby a jiný převod</td><td>⚠️ Ověřit</td></tr>
+<tr><td>Přístupová cesta – vlastní, nebo cizí pozemek?</td><td>Bez přístupu nelze nemovitost užívat ani prodat</td><td>🔴 Kritické</td></tr>
+</table>
+<br>
+<p><em>Link na nahlížení.cuzk.cz je dostupný na detailu inzerátu (tlačítko „Otevřít v KN&quot;).</em></p>
+<br>
+<hr>
+<br>
+<h3>7. INVESTIČNÍ ANALÝZA</h3>
+<br>
+<p><strong>Odhadni reálný nájem</strong> (rozmezí) v Kč/měsíc:</p>
+<ul>
+<li>Dlouhodobý pronájem (rodina / pár): 15 000 – 20 000 Kč/měsíc.</li>
+<li>Dvougenerační využití (1NP vlastní + 2NP pronájem): Možnost pronájmu podkroví za 8 000 – 10 000 Kč.</li>
+</ul>
+<br>
+<table class="md-table">
+<tr><td>Položka</td><td>Hodnota</td></tr>
+<tr><td>Odhadovaný nájem (měsíční)</td><td>15 000 – 20 000 Kč/měsíc</td></tr>
+</table>
+<p>| Roční</p></div>
+
+<script>
+function showTab(idx) {
+  document.querySelectorAll('.tab-panel').forEach(function(p,i){ p.style.display = i===idx ? 'block' : 'none'; });
+  document.querySelectorAll('.tab-btn').forEach(function(b,i){ b.style.background = i===idx ? '#1d4ed8' : ''; });
+}
+showTab(0);
+</script>
+</body>
+</html>

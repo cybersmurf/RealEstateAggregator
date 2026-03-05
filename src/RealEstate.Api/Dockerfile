@@ -11,9 +11,11 @@ RUN dotnet publish "RealEstate.Api/RealEstate.Api.csproj" -c Release -o /app/pub
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 # Install Kerberos library required by Google.Apis.Auth for Drive API calls
+# Install pandoc for Markdown → DOCX export in LocalAnalysisService
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgssapi-krb5-2 \
     curl \
+    pandoc \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/publish .

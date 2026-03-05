@@ -173,7 +173,8 @@ public sealed class LocalAnalysisService(
     // Prefix: groq-tools/<model>  př. groq-tools/llama-3.3-70b-versatile
     // Tok: 1) Groq dostane nástroje  2) Volá je → .NET vykoná  3) Groq vygeneruje analýzu
     private async Task<string> GroqToolingAsync(
-        string model, Guid listingId, string systemPrompt, CancellationToken ct)
+        string model, Guid listingId, Listing listing, string? inspectionNotes,
+        string systemPrompt, CancellationToken ct)
     {
         var apiKey = GroqApiKey ?? throw new InvalidOperationException("Groq:ApiKey není nastaven.");
 
@@ -219,27 +220,7 @@ public sealed class LocalAnalysisService(
         };
 
         // ── Počáteční zprávy ─────────────────────────────────────────────────
-        var userPrompt = $"""
-            Proveď kompletní analýzu nemovitosti (ID: {listingId}).
-            Nejprve zavolej get_listing_details + get_photo_descriptions + get_cadastre_data.
-            Pak napiš analýzu ČESKY (s diakritikou) v tomto pořadí sekcí:
-
-            1. Základní parametry (tabulka: adresa, dispozice, plocha m², pozemek m², cena Kč, Kč/m², typ stavby, stav)
-            2. Konkrétní VADY a RIZIKA — bullet list (stodola/hospodářské budovy, vlhkost, elektrika, střecha…)
-            3. Hodnocení ceny:
-               - tržní Kč/m²: srovnání průměrné ceny m² v lokalitě (prumer Kc/m²)
-               - maximální nabídková cena: X Kč
-               - CELKOVÁ INVESTICE = kupní cena + daň + notář + opravy
-               - hodnota po rekonstrukci: X Kč
-            4. Yield: hrubý výnos X % · ROI: navratnost investice X let (uvést obé číslo povinně)
-            5. Bodovací tabulka — každé kritérium formátem "X/5": Lokalita 4/5 · Stav 3/5 · Cena 4/5 · Potenciál 4/5 · Celkové SKÓRE X/5
-            6. Povodňové riziko lokality · PENB: pokud inzerát neuvádí energetický průkaz, MUSÍŠ napsat přesně „PENB chybí"
-            7. Rohová parcela · Rozbor studniční vody: doporučuji laboratorní rozbor studniční vody (pokud je studna)
-            8. Odložené předání (datum předání 2027) · smluvní pokuta za prodlení — doporuč zahrnout do kupní smlouvy
-            9. Due Diligence otázky pro prodávajícího (seznam)
-            10. Technický stav (tabulka) · katastr: zástavní práva, věcná břemena
-            11. VERDIKT 🟢/🟡/🔴
-            """;
+        var userPrompt   = BuildToolUserPrompt(listing, inspectionNotes);
 
         var messagesList = new List<object>
         {
@@ -329,6 +310,144 @@ public sealed class LocalAnalysisService(
         var fbJson = await fbResp.Content.ReadAsStringAsync(ct);
         using var fbDoc = JsonDocument.Parse(fbJson);
         return fbDoc.RootElement
+            .GetProperty("choices")[0].GetProperty("message").GetProperty("content")
+            .GetString()?.Trim() ?? string.Empty;
+    }
+
+    // ─── Mistral Tool-Use loop (OpenAI-compatible function calling) ──────────
+    // Prefix: mistral-tools/<model>  př. mistral-tools/mistral-large-latest
+    // Mistral používá tool_choice="any" (Groq používá "required") – jinak identické s GroqToolingAsync
+    private async Task<string> MistralToolingAsync(
+        string model, Guid listingId, Listing listing, string? inspectionNotes,
+        string systemPrompt, CancellationToken ct)
+    {
+        var apiKey = MistralApiKey ?? throw new InvalidOperationException("Mistral:ApiKey není nastaven.");
+
+        var toolDefs = new object[]
+        {
+            new {
+                type = "function",
+                function = new {
+                    name = "get_listing_details",
+                    description = "Načte kompletní detail inzerátu: cena, plocha, lokace, dispozice, stav, typ stavby, rok výstavby, popis z inzerátu, URL, zdroj.",
+                    parameters = new {
+                        type = "object",
+                        properties = new { listing_id = new { type = "string", description = "UUID inzerátu" } },
+                        required = new[] { "listing_id" }
+                    }
+                }
+            },
+            new {
+                type = "function",
+                function = new {
+                    name = "get_photo_descriptions",
+                    description = "Načte AI klasifikace a popisy fotografií nemovitosti (exteriér, interiér, koupelna, zahrada…). Klíčové pro posouzení fyzického stavu.",
+                    parameters = new {
+                        type = "object",
+                        properties = new { listing_id = new { type = "string", description = "UUID inzerátu" } },
+                        required = new[] { "listing_id" }
+                    }
+                }
+            },
+            new {
+                type = "function",
+                function = new {
+                    name = "get_cadastre_data",
+                    description = "Načte data z katastru nemovitostí: parcelní číslo, LV, výměra, druh pozemku, zástavní práva a věcná břemena.",
+                    parameters = new {
+                        type = "object",
+                        properties = new { listing_id = new { type = "string", description = "UUID inzerátu" } },
+                        required = new[] { "listing_id" }
+                    }
+                }
+            },
+        };
+
+        var userPrompt   = BuildToolUserPrompt(listing, inspectionNotes);
+        var messagesList = new List<object>
+        {
+            new { role = "system", content = systemPrompt },
+            new { role = "user",   content = userPrompt },
+        };
+
+        using var http = httpClientFactory.CreateClient();
+        http.Timeout = TimeSpan.FromMinutes(5);
+        http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+
+        for (int turn = 0; turn < 8; turn++)
+        {
+            var requestObj = new
+            {
+                model,
+                messages    = messagesList,
+                tools       = toolDefs,
+                tool_choice = turn == 0 ? (object)"any" : "auto",  // Mistral: "any" = musí zavolat tool
+                temperature = 0.3,
+                max_tokens  = 4096,
+            };
+
+            using var body = new StringContent(
+                JsonSerializer.Serialize(requestObj), Encoding.UTF8, "application/json");
+            using var resp = await http.PostAsync($"{MistralBaseUrl}/chat/completions", body, ct);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync(ct);
+                logger.LogError("MistralTools HTTP {Status} turn {Turn}: {Err}", (int)resp.StatusCode, turn, err[..Math.Min(400, err.Length)]);
+                throw new HttpRequestException($"MistralTools HTTP {(int)resp.StatusCode}");
+            }
+
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            var choice       = doc.RootElement.GetProperty("choices")[0];
+            var finishReason = choice.GetProperty("finish_reason").GetString();
+            var assistantMsg = choice.GetProperty("message");
+
+            messagesList.Add(assistantMsg.Clone());
+
+            logger.LogInformation("MistralTools turn {Turn}/{Max}: finish_reason={Reason}", turn + 1, 8, finishReason);
+
+            if (finishReason is "stop" or "length")
+            {
+                var content = assistantMsg.TryGetProperty("content", out var c) ? c.GetString() : null;
+                return content?.Trim() ?? string.Empty;
+            }
+
+            if (finishReason == "tool_calls" &&
+                assistantMsg.TryGetProperty("tool_calls", out var toolCalls))
+            {
+                foreach (var toolCall in toolCalls.EnumerateArray())
+                {
+                    var toolCallId = toolCall.GetProperty("id").GetString()!;
+                    var funcName   = toolCall.GetProperty("function").GetProperty("name").GetString()!;
+                    var argsJson   = toolCall.GetProperty("function").GetProperty("arguments").GetString() ?? "{}";
+
+                    using var argsDoc  = JsonDocument.Parse(argsJson);
+                    // Znovupoužití ExecuteGroqToolAsync – logika je nezávislá na provideru
+                    var toolResult = await ExecuteGroqToolAsync(funcName, argsDoc.RootElement, listingId, ct);
+
+                    logger.LogInformation("MistralTools tool={Tool} → {Len} znaků výsledku", funcName, toolResult.Length);
+
+                    messagesList.Add(new { role = "tool", tool_call_id = toolCallId, content = toolResult });
+                }
+                continue;
+            }
+
+            logger.LogWarning("MistralTools: neočekávaný finish_reason={Reason}, ukončuji loop", finishReason);
+            break;
+        }
+
+        logger.LogWarning("MistralTools: dosažen limit turns, generuji bez tools");
+        messagesList.Add(new { role = "user", content = "Na základě informací výše napiš závěrečnou strukturovanou analýzu v češtině. Nepoužívej další nástroje." });
+        var fbReqM = new { model, messages = messagesList, temperature = 0.3, max_tokens = 4096 };
+        using var fbBodyM  = new StringContent(JsonSerializer.Serialize(fbReqM), Encoding.UTF8, "application/json");
+        using var fbHttpM  = httpClientFactory.CreateClient();
+        fbHttpM.Timeout = TimeSpan.FromMinutes(5);
+        fbHttpM.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+        using var fbRespM  = await fbHttpM.PostAsync($"{MistralBaseUrl}/chat/completions", fbBodyM, ct);
+        var fbJsonM = await fbRespM.Content.ReadAsStringAsync(ct);
+        using var fbDocM = JsonDocument.Parse(fbJsonM);
+        return fbDocM.RootElement
             .GetProperty("choices")[0].GetProperty("message").GetProperty("content")
             .GetString()?.Trim() ?? string.Empty;
     }
@@ -472,6 +591,11 @@ public sealed class LocalAnalysisService(
         logger.LogInformation("Popsáno {Count}/{Total} fotek pro {ListingId}",
             photoDescriptions.Count, listing.Photos.Count, listingId);
 
+        // 2b. Načti zápis z prohlídky (user notes z user_listing_state)
+        var inspectionNotes = await LoadInspectionNotesAsync(listingId, ct);
+        if (inspectionNotes is not null)
+            logger.LogInformation("Načten zápis z prohlídky ({Len} znaků) pro {ListingId}", inspectionNotes.Length, listingId);
+
         // 3. Sestav systémový prompt ze šablony
         var systemPrompt = BuildSystemPrompt(listing);
 
@@ -487,13 +611,17 @@ public sealed class LocalAnalysisService(
             ? effectiveModel.StartsWith("groq-tools/", StringComparison.OrdinalIgnoreCase)
                 ? await GroqToolingAsync(
                     effectiveModel["groq-tools/".Length..],
-                    listingId, systemPrompt, ct)
+                    listingId, listing, inspectionNotes, systemPrompt, ct)
                 : effectiveModel.StartsWith("groq/", StringComparison.OrdinalIgnoreCase)
                 ? await ExternalOpenAiChatAsync(
                     GroqBaseUrl,
                     GroqApiKey ?? throw new InvalidOperationException("Groq:ApiKey není nastaven."),
                     effectiveModel["groq/".Length..],
                     systemPrompt, userMessage, ct)
+                : effectiveModel.StartsWith("mistral-tools/", StringComparison.OrdinalIgnoreCase)
+                    ? await MistralToolingAsync(
+                        effectiveModel["mistral-tools/".Length..],
+                        listingId, listing, inspectionNotes, systemPrompt, ct)
                 : effectiveModel.StartsWith("mistral/", StringComparison.OrdinalIgnoreCase)
                     ? await ExternalOpenAiChatAsync(
                         MistralBaseUrl,
@@ -844,6 +972,87 @@ public sealed class LocalAnalysisService(
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    /// <summary>Načte zápis z osobní prohlídky z tabulky user_listing_state.</summary>
+    private async Task<string?> LoadInspectionNotesAsync(Guid listingId, CancellationToken ct)
+    {
+        try
+        {
+            var conn = db.Database.GetDbConnection();
+            if (conn.State != System.Data.ConnectionState.Open)
+                await conn.OpenAsync(ct);
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT notes FROM re_realestate.user_listing_state " +
+                "WHERE listing_id = @id AND notes IS NOT NULL AND notes <> '' LIMIT 1";
+            var p = cmd.CreateParameter();
+            p.ParameterName = "@id"; p.Value = listingId;
+            cmd.Parameters.Add(p);
+
+            var result = await cmd.ExecuteScalarAsync(ct);
+            return result is DBNull or null ? null : result.ToString();
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Nepodařilo se načíst inspection notes pro {ListingId}", listingId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Dynamicky sestav user prompt pro tool-use modely (Groq, Mistral).
+    /// Sekce se přizpůsobí datům inzerátu a zápisu z prohlídky – žádné hardcoded detaily.
+    /// </summary>
+    private static string BuildToolUserPrompt(Listing listing, string? inspectionNotes)
+    {
+        var sb          = new StringBuilder();
+        var notesLower  = inspectionNotes?.ToLowerInvariant() ?? "";
+        var hasLand     = listing.AreaLand.HasValue && listing.AreaLand > 0;
+        var hasInherit  = notesLower.Contains("dědic") || notesLower.Contains("dědictv");
+        var hasDelayed  = notesLower.Contains("převzetí") || notesLower.Contains("měsíc") || notesLower.Contains("mesíc");
+        var hasWell     = notesLower.Contains("studna")
+                          || listing.Description?.ToLowerInvariant().Contains("studna") == true;
+
+        sb.AppendLine($"Proveď kompletní analýzu nemovitosti (ID: {listing.Id}).");
+        sb.AppendLine("Nejprve zavolej get_listing_details + get_photo_descriptions + get_cadastre_data.");
+        sb.AppendLine("Pak napiš analýzu ČESKY (s diakritikou) v tomto pořadí sekcí:");
+        sb.AppendLine();
+        sb.AppendLine("1. Základní parametry (tabulka: adresa, dispozice, plocha m², pozemek m², cena Kč, Kč/m², typ stavby, stav)");
+        sb.AppendLine("2. Konkrétní VADY a RIZIKA — bullet list (vlhkost, střecha, elektrika, konstrukční závady…)");
+        if (hasInherit)
+            sb.AppendLine("   ⚠️ DĚDICKÉ ŘÍZENÍ: analyzuj rizika, doporuč podmínky v kupní smlouvě a odhadni dobu trvání");
+        sb.AppendLine("3. Hodnocení ceny:");
+        sb.AppendLine("   - tržní Kč/m²: srovnání průměrné ceny m² v lokalitě");
+        sb.AppendLine("   - maximální nabídková cena: X Kč");
+        sb.AppendLine("   - CELKOVÁ INVESTICE = kupní cena + daň + notář + opravy");
+        sb.AppendLine("   - hodnota po rekonstrukci: X Kč");
+        sb.AppendLine(hasLand
+            ? "4. Yield: hrubý výnos X % · ROI: návratnost investice X let (uveď obé jako číslo – POVINNÉ)"
+            : "4. Yield a ROI: odhadni hrubý výnos z pronájmu (%) · odhadni návratnost investice (roky)");
+        sb.AppendLine("5. Bodovací tabulka — každé kritérium formátem \"X/5\": Lokalita X/5 · Stav X/5 · Cena X/5 · Potenciál X/5 · SKÓRE X/5");
+        sb.AppendLine("6. Povodňové riziko lokality · PENB: pokud inzerát neuvádí energetický průkaz, napiš přesně \u201ePENB chybí\u201c");
+        sb.AppendLine("7. Specifika parcely a přístupu (tvar, orientace, hranice, věcná břemena na pozemku)");
+        if (hasWell)
+            sb.AppendLine("   · Studna: doporuč laboratorní rozbor vody před koupí");
+        sb.AppendLine(hasDelayed
+            ? "8. Odložené předání: termín dle dohody smluvních stran · smluvní pokuta za prodlení — doporuč zahrnout do kupní smlouvy"
+            : "8. Předání nemovitosti: podmínky dle kupní smlouvy · doporuč smluvní pokutu za prodlení");
+        sb.AppendLine("9. Due Diligence otázky pro prodávajícího (min. 5 konkrétních bodů)");
+        sb.AppendLine("10. Technický stav (tabulka) · katastr: zástavní práva, věcná břemena");
+        sb.AppendLine("11. VERDIKT 🟢/🟡/🔴");
+
+        if (!string.IsNullOrWhiteSpace(inspectionNotes))
+        {
+            sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine("## ZÁPIS Z OSOBNÍ PROHLÍDKY (použij jako primární zdroj faktů a specifik této nemovitosti):");
+            sb.AppendLine(inspectionNotes);
+        }
+
+        return sb.ToString();
+    }
+
     private static bool IsNewBuild(Listing l)
     {
         var text = $"{l.Title} {l.Description} {l.Condition}".ToLowerInvariant();

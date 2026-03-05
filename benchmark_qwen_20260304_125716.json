@@ -1,0 +1,289 @@
+{
+  "timestamp": "2026-03-04T12:57:16.811676",
+  "models": {
+    "qwen2.5:14b": [
+      {
+        "test_name": "Normalizace popisu",
+        "success_rate": 1.0,
+        "avg_time": 30.723463917000725,
+        "std_time": 2.7916131826101447,
+        "avg_tokens_per_sec": 4.582299342186854,
+        "responses": [
+          "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+          "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+          "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč"
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+            "elapsed_seconds": 27.842674291998264,
+            "eval_count": 140,
+            "tokens_per_second": 5.028252621560664
+          },
+          {
+            "success": true,
+            "response": "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+            "elapsed_seconds": 30.911304334003944,
+            "eval_count": 140,
+            "tokens_per_second": 4.5290874331043085
+          },
+          {
+            "success": true,
+            "response": "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+            "elapsed_seconds": 33.41641312499996,
+            "eval_count": 140,
+            "tokens_per_second": 4.1895579718955895
+          }
+        ]
+      },
+      {
+        "test_name": "Smart Tags - extrakce",
+        "success_rate": 1.0,
+        "avg_time": 19.95150206933128,
+        "std_time": 16.36459689709604,
+        "avg_tokens_per_sec": 16.577287027743804,
+        "responses": [
+          "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+          "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+          "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD"
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+            "elapsed_seconds": 26.29833320799662,
+            "eval_count": 62,
+            "tokens_per_second": 2.3575638619236696
+          },
+          {
+            "success": true,
+            "response": "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+            "elapsed_seconds": 32.19198712499929,
+            "eval_count": 62,
+            "tokens_per_second": 1.92594510426642
+          },
+          {
+            "success": true,
+            "response": "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+            "elapsed_seconds": 1.3641858749979292,
+            "eval_count": 62,
+            "tokens_per_second": 45.44835211704132
+          }
+        ]
+      },
+      {
+        "test_name": "Q&A - odpověď na otázku",
+        "success_rate": 1.0,
+        "avg_time": 89.34032847266644,
+        "std_time": 37.92005796582061,
+        "avg_tokens_per_sec": 0.9851945479170474,
+        "responses": [
+          "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou zmíněny pouze možnosti parkování na pozemku pro 2 auta, ale nebyla uvedena žádná garáž.",
+          "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou uvedeny informace o parkovacím prostoru na pozemku pro 2 auta, ale to neznamená, že je zde garáž.",
+          "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou uvedeny informace o parkovacím prostoru na pozemku pro 2 auta, ale to neznamená, že je zde garáž."
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou zmíněny pouze možnosti parkování na pozemku pro 2 auta, ale nebyla uvedena žádná garáž.",
+            "elapsed_seconds": 101.20491404199856,
+            "eval_count": 74,
+            "tokens_per_second": 0.7311897915282165
+          },
+          {
+            "success": true,
+            "response": "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou uvedeny informace o parkovacím prostoru na pozemku pro 2 auta, ale to neznamená, že je zde garáž.",
+            "elapsed_seconds": 46.906604167001205,
+            "eval_count": 75,
+            "tokens_per_second": 1.5989219712639633
+          },
+          {
+            "success": true,
+            "response": "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou uvedeny informace o parkovacím prostoru na pozemku pro 2 auta, ale to neznamená, že je zde garáž.",
+            "elapsed_seconds": 119.90946720899956,
+            "eval_count": 75,
+            "tokens_per_second": 0.6254718809589626
+          }
+        ]
+      },
+      {
+        "test_name": "Cenová analýza",
+        "success_rate": 1.0,
+        "avg_time": 100.13338084766777,
+        "std_time": 34.728955321531345,
+        "avg_tokens_per_sec": 1.4984508153674063,
+        "responses": [
+          "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+          "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+          "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená."
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+            "elapsed_seconds": 120.33069791700109,
+            "eval_count": 135,
+            "tokens_per_second": 1.1219082273844798
+          },
+          {
+            "success": true,
+            "response": "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+            "elapsed_seconds": 60.03219533400261,
+            "eval_count": 135,
+            "tokens_per_second": 2.2487933224646737
+          },
+          {
+            "success": true,
+            "response": "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+            "elapsed_seconds": 120.03724929199961,
+            "eval_count": 135,
+            "tokens_per_second": 1.1246508962530652
+          }
+        ]
+      },
+      {
+        "test_name": "Krátká odpověď",
+        "success_rate": 1.0,
+        "avg_time": 47.35046954199788,
+        "std_time": 29.057929044243316,
+        "avg_tokens_per_sec": 2.942003947108062,
+        "responses": [
+          "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obyvadle a druhé patro je obvykle ložnicovým patrem. Samozřejmě, konkrétní rozvržení může být odlišné v závislosti na konkrétním plánu a požadavcích, ale obecně platí, že P1 je dvoupatrový typ panelového domu.",
+          "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obydlí, zatímco horní patro je ložnice nebo ložnice s půdní místností. Nicméně, detaily mohou být trochu odlišné v závislosti na konkrétním plánu a výstavbě.",
+          "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obydlí s ložnicemi, koupelnou a kuchyní, zatímco druhé patro je obývacím pokojem a dalšími prostorami. Nicméně, konkrétní rozvržení může se mnou měnit v závislosti na konstrukčních plánech a požadavcích zákazníka."
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obyvadle a druhé patro je obvykle ložnicovým patrem. Samozřejmě, konkrétní rozvržení může být odlišné v závislosti na konkrétním plánu a požadavcích, ale obecně platí, že P1 je dvoupatrový typ panelového domu.",
+            "elapsed_seconds": 80.83253204199718,
+            "eval_count": 121,
+            "tokens_per_second": 1.4969220553073048
+          },
+          {
+            "success": true,
+            "response": "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obydlí, zatímco horní patro je ložnice nebo ložnice s půdní místností. Nicméně, detaily mohou být trochu odlišné v závislosti na konkrétním plánu a výstavbě.",
+            "elapsed_seconds": 32.500696709001204,
+            "eval_count": 99,
+            "tokens_per_second": 3.0460885465443432
+          },
+          {
+            "success": true,
+            "response": "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obydlí s ložnicemi, koupelnou a kuchyní, zatímco druhé patro je obývacím pokojem a dalšími prostorami. Nicméně, konkrétní rozvržení může se mnou měnit v závislosti na konstrukčních plánech a požadavcích zákazníka.",
+            "elapsed_seconds": 28.718179874995258,
+            "eval_count": 123,
+            "tokens_per_second": 4.283001239472538
+          }
+        ]
+      }
+    ],
+    "qwen3.5:9b": [
+      {
+        "test_name": "Normalizace popisu",
+        "success_rate": 0,
+        "results": [
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0018083749964716844
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0013368330037337728
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.001166041001852136
+          }
+        ]
+      },
+      {
+        "test_name": "Smart Tags - extrakce",
+        "success_rate": 0,
+        "results": [
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.001795459000277333
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0011752920036087744
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.001091541998903267
+          }
+        ]
+      },
+      {
+        "test_name": "Q&A - odpověď na otázku",
+        "success_rate": 0,
+        "results": [
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0019664999999804422
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.001408166004694067
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0011675420028041117
+          }
+        ]
+      },
+      {
+        "test_name": "Cenová analýza",
+        "success_rate": 0,
+        "results": [
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0020706659997813404
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0014387920018634759
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0011542079955688678
+          }
+        ]
+      },
+      {
+        "test_name": "Krátká odpověď",
+        "success_rate": 0,
+        "results": [
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.002572124998550862
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0015518749933107756
+          },
+          {
+            "success": false,
+            "error": "Client error '404 Not Found' for url 'http://localhost:11434/api/chat'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            "elapsed_seconds": 0.0017043749976437539
+          }
+        ]
+      }
+    ]
+  }
+}

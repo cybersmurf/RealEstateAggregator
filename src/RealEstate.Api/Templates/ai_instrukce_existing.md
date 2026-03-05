@@ -21,14 +21,20 @@ Proveď **komplexní analýzu této nemovitosti** z pohledu potenciálního kupc
 
 ### DŮLEŽITÁ PRAVIDLA
 
-1. **Drž se pouze informací v INFO.md, DATA.json a z fotek.**  
+1. **Drž se pouze informací v datech a z fotek.**  
    - Pokud něco v datech NENÍ, konstatuj „z dat nelze určit" a NEVYMÝŠLEJ si.  
    - Nepřidávej konkrétní srovnávací inzeráty ani přesné ceny jiných domů, pokud nejsou přímo v datech.  
    - O cenách konkurence mluv jen obecně (nižší / vyšší / podobná) nebo v hrubém rozmezí.
 2. **Respektuj `age_category = existing`** — hodnoť viditelný stav, rekonstrukce a opotřebení.
 3. Pokud si nejsi jistý, **explicitně to řekni** (např. „Stav střechy nelze z fotek posoudit, doporučuji odbornou prohlídku").
 4. **Odpovídej stručně, v bodech, česky**, bez marketingových frází.
-5. **Strukturuj výstup jako profesionální analýzu:**  
+5. **Strukturuj výstup jako profesionální analýzu:**
+6. ⚠️ **KRITICKÉ — Maximální rozumná nabídková cena MUSÍ být NIŽŠÍ než nabídková cena {{PRICE}}.**  
+   Cílem je vyjednat slevu, ne zaplatit víc. Vzorec:  
+   `max cena = nabídková cena − odhadované opravy − rezerva pro vyjednávání (3–8 %)`  
+   Příklad: nabídková 4 200 000 Kč, opravy 400 000 Kč, rezerva 5 % → max nabídka ≈ 3 600 000 Kč.  
+   **Nikdy nenapisuj max cenu vyšší nebo rovnou nabídkové ceně.**
+7. ⚠️ **KRITICKÉ — Sekci „POZNÁMKY Z PROHLÍDKY" NEVYPLŇUJ.** Ponech všechny buňky tabulky prázdné — kupec ji vyplní ručně po fyzické návštěvě.  
    - Začni tabulkou základních parametrů.  
    - Používej emoji ikony: ✅ = dobré / ⚠️ = ověřit / 🔴 = kritické / 🟡 = středně důležité / 🟢 = nízké riziko.
 
@@ -179,7 +185,8 @@ _Odhad nájmu je hrubý, nutno ověřit na lokálním trhu._
 **Odůvodnění:** 3–5 bodů (výhody, nevýhody, klíčové předpoklady).
 
 **Maximální rozumná nabídková cena:**  
-**{rozmezí} Kč** (prostor pro vyjednávání: {sleva v Kč / %})
+**{částka} Kč** — MUSÍ být nižší než {{PRICE}} (viz pravidlo č. 6)  
+_(vyjednávací prostor: {sleva v Kč} Kč / {sleva v %} % oproti nabídkové ceně)_
 
 **Co prověřit při prohlídce / před podpisem:**
 - Kolaudační rozhodnutí nebo oznámení o užívání stavby
@@ -193,7 +200,7 @@ _Odhad nájmu je hrubý, nutno ověřit na lokálním trhu._
 
 ---
 
-## POZNÁMKY Z PROHLÍDKY _(vyplň ručně po prohlídce)_
+## POZNÁMKY Z PROHLÍDKY _(vyplň ručně po prohlídce — AI tuto sekci NEVYPLŇUJE, buňky nechej prázdné)_
 
 | Položka | Poznámka |
 |---|---|

@@ -1,0 +1,359 @@
+{
+  "timestamp": "2026-03-04T14:12:14.163433",
+  "models": {
+    "qwen2.5:14b": [
+      {
+        "test_name": "Normalizace popisu",
+        "success_rate": 1.0,
+        "avg_time": 3.037160333333304,
+        "std_time": 0.31600398749271097,
+        "avg_tokens_per_sec": 46.41166495723003,
+        "responses": [
+          "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+          "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+          "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč"
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+            "elapsed_seconds": 3.402046583010815,
+            "eval_count": 140,
+            "tokens_per_second": 41.15169989121661
+          },
+          {
+            "success": true,
+            "response": "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+            "elapsed_seconds": 2.8561450419947505,
+            "eval_count": 140,
+            "tokens_per_second": 49.0171185081774
+          },
+          {
+            "success": true,
+            "response": "Prodej rodinného domu v obci Kuchařovice, okres Znojmo. Dispozice 5+1, celková plocha 180 m². \n\nNemovitost je ve velmi dobrém stavu, provedena kompletní rekonstrukce v roce 2015. \n\nV objektu je klenutá půda s možností vestavby podkroví. Pozemek 850 m², zahrada, garáž.\n\nCena: 4 390 000 Kč",
+            "elapsed_seconds": 2.853289374994347,
+            "eval_count": 140,
+            "tokens_per_second": 49.06617647229608
+          }
+        ]
+      },
+      {
+        "test_name": "Smart Tags - extrakce",
+        "success_rate": 1.0,
+        "avg_time": 1.4327441109974945,
+        "std_time": 0.24341851139200021,
+        "avg_tokens_per_sec": 44.04547013131017,
+        "responses": [
+          "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+          "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+          "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD"
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+            "elapsed_seconds": 1.7138192910060752,
+            "eval_count": 62,
+            "tokens_per_second": 36.1765095803092
+          },
+          {
+            "success": true,
+            "response": "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+            "elapsed_seconds": 1.291847249987768,
+            "eval_count": 62,
+            "tokens_per_second": 47.99329022884637
+          },
+          {
+            "success": true,
+            "response": "1. Centrum Brno\n2. 3+1\n3. Rekonstrukce 2020\n4. Nová kuchyň\n5. Výtah\n6. Nízké náklady\n7. Sklep\n8. MHD",
+            "elapsed_seconds": 1.2925657919986406,
+            "eval_count": 62,
+            "tokens_per_second": 47.96661058477494
+          }
+        ]
+      },
+      {
+        "test_name": "Q&A - odpověď na otázku",
+        "success_rate": 1.0,
+        "avg_time": 1.6958477500011213,
+        "std_time": 0.16183505306084442,
+        "avg_tokens_per_sec": 45.3437735168632,
+        "responses": [
+          "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou zmíněny pouze možnosti parkování na pozemku pro 2 auta, ale nebyla uvedena žádná garáž.",
+          "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou uvedeny informace o parkovacím prostoru na pozemku pro 2 auta, ale to neznamená, že je na pozemku garáž.",
+          "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou uvedeny informace o parkovacím prostoru na pozemku pro 2 auta, ale to neznamená, že je na pozemku garáž."
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou zmíněny pouze možnosti parkování na pozemku pro 2 auta, ale nebyla uvedena žádná garáž.",
+            "elapsed_seconds": 1.8825117079977645,
+            "eval_count": 74,
+            "tokens_per_second": 39.30918447179606
+          },
+          {
+            "success": true,
+            "response": "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou uvedeny informace o parkovacím prostoru na pozemku pro 2 auta, ale to neznamená, že je na pozemku garáž.",
+            "elapsed_seconds": 1.6101321669993922,
+            "eval_count": 78,
+            "tokens_per_second": 48.44322820117253
+          },
+          {
+            "success": true,
+            "response": "Odpověď: Ne\n\nZdůvodnění: Inzerát neobsahuje informaci o přítomnosti garáže. Jsou uvedeny informace o parkovacím prostoru na pozemku pro 2 auta, ale to neznamená, že je na pozemku garáž.",
+            "elapsed_seconds": 1.5948993750062073,
+            "eval_count": 77,
+            "tokens_per_second": 48.27890787762101
+          }
+        ]
+      },
+      {
+        "test_name": "Cenová analýza",
+        "success_rate": 1.0,
+        "avg_time": 2.858358680338521,
+        "std_time": 0.1980724656481455,
+        "avg_tokens_per_sec": 47.375735962547296,
+        "responses": [
+          "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+          "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+          "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená."
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+            "elapsed_seconds": 3.087050250003813,
+            "eval_count": 135,
+            "tokens_per_second": 43.73106657393519
+          },
+          {
+            "success": true,
+            "response": "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+            "elapsed_seconds": 2.7412153750046855,
+            "eval_count": 135,
+            "tokens_per_second": 49.2482280783097
+          },
+          {
+            "success": true,
+            "response": "Cena bytu činí 5.800.000 Kč, což je 129.000 Kč/m², relativně nižší než průměrná cena pro panelové byty v Praze 10 (oko 110.000 Kč/m²), zejména s ohledem na rekonstrukci z roku 2019 a pohodlné umístění v centrální části města. Tedy cena je relativně přiměřená.",
+            "elapsed_seconds": 2.746810416007065,
+            "eval_count": 135,
+            "tokens_per_second": 49.147913235397006
+          }
+        ]
+      },
+      {
+        "test_name": "Krátká odpověď",
+        "success_rate": 1.0,
+        "avg_time": 2.183972596996076,
+        "std_time": 0.09781146162439294,
+        "avg_tokens_per_sec": 46.593550449683114,
+        "responses": [
+          "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obydlí, zatímco horní patro je ložnice. Tato kategorie panelových domů je navržena tak, aby poskytovala komfortné a funkční bydlení pro jednu nebo dvě rodiny.",
+          "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obydlí, zatímco horní patro je ložnice nebo ložnice s půdní místností. Nicméně, konkrétní rozvržení může se lišit v závislosti na konkrétním plánu a zákaznických požadavcích.",
+          "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obyvadle, zatímco je v prvním patře často umístěna ložnice a koupelna. Samozřejmě, konkrétní rozvržení může se mnou měnit v závislosti na konstrukčních plánech a požadavcích zákazníka."
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obydlí, zatímco horní patro je ložnice. Tato kategorie panelových domů je navržena tak, aby poskytovala komfortné a funkční bydlení pro jednu nebo dvě rodiny.",
+            "elapsed_seconds": 2.0860329159913817,
+            "eval_count": 87,
+            "tokens_per_second": 41.70595743387562
+          },
+          {
+            "success": true,
+            "response": "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obydlí, zatímco horní patro je ložnice nebo ložnice s půdní místností. Nicméně, konkrétní rozvržení může se lišit v závislosti na konkrétním plánu a zákaznických požadavcích.",
+            "elapsed_seconds": 2.1842295419919537,
+            "eval_count": 107,
+            "tokens_per_second": 48.98752532319433
+          },
+          {
+            "success": true,
+            "response": "Panelové domy kategorie P1 obvykle mají 2 patra. První patro je obyvadle, zatímco je v prvním patře často umístěna ložnice a koupelna. Samozřejmě, konkrétní rozvržení může se mnou měnit v závislosti na konstrukčních plánech a požadavcích zákazníka.",
+            "elapsed_seconds": 2.281655333004892,
+            "eval_count": 112,
+            "tokens_per_second": 49.087168591979385
+          }
+        ]
+      }
+    ],
+    "qwen3.5:9b": [
+      {
+        "test_name": "Normalizace popisu",
+        "success_rate": 1.0,
+        "avg_time": 12.904064485997273,
+        "std_time": 0.23326311957260046,
+        "avg_tokens_per_sec": 39.68598396782916,
+        "responses": [
+          "",
+          "",
+          ""
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 13.171130625007208,
+            "eval_count": 512,
+            "tokens_per_second": 38.87289668419941
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.800837207993027,
+            "eval_count": 512,
+            "tokens_per_second": 39.997383896132966
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.74022562499158,
+            "eval_count": 512,
+            "tokens_per_second": 40.18767132315511
+          }
+        ]
+      },
+      {
+        "test_name": "Smart Tags - extrakce",
+        "success_rate": 1.0,
+        "avg_time": 12.737973263661843,
+        "std_time": 0.024007153683764364,
+        "avg_tokens_per_sec": 40.19487252718742,
+        "responses": [
+          "",
+          "",
+          ""
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.764546082995366,
+            "eval_count": 512,
+            "tokens_per_second": 40.1111012229471
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.717848916989169,
+            "eval_count": 512,
+            "tokens_per_second": 40.25838043382034
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.731524791000993,
+            "eval_count": 512,
+            "tokens_per_second": 40.21513592479483
+          }
+        ]
+      },
+      {
+        "test_name": "Q&A - odpověď na otázku",
+        "success_rate": 1.0,
+        "avg_time": 12.766054902667141,
+        "std_time": 0.17524282450733233,
+        "avg_tokens_per_sec": 40.11136061459446,
+        "responses": [
+          "",
+          "",
+          ""
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.96798050000507,
+            "eval_count": 512,
+            "tokens_per_second": 39.48186072610148
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.676475749991369,
+            "eval_count": 512,
+            "tokens_per_second": 40.38977473690577
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.653708458004985,
+            "eval_count": 512,
+            "tokens_per_second": 40.46244638077612
+          }
+        ]
+      },
+      {
+        "test_name": "Cenová analýza",
+        "success_rate": 1.0,
+        "avg_time": 12.654748375003692,
+        "std_time": 0.006810946715877103,
+        "avg_tokens_per_sec": 40.45912915041377,
+        "responses": [
+          "",
+          "",
+          ""
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.661755458000698,
+            "eval_count": 512,
+            "tokens_per_second": 40.436731043994214
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.648152167006629,
+            "eval_count": 512,
+            "tokens_per_second": 40.48022139831453
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.654337500003749,
+            "eval_count": 512,
+            "tokens_per_second": 40.46043500893258
+          }
+        ]
+      },
+      {
+        "test_name": "Krátká odpověď",
+        "success_rate": 1.0,
+        "avg_time": 12.55703602800107,
+        "std_time": 0.01601527726770233,
+        "avg_tokens_per_sec": 40.77399748438841,
+        "responses": [
+          "",
+          "",
+          ""
+        ],
+        "results": [
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.539771249998012,
+            "eval_count": 512,
+            "tokens_per_second": 40.83009089979063
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.571407292009098,
+            "eval_count": 512,
+            "tokens_per_second": 40.72734166567399
+          },
+          {
+            "success": true,
+            "response": "",
+            "elapsed_seconds": 12.559929541996098,
+            "eval_count": 512,
+            "tokens_per_second": 40.76455988770061
+          }
+        ]
+      }
+    ]
+  }
+}

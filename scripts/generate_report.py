@@ -30,6 +30,7 @@ MODELS = [
     ("Claude 3.5 (MCP)",     "claude",                                      "cloud", "#a855f7", "Anthropic · Claude Desktop s MCP tools (iterativní volání nástrojů)"),
     ("Claude 3 Haiku",       "local:claude/claude-3-haiku-20240307",       "cloud", "#c084fc", "Anthropic · nejrychlejší/nejlevnější Claude 3"),
     ("Mistral Large",        "local:mistral/mistral-large-latest",          "cloud", "#f97316", "Mistral AI · vlajkový model, ~123B parametrů"),
+    ("Mistral Large + Tools","local:mistral-tools/mistral-large-latest",    "cloud", "#ea580c", "Mistral AI · mistral-large-latest + function calling (tool use loop, stejná data jako Groq+Tools)"),
     ("DeepSeek V3.1 671B",   "local:ollama-cloud/deepseek-v3.1:671b",      "cloud", "#0891b2", "DeepSeek · 671B MoE, čínský open-source, top tier"),
     ("Gemma3 27B",           "local:ollama-cloud/gemma3:27b",               "cloud", "#0d9488", "Google · Gemma 3, 27B parametrů, open-weights"),
     ("Mistral S3.2 24B",     "local:mistral-small3.2:24b",                 "local", "#eab308", "Mistral AI · Small 3.2, 24B, lokálně přes Ollama"),
@@ -319,6 +320,7 @@ html = """<!DOCTYPE html>
   <b>Anthropic Claude Opus 4.6</b> – nejvýkonnější Claude 4, nejdražší<br>
   <b>Claude 3.5 (MCP)</b> – Claude Desktop s přístupem k nástrojům (volá DB, čte fotky iterativně)<br>
   <b>Mistral Large</b> – vlajkový model Mistral AI, přibližně 123B parametrů<br>
+  <b>Mistral Large + Tools</b> – <em>stejný model</em>, ale s vícekrokovým function callingem (tool_choice="any"); porovnání plain vs tool use na Mistralu<br>
   <b>DeepSeek V3.1 671B</b> – čínský open-source gigant, 671B parametrů (MoE architektura)<br>
   <b>Gemma3 27B</b> – Google open-weights model, 27B parametrů<br>
   <b>Mistral Small 3.2 24B</b> – menší lokální Mistral, 24B parametrů<br>
