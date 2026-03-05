@@ -1,4 +1,10 @@
 using System.Diagnostics;
+using Markdig;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +20,7 @@ namespace RealEstate.Api.Services;
 ///   3. Sestaví prompt ze šablony + popisy fotek
 ///   4. Vygeneruje analýzu přes chat model (výchozí qwen2.5:14b, nebo override parametrem)
 ///   5. Uloží do listing_analyses + vrátí výsledek
-///   6. DOCX export přes pandoc
+///   6. DOCX export přes DocumentFormat.OpenXml (pure .NET, žádné ext. závislosti)
 /// </summary>
 public sealed class LocalAnalysisService(
     RealEstateDbContext db,
@@ -877,98 +883,322 @@ public sealed class LocalAnalysisService(
         return sb.ToString();
     }
 
-    // ─── DOCX via pandoc ─────────────────────────────────────────────────────
-    private async Task<byte[]?> ConvertMarkdownToDocxAsync(
+    // ─── DOCX via DocumentFormat.OpenXml (pure .NET, žádné ext. závislosti) ─
+    private Task<byte[]?> ConvertMarkdownToDocxAsync(
         string markdownContent, string title, CancellationToken ct)
     {
-        var tmpDir    = Path.GetTempPath();
-        var mdFile    = Path.Combine(tmpDir, $"analysis_{Guid.NewGuid():N}.md");
-        var docxFile  = Path.Combine(tmpDir, $"analysis_{Guid.NewGuid():N}.docx");
-
         try
         {
-            // Přidej YAML frontmatter pro lepší DOCX formátování
-            var mdWithMeta = $"""
-                ---
-                title: "{title.Replace("\"", "'")}"
-                lang: cs
-                ---
-
-                {markdownContent}
-                """;
-
-            await File.WriteAllTextAsync(mdFile, mdWithMeta, Encoding.UTF8, ct);
-
-            // Najdi pandoc
-            var pandocPath = await FindPandocAsync();
-            if (pandocPath is null)
+            using var ms = new MemoryStream();
+            using (var wordDoc = WordprocessingDocument.Create(ms, WordprocessingDocumentType.Document))
             {
-                logger.LogError("pandoc nenalezen. Instaluj: brew install pandoc");
-                return null;
+                var mainPart = wordDoc.AddMainDocumentPart();
+                mainPart.Document = new Document(new Body());
+                var body = mainPart.Document.Body!;
+
+                // Název dokumentu jako H1
+                body.AppendChild(DocxHeading(title, 1));
+
+                // Markdown → DOCX
+                var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+                var mdDoc = Markdown.Parse(markdownContent, pipeline);
+                DocxRenderBlocks(body, mdDoc, depth: 0);
+
+                // Stránkování A4, okraje 2 cm
+                body.AppendChild(new SectionProperties(
+                    new PageSize { Width = 11906U, Height = 16838U },
+                    new PageMargin { Top = 1134, Right = 1134, Bottom = 1134, Left = 1134 }));
+
+                mainPart.Document.Save();
             }
-
-            var psi = new ProcessStartInfo
-            {
-                FileName               = pandocPath,
-                Arguments              = $"\"{mdFile}\" -o \"{docxFile}\" --from=markdown --to=docx -s",
-                RedirectStandardOutput = true,
-                RedirectStandardError  = true,
-                UseShellExecute        = false,
-                CreateNoWindow         = true,
-            };
-
-            using var process = Process.Start(psi)
-                ?? throw new InvalidOperationException("Nepodařilo se spustit pandoc");
-
-            await process.WaitForExitAsync(ct);
-
-            if (process.ExitCode != 0)
-            {
-                var err = await process.StandardError.ReadToEndAsync(ct);
-                logger.LogError("pandoc selhalo (exit {Code}): {Err}", process.ExitCode, err);
-                return null;
-            }
-
-            if (!File.Exists(docxFile))
-            {
-                logger.LogError("pandoc nevytvořilo výstupní soubor: {Path}", docxFile);
-                return null;
-            }
-
-            return await File.ReadAllBytesAsync(docxFile, ct);
+            return Task.FromResult<byte[]?>(ms.ToArray());
         }
-        finally
+        catch (Exception ex)
         {
-            if (File.Exists(mdFile))  File.Delete(mdFile);
-            if (File.Exists(docxFile)) File.Delete(docxFile);
+            logger.LogError(ex, "DOCX generování selhalo");
+            return Task.FromResult<byte[]?>(null);
         }
     }
 
-    private static async Task<string?> FindPandocAsync()
+    // ─── OpenXml block renderers ──────────────────────────────────────────────
+
+    private static void DocxRenderBlocks(Body body, IEnumerable<Block> blocks, int depth)
     {
-        foreach (var candidate in new[] { "/usr/bin/pandoc", "/opt/homebrew/bin/pandoc", "/usr/local/bin/pandoc", "pandoc" })
+        foreach (var block in blocks)
+            DocxRenderBlock(body, block, depth);
+    }
+
+    private static void DocxRenderBlock(Body body, Block block, int depth)
+    {
+        switch (block)
         {
-            try
+            case HeadingBlock h:
+                body.AppendChild(DocxHeading(DocxGetText(h.Inline), h.Level + 1));
+                break;
+
+            case ParagraphBlock p:
+                body.AppendChild(DocxParagraph(p.Inline, indent: depth * 360));
+                break;
+
+            case ListBlock list:
+                DocxRenderList(body, list, depth);
+                break;
+
+            case FencedCodeBlock fenced:
+                body.AppendChild(DocxCode(fenced.Lines.ToString()));
+                break;
+
+            case CodeBlock code:
+                body.AppendChild(DocxCode(code.Lines.ToString()));
+                break;
+
+            case ThematicBreakBlock:
+                body.AppendChild(DocxHorizontalRule());
+                break;
+
+            case Block b when b.GetType().FullName == "Markdig.Extensions.Tables.Table":
+                body.AppendChild(DocxTableFromMarkdig(b));
+                break;
+
+            case ContainerBlock container:
+                DocxRenderBlocks(body, container, depth);
+                break;
+        }
+    }
+
+    private static void DocxRenderList(Body body, ListBlock list, int depth)
+    {
+        int idx = 1;
+        foreach (ListItemBlock item in list.Cast<ListItemBlock>())
+        {
+            foreach (var child in item)
             {
-                var psi = new ProcessStartInfo
+                if (child is ParagraphBlock lp)
                 {
-                    FileName               = candidate,
-                    Arguments              = "--version",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError  = true,
-                    UseShellExecute        = false,
-                    CreateNoWindow         = true,
-                };
-                using var p = Process.Start(psi);
-                if (p is not null)
+                    string bullet = list.IsOrdered ? $"{idx}." : "•";
+                    body.AppendChild(DocxListItem(lp.Inline, bullet, depth));
+                }
+                else if (child is ListBlock nested)
                 {
-                    await p.WaitForExitAsync();
-                    if (p.ExitCode == 0) return candidate;
+                    DocxRenderList(body, nested, depth + 1);
+                }
+                else
+                {
+                    DocxRenderBlock(body, child, depth + 1);
                 }
             }
-            catch { /* zkus další */ }
+            idx++;
         }
-        return null;
+    }
+
+    // ─── OpenXml paragraph factories ─────────────────────────────────────────
+
+    private static Paragraph DocxHeading(string text, int level)
+    {
+        (int pts, string color, int spaceBefore, int spaceAfter) = level switch
+        {
+            1 => (36, "2F5496", 480, 160),
+            2 => (28, "2E75B6", 320, 100),
+            3 => (24, "1F3864", 200, 80),
+            _ => (22, "404040", 160, 60),
+        };
+        return new Paragraph(
+            new ParagraphProperties(
+                new SpacingBetweenLines
+                {
+                    Before   = spaceBefore.ToString(),
+                    After    = spaceAfter.ToString(),
+                    Line     = "276",
+                    LineRule = LineSpacingRuleValues.Auto,
+                }),
+            new Run(
+                new RunProperties(
+                    new Bold(),
+                    new Color { Val = color },
+                    new FontSize { Val = (pts * 2).ToString() },
+                    new FontSizeComplexScript { Val = (pts * 2).ToString() },
+                    new RunFonts { Ascii = "Calibri", HighAnsi = "Calibri" }),
+                new Text(text) { Space = SpaceProcessingModeValues.Preserve }));
+    }
+
+    private static Paragraph DocxParagraph(ContainerInline? inline, int indent = 0)
+    {
+        var pPr = new ParagraphProperties(
+            new SpacingBetweenLines { After = "120", Line = "276", LineRule = LineSpacingRuleValues.Auto });
+        if (indent > 0)
+            pPr.AppendChild(new Indentation { Left = indent.ToString() });
+
+        var para = new Paragraph(pPr);
+        foreach (var run in DocxInlineRuns(inline))
+            para.AppendChild(run);
+        return para;
+    }
+
+    private static Paragraph DocxListItem(ContainerInline? inline, string bullet, int depth)
+    {
+        int indent  = 360 + depth * 360;
+        int hanging = 360;
+        var pPr = new ParagraphProperties(
+            new SpacingBetweenLines { After = "60", Line = "276", LineRule = LineSpacingRuleValues.Auto },
+            new Indentation { Left = (indent + hanging).ToString(), Hanging = hanging.ToString() });
+
+        var para = new Paragraph(pPr);
+        para.AppendChild(new Run(
+            new RunProperties(new RunFonts { Ascii = "Calibri", HighAnsi = "Calibri" }),
+            new Text(bullet + "\t") { Space = SpaceProcessingModeValues.Preserve }));
+        foreach (var run in DocxInlineRuns(inline))
+            para.AppendChild(run);
+        return para;
+    }
+
+    private static Paragraph DocxCode(string text)
+    {
+        var pPr = new ParagraphProperties(
+            new SpacingBetweenLines { Before = "80", After = "80" },
+            new Indentation { Left = "720" });
+        return new Paragraph(pPr,
+            new Run(
+                new RunProperties(
+                    new RunFonts { Ascii = "Courier New", HighAnsi = "Courier New" },
+                    new FontSize { Val = "18" },
+                    new Color { Val = "555555" }),
+                new Text(text.Trim()) { Space = SpaceProcessingModeValues.Preserve }));
+    }
+
+    private static Paragraph DocxHorizontalRule()
+    {
+        return new Paragraph(
+            new ParagraphProperties(
+                new ParagraphBorders(
+                    new BottomBorder
+                    {
+                        Val   = BorderValues.Single,
+                        Size  = 6U,
+                        Color = "AAAAAA",
+                        Space = 4U,
+                    }),
+                new SpacingBetweenLines { Before = "120", After = "120" }));
+    }
+
+    // ─── Markdig table → OpenXml Table (reflection-free, via duck-typing) ────
+
+    private static Table DocxTableFromMarkdig(Block mdTableBlock)
+    {
+        var table = new Table(new TableProperties(
+            new TableBorders(
+                new TopBorder    { Val = BorderValues.Single, Size = 4U, Color = "AAAACC" },
+                new BottomBorder { Val = BorderValues.Single, Size = 4U, Color = "AAAACC" },
+                new LeftBorder   { Val = BorderValues.Single, Size = 4U, Color = "AAAACC" },
+                new RightBorder  { Val = BorderValues.Single, Size = 4U, Color = "AAAACC" },
+                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4U, Color = "AAAACC" },
+                new InsideVerticalBorder   { Val = BorderValues.Single, Size = 4U, Color = "AAAACC" }),
+            new TableWidth { Width = "5000", Type = TableWidthUnitValues.Pct }));
+
+        if (mdTableBlock is not ContainerBlock rows) return table;
+
+        foreach (ContainerBlock mdRow in rows.Cast<ContainerBlock>())
+        {
+            // TableRow.IsHeader is true for header row
+            bool isHeader = mdRow.GetType().GetProperty("IsHeader")?.GetValue(mdRow) is true;
+
+            var row = new TableRow();
+            foreach (ContainerBlock mdCell in mdRow.Cast<ContainerBlock>())
+            {
+                var tcPr = new TableCellProperties(
+                    new TableCellMargin(
+                        new TopMargin    { Width = "80",  Type = TableWidthUnitValues.Dxa },
+                        new BottomMargin { Width = "80",  Type = TableWidthUnitValues.Dxa },
+                        new LeftMargin   { Width = "115", Type = TableWidthUnitValues.Dxa },
+                        new RightMargin  { Width = "115", Type = TableWidthUnitValues.Dxa }));
+                if (isHeader)
+                    tcPr.AppendChild(new Shading { Val = ShadingPatternValues.Clear, Color = "auto", Fill = "E7E6E8" });
+
+                var cellPara = new Paragraph();
+                foreach (var child in mdCell)
+                {
+                    if (child is ParagraphBlock pBlock)
+                        foreach (var run in DocxInlineRuns(pBlock.Inline, bold: isHeader))
+                            cellPara.AppendChild(run);
+                }
+
+                var cell = new TableCell(tcPr, cellPara);
+                row.AppendChild(cell);
+            }
+            table.AppendChild(row);
+        }
+        return table;
+    }
+
+    // ─── OpenXml inline helpers ───────────────────────────────────────────────
+
+    private static IEnumerable<Run> DocxInlineRuns(
+        ContainerInline? inline, bool bold = false, bool italic = false)
+    {
+        if (inline is null) yield break;
+
+        foreach (var node in inline)
+        {
+            switch (node)
+            {
+                case LiteralInline lit:
+                    yield return DocxRun(lit.Content.ToString(), bold, italic);
+                    break;
+
+                case EmphasisInline em:
+                    bool b = bold   || em.DelimiterCount >= 2;
+                    bool i = italic || em.DelimiterCount == 1;
+                    foreach (var r in DocxInlineRuns(em, b, i))
+                        yield return r;
+                    break;
+
+                case CodeInline code:
+                    yield return DocxRun(code.Content, bold, italic, mono: true);
+                    break;
+
+                case LineBreakInline:
+                    yield return new Run(new Break());
+                    break;
+
+                case ContainerInline container:
+                    foreach (var r in DocxInlineRuns(container, bold, italic))
+                        yield return r;
+                    break;
+            }
+        }
+    }
+
+    private static Run DocxRun(string text, bool bold = false, bool italic = false, bool mono = false)
+    {
+        var rPr = new RunProperties();
+        if (bold)   rPr.AppendChild(new Bold());
+        if (italic) rPr.AppendChild(new Italic());
+        if (mono)
+        {
+            rPr.AppendChild(new RunFonts { Ascii = "Courier New", HighAnsi = "Courier New" });
+            rPr.AppendChild(new FontSize { Val = "18" });
+            rPr.AppendChild(new Color { Val = "555555" });
+        }
+        else
+        {
+            rPr.AppendChild(new RunFonts { Ascii = "Calibri", HighAnsi = "Calibri" });
+        }
+        return new Run(rPr, new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+    }
+
+    private static string DocxGetText(ContainerInline? inline)
+    {
+        if (inline is null) return string.Empty;
+        var sb = new StringBuilder();
+        foreach (var node in inline)
+        {
+            switch (node)
+            {
+                case LiteralInline lit: sb.Append(lit.Content.ToString()); break;
+                case CodeInline code:   sb.Append(code.Content); break;
+                case ContainerInline c: sb.Append(DocxGetText(c)); break;
+            }
+        }
+        return sb.ToString();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

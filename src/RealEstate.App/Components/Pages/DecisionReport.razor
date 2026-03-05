@@ -1,0 +1,516 @@
+@page "/decision-report"
+@implements IDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>Finální rozhodovací report</PageTitle>
+
+<MudStack Spacing="3" Class="pa-4">
+
+    <!-- Záhlaví -->
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudIcon Icon="@Icons.Material.Filled.Assessment" Color="Color.Primary" Size="Size.Large" />
+        <div>
+            <MudText Typo="Typo.h5">Finální rozhodovací report</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                Přehled označených nemovitostí s AI analýzami – pro finální rozhodnutí.
+            </MudText>
+        </div>
+        <MudSpacer />
+        <MudTooltip Text="Tisknout report">
+            <MudIconButton Icon="@Icons.Material.Filled.Print"
+                           OnClick="PrintAsync"
+                           aria-label="Tisknout report" />
+        </MudTooltip>
+        <MudTooltip Text="Obnovit data">
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                           OnClick="LoadAsync"
+                           Disabled="_loading"
+                           aria-label="Obnovit data" />
+        </MudTooltip>
+        <MudTooltip Text="Moje inzeráty">
+            <MudButton Variant="Variant.Outlined"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Bookmarks"
+                       OnClick="@(() => Navigation.NavigateTo("/my-listings"))">
+                Moje inzeráty
+            </MudButton>
+        </MudTooltip>
+    </MudStack>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Value="@(_total > 0 ? (double)_loaded / _total * 100 : 0)"
+                           Color="Color.Primary"
+                           Class="mb-1" />
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="text-center">
+            Načítám data @(_loaded)/@(_total) inzerátů…
+        </MudText>
+    }
+    else if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error">@_error</MudAlert>
+    }
+    else if (_sections.Count == 0)
+    {
+        <MudPaper Class="pa-8 text-center" Elevation="0" Style="border: 2px dashed #e0e0e0; border-radius:12px;">
+            <MudIcon Icon="@Icons.Material.Outlined.AssignmentLate" Size="Size.Large" Color="Color.Secondary" Style="font-size:3rem;opacity:0.5;" />
+            <MudText Typo="Typo.h6" Color="Color.Secondary" Class="mt-2">Žádné označené nemovitosti</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                Označte si inzeráty jako Zajímavé, K návštěvě nebo Navštívené v sekci Moje inzeráty.
+            </MudText>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Bookmarks"
+                       OnClick="@(() => Navigation.NavigateTo("/my-listings"))">
+                Moje inzeráty
+            </MudButton>
+        </MudPaper>
+    }
+    else
+    {
+        <!-- Souhrn -->
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Celkem:</MudText>
+            @foreach (var sec in _sections)
+            {
+                <MudChip T="string" Size="Size.Small" Color="@sec.Color" Variant="Variant.Filled">
+                    @sec.Label (@sec.Cards.Count)
+                </MudChip>
+            }
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-2">
+                Vygenerováno @DateTime.Now.ToString("dd.MM.yyyy HH:mm")
+            </MudText>
+        </MudStack>
+
+        <!-- Sekce dle stavů -->
+        @foreach (var sec in _sections)
+        {
+            <MudPaper Elevation="2" Class="overflow-hidden" Style="border-radius:12px;">
+                <!-- Section header -->
+                <div style="@SectionStyle(sec.Color)">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudText Typo="Typo.h6" Style="color:white; font-weight:600;">
+                            @sec.Label
+                        </MudText>
+                        <MudChip T="string" Size="Size.Small"
+                                 Style="background:rgba(255,255,255,0.25); color:white;">
+                            @sec.Cards.Count
+                        </MudChip>
+                    </MudStack>
+                </div>
+
+                <!-- Cards -->
+                <MudStack Spacing="0" Class="pa-3" style="gap:20px;">
+                    @foreach (var card in sec.Cards)
+                    {
+                        <MudPaper Elevation="1" Style="border-radius:10px; overflow:hidden;">
+                            <div style="display:flex; flex-wrap:wrap; gap:0;">
+
+                                <!-- Foto -->
+                                @if (!string.IsNullOrWhiteSpace(card.Listing.Photos.FirstOrDefault()?.StoredUrl ?? card.Listing.Photos.FirstOrDefault()?.OriginalUrl))
+                                {
+                                    <div style="flex:0 0 220px; min-width:160px; max-width:220px; overflow:hidden; cursor:pointer;"
+                                         @onclick="@(() => Navigation.NavigateTo($"/listings/{card.Listing.Id}"))">
+                                        <img src="@(card.Listing.Photos.First().StoredUrl ?? card.Listing.Photos.First().OriginalUrl)"
+                                             alt="Foto nemovitosti"
+                                             style="width:100%; height:200px; object-fit:cover; display:block;"
+                                             loading="lazy" />
+                                    </div>
+                                }
+
+                                <!-- Obsah karty -->
+                                <div style="flex:1 1 0; min-width:260px; padding:14px 16px;">
+
+                                    <!-- Název + zdroj -->
+                                    <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1" Class="mb-1">
+                                        <MudText Typo="Typo.subtitle1"
+                                                 Style="font-weight:600; flex:1; cursor:pointer;"
+                                                 @onclick="@(() => Navigation.NavigateTo($"/listings/{card.Listing.Id}"))">
+                                            @card.Listing.Title
+                                        </MudText>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
+                                            @card.Listing.SourceName
+                                        </MudChip>
+                                    </MudStack>
+
+                                    <!-- Cena -->
+                                    @if (card.Listing.Price.HasValue)
+                                    {
+                                        <MudText Typo="Typo.h6" Color="Color.Primary" Style="font-weight:700; margin-bottom:4px;">
+                                            @card.Listing.Price.Value.ToString("N0") Kč
+                                        </MudText>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-1">Cena neuvedena</MudText>
+                                    }
+
+                                    <!-- Lokalita -->
+                                    @if (!string.IsNullOrWhiteSpace(card.Listing.LocationText))
+                                    {
+                                        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                                            <MudIcon Icon="@Icons.Material.Filled.LocationOn" Size="Size.Small"
+                                                     Style="vertical-align:text-bottom;" />
+                                            @card.Listing.LocationText
+                                        </MudText>
+                                    }
+
+                                    <!-- Metriky -->
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-2">
+                                        @if (!string.IsNullOrWhiteSpace(card.Listing.Disposition))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">
+                                                @card.Listing.Disposition
+                                            </MudChip>
+                                        }
+                                        @if (card.Listing.AreaBuiltUp.HasValue)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                                🏠 @card.Listing.AreaBuiltUp.Value.ToString("N0") m²
+                                            </MudChip>
+                                        }
+                                        @if (card.Listing.AreaLand.HasValue)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                                🌱 @card.Listing.AreaLand.Value.ToString("N0") m²
+                                            </MudChip>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(card.Listing.Condition))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                                @card.Listing.Condition
+                                            </MudChip>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(card.Listing.ConstructionType))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                                                @card.Listing.ConstructionType
+                                            </MudChip>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(card.Listing.PriceSignal))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                                     Color="@(card.Listing.PriceSignal == "low" ? Color.Success : card.Listing.PriceSignal == "high" ? Color.Error : Color.Warning)"
+                                                     Icon="@(card.Listing.PriceSignal == "low" ? Icons.Material.Filled.TrendingDown : card.Listing.PriceSignal == "high" ? Icons.Material.Filled.TrendingUp : Icons.Material.Filled.TrendingFlat)">
+                                                @(card.Listing.PriceSignal == "low" ? "Podhodnocená" : card.Listing.PriceSignal == "high" ? "Nadhodnocená" : "Přiměřená")
+                                            </MudChip>
+                                        }
+                                        @if (!string.IsNullOrEmpty(card.Listing.SmartTags))
+                                        {
+                                            @try
+                                            {
+                                                var tags = System.Text.Json.JsonSerializer.Deserialize<string[]>(card.Listing.SmartTags) ?? [];
+                                                foreach (var tag in tags.Take(5))
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default">@tag</MudChip>
+                                                }
+                                            }
+                                            catch { }
+                                        }
+                                    </MudStack>
+
+                                    <!-- Poznámky z prohlídky -->
+                                    @if (!string.IsNullOrWhiteSpace(card.Listing.UserState?.Notes))
+                                    {
+                                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2" Style="font-size:0.85rem;">
+                                            <strong>📋 Zápis z prohlídky:</strong><br/>
+                                            @card.Listing.UserState.Notes
+                                        </MudAlert>
+                                    }
+
+                                    <!-- AI analýza -->
+                                    @if (card.BestAnalysis is not null)
+                                    {
+                                        var verdikt = ExtractVerdikt(card.BestAnalysis.Content);
+                                        @if (!string.IsNullOrWhiteSpace(verdikt))
+                                        {
+                                            <MudPaper Elevation="0" Class="pa-2 mb-2"
+                                                      Style="background:#f8f4fc; border-left:3px solid #7B45C8; font-size:0.82rem; white-space:pre-wrap; border-radius:0 6px 6px 0;">
+                                                @verdikt
+                                            </MudPaper>
+                                        }
+
+                                        <!-- Plná analýza jako kolaps -->
+                                        <MudExpansionPanels Dense="true" Class="mb-1">
+                                            <MudExpansionPanel>
+                                                <TitleContent>
+                                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                                        <MudIcon Icon="@Icons.Material.Filled.Psychology" Size="Size.Small" Color="Color.Secondary" />
+                                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                                            Plná AI analýza
+                                                            @if (!string.IsNullOrWhiteSpace(card.BestAnalysis.Title))
+                                                            {
+                                                                <text> — @card.BestAnalysis.Title</text>
+                                                            }
+                                                        </MudText>
+                                                        <MudText Typo="Typo.caption" Color="Color.Tertiary">
+                                                            (@card.BestAnalysis.Source · @card.BestAnalysis.CreatedAt.ToString("dd.MM.yyyy"))
+                                                        </MudText>
+                                                    </MudStack>
+                                                </TitleContent>
+                                                <ChildContent>
+                                                    <div style="white-space:pre-wrap; font-size:0.82rem; line-height:1.55; font-family:inherit; max-height:600px; overflow-y:auto; padding:8px 4px;">
+                                                        @card.BestAnalysis.Content
+                                                    </div>
+                                                </ChildContent>
+                                            </MudExpansionPanel>
+                                        </MudExpansionPanels>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            <MudIcon Icon="@Icons.Material.Outlined.Psychology" Size="Size.Small" Style="vertical-align:text-bottom;" />
+                                            Žádná AI analýza – spusťte z detailu inzerátu.
+                                        </MudText>
+                                    }
+
+                                    <!-- Akce -->
+                                    <MudStack Row="true" Spacing="1" Class="mt-2">
+                                        <MudButton Size="Size.Small"
+                                                   Variant="Variant.Outlined"
+                                                   StartIcon="@Icons.Material.Filled.OpenInNew"
+                                                   OnClick="@(() => Navigation.NavigateTo($"/listings/{card.Listing.Id}"))">
+                                            Otevřít detail
+                                        </MudButton>
+                                        @if (!string.IsNullOrWhiteSpace(card.Listing.SourceUrl))
+                                        {
+                                            <MudButton Size="Size.Small"
+                                                       Variant="Variant.Text"
+                                                       StartIcon="@Icons.Material.Filled.Launch"
+                                                       OnClick="@(() => JS.InvokeVoidAsync("open", card.Listing.SourceUrl, "_blank"))">
+                                                Originál
+                                            </MudButton>
+                                        }
+                                    </MudStack>
+                                </div>
+                            </div>
+                        </MudPaper>
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+    }
+
+</MudStack>
+
+@code {
+    private record ReportCard(ListingDetailDto Listing, AnalysisInfo? BestAnalysis);
+    private record ReportSection(string Status, string Label, Color Color, List<ReportCard> Cards);
+    private record AnalysisInfo(Guid Id, string Source, string Content, string? Title, DateTime CreatedAt);
+
+    private List<ReportSection> _sections = [];
+    private bool _loading = true;
+    private string? _error;
+    private int _loaded;
+    private int _total;
+    private CancellationTokenSource _cts = new();
+
+    private static readonly (string Status, string Label, Color Color)[] SectionOrder =
+    [
+        ("Visited",  "✅ Navštívené",  Color.Info),
+        ("ToVisit",  "🚗 K návštěvě", Color.Warning),
+        ("Liked",    "❤️ Zajímavé",   Color.Success),
+    ];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _loaded = 0;
+        _total = 0;
+        _error = null;
+        _sections = [];
+        StateHasChanged();
+
+        try
+        {
+            var ct = _cts.Token;
+
+            var summary = await Http.GetFromJsonAsync<MyListingsSummaryDto>("api/listings/my-listings", ct);
+            if (summary is null)
+            {
+                _error = "Nepodařilo se načíst inzeráty.";
+                return;
+            }
+
+            var relevantStatuses = new HashSet<string>(["Visited", "ToVisit", "Liked"]);
+            var allListings = summary.Groups
+                .Where(g => relevantStatuses.Contains(g.Status))
+                .SelectMany(g => g.Listings)
+                .ToList();
+
+            _total = allListings.Count;
+            StateHasChanged();
+
+            // Načíst detail + analýzy pro všechny inzeráty paralelně
+            var cardTasks = allListings.Select(l => LoadCardAsync(l.Id, ct)).ToList();
+            await Task.WhenAll(cardTasks);
+            var cardsById = cardTasks
+                .Select(t => t.Result)
+                .Where(c => c is not null)
+                .ToDictionary(c => c!.Listing.Id, c => c!);
+
+            // Sestavit sekce v definovaném pořadí
+            foreach (var (status, label, color) in SectionOrder)
+            {
+                var group = summary.Groups.FirstOrDefault(g => g.Status == status);
+                if (group is null) continue;
+
+                var cards = group.Listings
+                    .Where(l => cardsById.ContainsKey(l.Id))
+                    .Select(l => cardsById[l.Id])
+                    .ToList();
+
+                if (cards.Count > 0)
+                    _sections.Add(new ReportSection(status, label, color, cards));
+            }
+        }
+        catch (OperationCanceledException) { /* cancelled */ }
+        catch (Exception ex)
+        {
+            _error = $"Chyba při načítání: {ex.Message}";
+            Snackbar.Add(_error, Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<ReportCard?> LoadCardAsync(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            var detailTask = Http.GetFromJsonAsync<ListingDetailDto>($"api/listings/{id}", ct);
+            var analysesTask = Http.GetFromJsonAsync<List<AnalysisInfo>>($"api/listings/{id}/analyses", ct);
+            await Task.WhenAll(detailTask, analysesTask);
+
+            var detail = detailTask.Result;
+            var analyses = analysesTask.Result;
+            if (detail is null) return null;
+
+            Interlocked.Increment(ref _loaded);
+            await InvokeAsync(StateHasChanged);
+
+            return new ReportCard(detail, PickBestAnalysis(analyses ?? []));
+        }
+        catch
+        {
+            Interlocked.Increment(ref _loaded);
+            await InvokeAsync(StateHasChanged);
+            return null;
+        }
+    }
+
+    private static AnalysisInfo? PickBestAnalysis(IList<AnalysisInfo> analyses)
+    {
+        if (analyses.Count == 0) return null;
+        var sorted = analyses.OrderByDescending(a => a.CreatedAt).ToList();
+        return sorted.FirstOrDefault(a => a.Source.Contains("mistral-tools", StringComparison.OrdinalIgnoreCase))
+            ?? sorted.FirstOrDefault(a => a.Source.Contains("mistral", StringComparison.OrdinalIgnoreCase))
+            ?? sorted.FirstOrDefault(a => a.Source.Contains("claude", StringComparison.OrdinalIgnoreCase))
+            ?? sorted.First();
+    }
+
+    private static string ExtractVerdikt(string content)
+    {
+        var lines = content.Split('\n');
+        var idx = -1;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var l = lines[i];
+            if (l.Contains("verdikt", StringComparison.OrdinalIgnoreCase) ||
+                l.Contains("VERDIKT", StringComparison.OrdinalIgnoreCase) ||
+                l.Contains("Doporučen", StringComparison.OrdinalIgnoreCase))
+            {
+                idx = i;
+                break;
+            }
+        }
+
+        if (idx < 0)
+            return content.Length > 600 ? content[..600] + "…" : content;
+
+        var sb = new System.Text.StringBuilder();
+        for (var i = idx; i < Math.Min(idx + 15, lines.Length); i++)
+            sb.AppendLine(lines[i]);
+        return sb.ToString().Trim();
+    }
+
+    private static string SectionBg(Color color) => color switch
+    {
+        Color.Info    => "#1565C0",
+        Color.Warning => "#E65100",
+        Color.Success => "#2E7D32",
+        _             => "#424242",
+    };
+
+    private static string SectionStyle(Color color) =>
+        $"background:{SectionBg(color)}; padding:12px 16px;";
+
+    private async Task PrintAsync() =>
+        await JS.InvokeVoidAsync("window.print");
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+
+    // DTOs lokální kopie (aby stránka neměla závislost na Api projektu)
+    private sealed class MyListingsSummaryDto
+    {
+        public List<UserListingsGroupDto> Groups { get; set; } = [];
+    }
+
+    private sealed class UserListingsGroupDto
+    {
+        public string Status { get; set; } = string.Empty;
+        public string StatusLabel { get; set; } = string.Empty;
+        public int Count { get; set; }
+        public List<ListingSummaryItem> Listings { get; set; } = [];
+    }
+
+    private sealed class ListingSummaryItem
+    {
+        public Guid Id { get; set; }
+    }
+
+    private sealed class ListingDetailDto
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string SourceName { get; set; } = string.Empty;
+        public string SourceCode { get; set; } = string.Empty;
+        public string SourceUrl { get; set; } = string.Empty;
+        public string LocationText { get; set; } = string.Empty;
+        public decimal? Price { get; set; }
+        public double? AreaBuiltUp { get; set; }
+        public double? AreaLand { get; set; }
+        public string? Disposition { get; set; }
+        public string? Condition { get; set; }
+        public string? ConstructionType { get; set; }
+        public string? PriceSignal { get; set; }
+        public string? SmartTags { get; set; }
+        public List<PhotoItem> Photos { get; set; } = [];
+        public UserStateInfo? UserState { get; set; }
+    }
+
+    private sealed class PhotoItem
+    {
+        public string? StoredUrl { get; set; }
+        public string? OriginalUrl { get; set; }
+    }
+
+    private sealed class UserStateInfo
+    {
+        public string Status { get; set; } = "New";
+        public string? Notes { get; set; }
+    }
+}

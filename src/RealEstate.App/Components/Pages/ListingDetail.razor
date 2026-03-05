@@ -763,11 +763,45 @@
                                OnClick="@(() => Navigation.NavigateTo("/listings"))">
                         Zpět na seznam
                     </MudButton>
-                    <MudButton Color="Color.Secondary" 
-                               Variant="Variant.Filled" 
-                               OnClick="CreateAnalysisAsync">
-                        Vytvořit analýzu
+                    <MudButton Color="Color.Secondary"
+                               Variant="Variant.Filled"
+                               OnClick="RunLocalAnalysisAsync"
+                               Disabled="_localAnalysisRunning"
+                               StartIcon="@Icons.Material.Filled.Psychology">
+                        @if (_localAnalysisRunning)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                            <span>Analyzuji (~3 min)…</span>
+                        }
+                        else
+                        {
+                            <span>Vytvořit analýzu</span>
+                        }
                     </MudButton>
+                    @if (_localAnalysisResult is not null)
+                    {
+                        <MudButton Color="Color.Secondary"
+                                   Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.Download"
+                                   OnClick="DownloadAnalysisMdAsync">
+                            Stáhnout .md
+                        </MudButton>
+                        <MudButton Color="Color.Secondary"
+                                   Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.Description"
+                                   Disabled="_docxDownloading"
+                                   OnClick="DownloadAnalysisDocxAsync">
+                            @if (_docxDownloading)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                <span>Generuji DOCX…</span>
+                            }
+                            else
+                            {
+                                <span>Stáhnout .docx</span>
+                            }
+                        </MudButton>
+                    }
                     <MudButton Color="Color.Warning"
                                Variant="Variant.Filled"
                                OnClick="CopyAiBriefAsync"
@@ -814,6 +848,33 @@
                         }
                     </MudButton>
                 </MudStack>
+
+                <!-- Výsledek lokální AI analýzy -->
+                @if (_localAnalysisResult is not null)
+                {
+                    <MudPaper Elevation="2" Class="pa-4" Style="border-left:4px solid var(--mud-palette-secondary);">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+                            <MudIcon Icon="@Icons.Material.Filled.Psychology" Color="Color.Secondary" />
+                            <MudText Typo="Typo.subtitle1" Style="font-weight:600;">@_localAnalysisResult.Title</MudText>
+                            <MudSpacer />
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary">
+                                @_localAnalysisResult.PhotosDescribed/@_localAnalysisResult.PhotosTotal fotek · @_localAnalysisResult.ElapsedSeconds.ToString("F0")s
+                            </MudChip>
+                        </MudStack>
+                        <MudExpansionPanels Dense="true">
+                            <MudExpansionPanel IsInitiallyExpanded="true">
+                                <TitleContent>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Zobrazit analýzu</MudText>
+                                </TitleContent>
+                                <ChildContent>
+                                    <div style="white-space:pre-wrap; font-size:0.82rem; line-height:1.6; font-family:inherit; max-height:600px; overflow-y:auto; padding:8px 0;">
+                                        @_localAnalysisResult.MarkdownContent
+                                    </div>
+                                </ChildContent>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
+                    </MudPaper>
+                }
 
                 @if (_driveResult is not null)
                 {
@@ -1317,6 +1378,12 @@
 
     // AI brief
     private bool _aiBriefLoading = false;
+
+    // Lokální AI analýza (mistral-tools)
+    private bool _localAnalysisRunning = false;
+    private bool _docxDownloading = false;
+    private record LocalAnalysisResult(Guid AnalysisId, string Title, int PhotosDescribed, int PhotosTotal, double ElapsedSeconds, string MarkdownContent);
+    private LocalAnalysisResult? _localAnalysisResult;
 
     // Uložení analýzy
     private string _analysisText = string.Empty;
@@ -2051,26 +2118,90 @@
 
     private async Task CreateAnalysisAsync()
     {
+        // Legacy – zachováno pro zpětnou kompatibilitu, nová cesta je RunLocalAnalysisAsync
+        await RunLocalAnalysisAsync();
+    }
+
+    private async Task RunLocalAnalysisAsync()
+    {
+        _localAnalysisRunning = true;
+        _localAnalysisResult = null;
+        StateHasChanged();
         try
         {
-            var request = new AnalysisJobCreateDto
-            {
-                StorageProvider = "Local"
-            };
+            var response = await Http.PostAsync(
+                $"api/listings/{Id}/analyze-local?model=mistral-tools%2Fmistral-large-latest",
+                null,
+                _cts.Token);
 
-            var response = await Http.PostAsJsonAsync($"api/analysis/listing/{Id}", request);
             if (response.IsSuccessStatusCode)
             {
-                Snackbar.Add("Analýza byla vytvořena", Severity.Success);
+                var result = await response.Content.ReadFromJsonAsync<LocalAnalysisResult>(_cts.Token);
+                if (result is not null)
+                {
+                    _localAnalysisResult = result;
+                    Snackbar.Add($"✅ Analýza uložena do DB ({result.ElapsedSeconds:F0}s)", Severity.Success);
+                    // Načíst RAG analýzy znovu (nová analýza přibyla)
+                    await LoadRagAnalysesAsync();
+                }
             }
             else
             {
-                Snackbar.Add("Chyba při vytváření analýzy", Severity.Error);
+                var err = await response.Content.ReadAsStringAsync(_cts.Token);
+                Snackbar.Add($"Chyba {(int)response.StatusCode}: {err}", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { /* stránka opuštěna */ }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _localAnalysisRunning = false;
+        }
+    }
+
+    private async Task DownloadAnalysisMdAsync()
+    {
+        if (_localAnalysisResult is null) return;
+        var fileName = $"analyza_{Id.ToString("N")[..8]}_{DateTime.Now:yyyyMMdd_HHmm}.md";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(_localAnalysisResult.MarkdownContent);
+        var base64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("downloadFileFromBase64", fileName, "text/markdown", base64);
+    }
+
+    private async Task DownloadAnalysisDocxAsync()
+    {
+        _docxDownloading = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.GetAsync(
+                $"api/listings/{Id}/analyze-local/docx?model=mistral-tools%2Fmistral-large-latest",
+                _cts.Token);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var bytes = await response.Content.ReadAsByteArrayAsync(_cts.Token);
+                var base64 = Convert.ToBase64String(bytes);
+                var fileName = $"analyza_{Id.ToString("N")[..8]}_{DateTime.Now:yyyyMMdd_HHmm}.docx";
+                await JS.InvokeVoidAsync("downloadFileFromBase64", fileName,
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    base64);
+            }
+            else
+            {
+                Snackbar.Add("Nepodařilo se vygenerovat DOCX (je nainstalován pandoc?)", Severity.Warning);
             }
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _docxDownloading = false;
         }
     }
 

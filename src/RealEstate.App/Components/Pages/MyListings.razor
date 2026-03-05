@@ -26,6 +26,15 @@
                            Disabled="_loading"
                            aria-label="Obnovit seznam" />
         </MudTooltip>
+        <MudTooltip Text="Finální rozhodovací report se všemi AI analýzami">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Assessment"
+                       OnClick="@(() => Navigation.NavigateTo("/decision-report"))">
+                Finální report
+            </MudButton>
+        </MudTooltip>
         <MudTooltip Text="Zobrazit vše v Inzerátech">
             <MudButton Variant="Variant.Outlined"
                        Size="Size.Small"
