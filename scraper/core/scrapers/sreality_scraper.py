@@ -434,7 +434,7 @@ class SrealityScraper:
             "offer_type": offer_type,
             "latitude": gps.get("lat"),
             "longitude": gps.get("lon"),
-            "photos": photos[:20],
+            "photos": photos[:50],
         }
 
     def _merge_detail(self, normalized: Dict[str, Any], detail: Dict[str, Any]) -> Dict[str, Any]:
@@ -453,7 +453,7 @@ class SrealityScraper:
         # 🔥 FALLBACK: Pokud detail vrátí lepší fotky, používej je. Jinak zachovej z listu
         detail_photos = self._extract_photos(detail)
         if detail_photos:
-            normalized["photos"] = detail_photos[:20]
+            normalized["photos"] = detail_photos[:50]
         # Pokud detail nemá fotky, ponecháme fotky z listu (už jsou v normalized["photos"])
 
         params = self._extract_params(detail)
@@ -498,7 +498,7 @@ class SrealityScraper:
             )
             if href and "{width}" not in href:
                 photos.append(href)
-                if len(photos) >= 20:  # Limit 20 fotek
+                if len(photos) >= 50:  # Limit 50 fotek
                     break
 
         # Formát 2: Fallback na _links.images ze list API (přímé href)
@@ -509,7 +509,7 @@ class SrealityScraper:
                 href = img.get("href")
                 if href and "{width}" not in href:
                     photos.append(href)
-                    if len(photos) >= 20:
+                    if len(photos) >= 50:
                         break
 
         return list(dict.fromkeys(photos))  # Deduplikace

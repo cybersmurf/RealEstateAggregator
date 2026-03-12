@@ -356,7 +356,7 @@ class ProdejmeToScraper:
                 url = self._fix_upload_url(src)
                 if url not in urls:
                     urls.append(url)
-        return urls[:20]
+        return urls[:50]
 
     @staticmethod
     def _fix_upload_url(path: str) -> str:

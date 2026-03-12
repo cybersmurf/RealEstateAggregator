@@ -284,6 +284,6 @@ class LexamoScraper:
                 continue
             seen.add(src)
             photos.append(src)
-            if len(photos) >= 20:
+            if len(photos) >= 50:
                 break
         return photos

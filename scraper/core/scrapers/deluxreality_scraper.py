@@ -267,6 +267,6 @@ class DeluxRealityScraper:
             if href not in seen:
                 seen.add(href)
                 photos.append(href)
-            if len(photos) >= 20:
+            if len(photos) >= 50:
                 break
         return photos

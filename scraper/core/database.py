@@ -376,10 +376,10 @@ class DatabaseManager:
             )
             
             existing_by_url = {row['original_url']: row for row in existing}
-            new_urls_set = set(photo_urls[:20])
+            new_urls_set = set(photo_urls[:50])
             
             # 1. UPDATE existujících fotek (změněný order_index)
-            for idx, photo_url in enumerate(photo_urls[:20]):
+            for idx, photo_url in enumerate(photo_urls[:50]):
                 if photo_url in existing_by_url:
                     row = existing_by_url[photo_url]
                     if row['order_index'] != idx:
@@ -389,7 +389,7 @@ class DatabaseManager:
                         )
             
             # 2. INSERT nových fotek (které ještě nejsou v DB)
-            for idx, photo_url in enumerate(photo_urls[:20]):
+            for idx, photo_url in enumerate(photo_urls[:50]):
                 if photo_url not in existing_by_url:
                     photo_id = uuid4()
                     await conn.execute(

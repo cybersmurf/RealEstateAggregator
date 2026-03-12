@@ -429,7 +429,7 @@ class Century21Scraper:
                 continue
             seen.add(src)
             photos.append(src)
-            if len(photos) >= 20:
+            if len(photos) >= 50:
                 break
 
         # Fallback: hledej v href atributech (galerie)
@@ -439,7 +439,6 @@ class Century21Scraper:
                 if href and href not in seen and re.search(r"file/[0-9a-f\-]{36}", href, re.I):
                     seen.add(href)
                     photos.append(href)
-                    if len(photos) >= 20:
-                        break
+                    if len(photos) >= 50:
 
         return photos

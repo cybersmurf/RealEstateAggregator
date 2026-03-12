@@ -318,7 +318,7 @@ class ZnojmoRealityScraper:
             href = link.get("href")
             if href and href not in urls:
                 urls.append(href)
-        return urls[:20]
+        return urls[:50]
 
     def _extract_json_ld(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         payloads: List[Dict[str, Any]] = []

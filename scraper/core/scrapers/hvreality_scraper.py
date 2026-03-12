@@ -280,7 +280,7 @@ class HvRealityScraper:
                     if full_url not in photo_urls:
                         photo_urls.append(full_url)
 
-        result["photos"] = photo_urls[:20]
+        result["photos"] = photo_urls[:50]
 
         return result
 

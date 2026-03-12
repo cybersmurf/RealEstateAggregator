@@ -273,7 +273,7 @@ class PremiaRealityScraper:
                         seen_photos.add(photo_url)
                         photo_urls.append(photo_url)
 
-        result["photos"] = photo_urls[:20]
+        result["photos"] = photo_urls[:50]
 
         return result
 

@@ -354,7 +354,7 @@ class MmRealityScraper:
         result["area_land"] = self._parse_area(params.get("Plocha parcely", ""))
         result["location_text"] = self._extract_location(soup) or list_item.get("img_alt", "")
 
-        result["photos"] = self._extract_photos(soup, html)[:20]
+        result["photos"] = self._extract_photos(soup, html)[:50]
 
         lat, lng = self._extract_coordinates(html)
         if lat is not None and lng is not None:

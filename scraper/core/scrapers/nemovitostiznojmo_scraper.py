@@ -277,7 +277,7 @@ class NemovitostiZnojmoScraper:
                     if src not in photo_urls:
                         photo_urls.append(src)
 
-        result["photos"] = photo_urls[:20]
+        result["photos"] = photo_urls[:50]
 
         return result
 

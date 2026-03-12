@@ -311,7 +311,7 @@ class RemaxScraper:
                 photo_url = urljoin(self.BASE_URL, src)
                 if photo_url not in photo_urls:
                     photo_urls.append(photo_url)
-        result["photos"] = photo_urls[:20]  # Max 20 photos
+        result["photos"] = photo_urls[:50]  # Max 50 photos
         
         # Property type (dedukuj z titulu)
         title_lower = result.get("title", "").lower()

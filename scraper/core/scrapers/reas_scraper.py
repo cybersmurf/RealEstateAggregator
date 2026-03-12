@@ -501,12 +501,12 @@ class ReasScraper:
             except (ValueError, TypeError):
                 pass
 
-        # Fotky – max 20, preferred: original, fallback: preview
+        # Fotky – max 50, preferred: original, fallback: preview
         photos: List[str] = []
         for img in sorted(
             ad.get("imagesWithMetadata") or [],
             key=lambda x: x.get("order", 999),
-        )[:20]:
+        )[:50]:
             url = img.get("original") or img.get("preview")
             if url:
                 photos.append(url)

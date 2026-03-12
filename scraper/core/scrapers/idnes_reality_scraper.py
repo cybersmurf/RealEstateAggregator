@@ -278,7 +278,7 @@ class IdnesRealityScraper:
                     content = og.get("content")
                     if content:
                         photos.append(content)
-            photos = list(dict.fromkeys(photos))[:20]  # deduplicate, max 20
+            photos = list(dict.fromkeys(photos))[:50]  # deduplicate, max 50
 
             # Extract description - IDNES uses different selectors per property type:
             # Residential: .b-detail__desc / .b-detail__text
@@ -346,7 +346,7 @@ class IdnesRealityScraper:
                 "offer_type": offer_type,
                 "price": price,
                 "location_text": location[:200] if location else "Znojmo",
-                "photos": photos[:20],
+                "photos": photos[:50],
                 "area_built_up": area,
             }
 
