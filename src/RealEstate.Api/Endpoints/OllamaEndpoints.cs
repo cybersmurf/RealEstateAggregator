@@ -53,6 +53,9 @@ public static class OllamaEndpoints
 
     private static async Task<IResult> BulkSmartTags(
         [FromQuery] int batchSize = 20,
+        [FromQuery] Guid? listingId = null,
+        [FromQuery] bool force = false,
+        [FromQuery] bool orderDesc = false,
         [FromServices] IOllamaTextService service = default!,
         CancellationToken ct = default)
     {
@@ -62,12 +65,15 @@ public static class OllamaEndpoints
                 detail: "batchSize musí být 1–50.",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var result = await service.BulkSmartTagsAsync(batchSize, ct);
+        var result = await service.BulkSmartTagsAsync(batchSize, ct, listingId, force, orderDesc);
         return Results.Ok(result);
     }
 
     private static async Task<IResult> BulkNormalize(
         [FromQuery] int batchSize = 20,
+        [FromQuery] Guid? listingId = null,
+        [FromQuery] bool force = false,
+        [FromQuery] bool orderDesc = false,
         [FromServices] IOllamaTextService service = default!,
         CancellationToken ct = default)
     {
@@ -77,7 +83,7 @@ public static class OllamaEndpoints
                 detail: "batchSize musí být 1–50.",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var result = await service.BulkNormalizeAsync(batchSize, ct);
+        var result = await service.BulkNormalizeAsync(batchSize, ct, listingId, force, orderDesc);
         return Results.Ok(result);
     }
 
@@ -99,6 +105,9 @@ public static class OllamaEndpoints
 
     private static async Task<IResult> BulkPriceOpinion(
         [FromQuery] int batchSize = 20,
+        [FromQuery] Guid? listingId = null,
+        [FromQuery] bool force = false,
+        [FromQuery] bool orderDesc = false,
         [FromServices] IOllamaTextService service = default!,
         CancellationToken ct = default)
     {
@@ -108,7 +117,7 @@ public static class OllamaEndpoints
                 detail: "batchSize musí být 1–50.",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var result = await service.BulkPriceOpinionAsync(batchSize, ct);
+        var result = await service.BulkPriceOpinionAsync(batchSize, ct, listingId, force, orderDesc);
         return Results.Ok(result);
     }
 

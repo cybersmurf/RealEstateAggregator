@@ -24,6 +24,12 @@ public interface IGoogleDriveExportService
     /// Vrátí prázdný seznam pokud inzerát nemá Drive složku nebo GD není dostupné.
     /// </summary>
     Task<List<DriveFileDto>> ListAnalysisFilesAsync(Guid listingId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Nahraje obsah analýzy jako ANALYZA_datum.md do GD složky inzerátu.
+    /// Vrátí URL nahraného souboru.
+    /// </summary>
+    Task<string> SaveAnalysisAsync(Guid listingId, string markdownContent, string title, CancellationToken ct = default);
 }
 
 public record DriveScanResultDto(

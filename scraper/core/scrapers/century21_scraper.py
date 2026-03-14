@@ -440,5 +440,6 @@ class Century21Scraper:
                     seen.add(href)
                     photos.append(href)
                     if len(photos) >= 50:
+                        break
 
         return photos

@@ -38,13 +38,17 @@ public sealed class OllamaTextService(
         If fewer than 5 relevant tags exist, fill remaining slots with the most relevant general tags.
         """;
 
-    public async Task<OllamaTextBatchResultDto> BulkSmartTagsAsync(int batchSize, CancellationToken ct)
+    public async Task<OllamaTextBatchResultDto> BulkSmartTagsAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false)
     {
         batchSize = Math.Clamp(batchSize, 1, 50);
 
-        var listings = await db.Listings
-            .Where(l => l.SmartTags == null && l.Description != null && l.Description.Length > 50)
-            .OrderBy(l => l.FirstSeenAt)
+        var query = db.Listings
+            .Where(l => (force ? true : l.SmartTags == null) && l.Description != null && l.Description.Length > 50)
+            .Where(l => listingId == null || l.Id == listingId);
+
+        var listings = await (orderDesc
+            ? query.OrderByDescending(l => l.FirstSeenAt)
+            : query.OrderBy(l => l.FirstSeenAt))
             .Take(batchSize)
             .ToListAsync(ct);
 
@@ -99,13 +103,17 @@ public sealed class OllamaTextService(
         extension_possible: true if there is potential for extension or loft conversion (vestavba, přístavba, podkroví, atip).
         """;
 
-    public async Task<OllamaTextBatchResultDto> BulkNormalizeAsync(int batchSize, CancellationToken ct)
+    public async Task<OllamaTextBatchResultDto> BulkNormalizeAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false)
     {
         batchSize = Math.Clamp(batchSize, 1, 50);
 
-        var listings = await db.Listings
-            .Where(l => l.AiNormalizedData == null && l.Description != null && l.Description.Length > 100)
-            .OrderBy(l => l.FirstSeenAt)
+        var query = db.Listings
+            .Where(l => (force ? true : l.AiNormalizedData == null) && l.Description != null && l.Description.Length > 100)
+            .Where(l => listingId == null || l.Id == listingId);
+
+        var listings = await (orderDesc
+            ? query.OrderByDescending(l => l.FirstSeenAt)
+            : query.OrderBy(l => l.FirstSeenAt))
             .Take(batchSize)
             .ToListAsync(ct);
 
@@ -191,16 +199,20 @@ public sealed class OllamaTextService(
         return sb.ToString();
     }
 
-    public async Task<OllamaTextBatchResultDto> BulkPriceOpinionAsync(int batchSize, CancellationToken ct)
+    public async Task<OllamaTextBatchResultDto> BulkPriceOpinionAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false)
     {
         batchSize = Math.Clamp(batchSize, 1, 50);
 
         // Zpracuj jen inzeráty s cenou, bez existujícího signálu
-        var listings = await db.Listings
+        var query = db.Listings
             .Include(l => l.UserStates)
             .Include(l => l.Analyses)
-            .Where(l => l.PriceSignal == null && l.Price != null && l.Price > 0)
-            .OrderBy(l => l.FirstSeenAt)
+            .Where(l => (force ? true : l.PriceSignal == null) && l.Price != null && l.Price > 0)
+            .Where(l => listingId == null || l.Id == listingId);
+
+        var listings = await (orderDesc
+            ? query.OrderByDescending(l => l.FirstSeenAt)
+            : query.OrderBy(l => l.FirstSeenAt))
             .Take(batchSize)
             .ToListAsync(ct);
 

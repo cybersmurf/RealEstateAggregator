@@ -72,6 +72,12 @@ public static class ExportEndpoints
             .WithName("ListDriveAnalysisFiles")
             .WithTags("Export");
 
+        // Exportuje analýzu z DB na Google Drive jako ANALYZA_datum.md
+        group.MapPost("/{id:guid}/export-analysis-to-drive", ExportAnalysisToDrive)
+            .WithName("ExportAnalysisToDrive")
+            .WithSummary("Nahraje uloženou analýzu z DB do Google Drive složky inzerátu.")
+            .WithTags("Export");
+
         return app;
     }
 
@@ -140,6 +146,44 @@ public static class ExportEndpoints
 
         var markdown = ListingExportContentBuilder.BuildAiInstructions(listing, photos, folderUrl);
         return Results.Text(markdown, "text/plain; charset=utf-8");
+    }
+
+    private static async Task<IResult> ExportAnalysisToDrive(
+        Guid id,
+        [FromQuery] Guid? analysisId,
+        [FromServices] IGoogleDriveExportService driveService,
+        [FromServices] RealEstateDbContext db,
+        CancellationToken ct)
+    {
+        // Načteme analýzu z DB – buď konkrétní (dle analysisId) nebo poslední non-auto
+        var query = db.ListingAnalyses
+            .AsNoTracking()
+            .Where(a => a.ListingId == id);
+
+        var analysis = analysisId.HasValue
+            ? await query.FirstOrDefaultAsync(a => a.Id == analysisId.Value, ct)
+            : await query
+                .Where(a => a.Source != "auto")
+                .OrderByDescending(a => a.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+
+        if (analysis is null)
+            return Results.NotFound(new { error = "Žádná analýza nenalezena. Nejprve spusťte analyze-local nebo uložte analýzu ručně." });
+
+        try
+        {
+            var title = analysis.Title ?? $"Analýza_{id}";
+            var fileUrl = await driveService.SaveAnalysisAsync(id, analysis.Content, title, ct);
+            return Results.Ok(new { fileUrl, analysisId = analysis.Id, title, source = analysis.Source });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem(title: "Chyba při nahrávání analýzy na Google Drive", detail: ex.Message, statusCode: 500);
+        }
     }
 
     private static async Task<IResult> ExportToDrive(

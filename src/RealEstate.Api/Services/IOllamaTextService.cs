@@ -6,14 +6,14 @@ namespace RealEstate.Api.Services;
 /// </summary>
 public interface IOllamaTextService
 {
-    /// <summary>Dávkově generuje smart tagy (5 tagů) z popisu inzerátu.</summary>
-    Task<OllamaTextBatchResultDto> BulkSmartTagsAsync(int batchSize, CancellationToken ct);
+    /// <summary>Dávkově generuje smart tagy (5 tagů) z popisu inzerátu. listingId + force=true=přegeneruj konkrétní. orderDesc=true=nejnovější první.</summary>
+    Task<OllamaTextBatchResultDto> BulkSmartTagsAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false);
 
-    /// <summary>Dávkově normalizuje popis – extrahuje rok stavby, patro, výtah, sklep, zahradu, ...</summary>
-    Task<OllamaTextBatchResultDto> BulkNormalizeAsync(int batchSize, CancellationToken ct);
+    /// <summary>Dávkově normalizuje popis – extrahuje rok stavby, patro, výtah, sklep, zahradu, ... listingId + force=true=přenormalizuj konkrétní. orderDesc=true=nejnovější první.</summary>
+    Task<OllamaTextBatchResultDto> BulkNormalizeAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false);
 
-    /// <summary>Dávkově generuje cenový signál (low/fair/high) na základě lokality, plochy a stavu.</summary>
-    Task<OllamaTextBatchResultDto> BulkPriceOpinionAsync(int batchSize, CancellationToken ct);
+    /// <summary>Dávkově generuje cenový signál (low/fair/high) na základě lokality, plochy a stavu. listingId + force=true=přepočítej konkrétní. orderDesc=true=nejnovější první.</summary>
+    Task<OllamaTextBatchResultDto> BulkPriceOpinionAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false);
 
     /// <summary>
     /// Přepočítá cenový signál pro konkrétní inzerát s plným kontextem:

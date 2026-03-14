@@ -1257,6 +1257,59 @@
                     }
                 </MudStack>
             </MudPaper>
+
+            <!-- Uložené analýzy -->
+            @if (_savedAnalyses.Count > 0)
+            {
+                <MudPaper Class="pa-4">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+                        <MudIcon Icon="@Icons.Material.Filled.LibraryBooks" Color="Color.Primary" />
+                        <MudText Typo="Typo.h6">Uložené analýzy (@_savedAnalyses.Count)</MudText>
+                    </MudStack>
+                    <MudExpansionPanels MultiExpansion="true">
+                        @foreach (var a in _savedAnalyses.Where(x => x.Source != "auto").OrderByDescending(x => x.CreatedAt))
+                        {
+                            var sourceColor = a.Source == "claude" ? Color.Secondary
+                                            : a.Source.StartsWith("local:") ? Color.Info
+                                            : Color.Default;
+                            var sourceLabel = a.Source == "claude" ? "Claude"
+                                            : a.Source.StartsWith("local:") ? a.Source["local:".Length..]
+                                            : a.Source;
+                            <MudExpansionPanel>
+                                <TitleContent>
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                                        <MudChip T="string" Color="@sourceColor" Size="Size.Small">@sourceLabel</MudChip>
+                                        <MudText Typo="Typo.body2">
+                                            @(string.IsNullOrEmpty(a.Title) ? "Bez názvu" : a.Title)
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @a.CreatedAt.ToString("dd.MM.yyyy HH:mm")
+                                        </MudText>
+                                    </MudStack>
+                                </TitleContent>
+                                <ChildContent>
+                                    <MudStack Spacing="2">
+                                        <div style="white-space:pre-wrap;font-size:13px;line-height:1.6;max-height:600px;overflow-y:auto;padding:4px 0;">
+                                            @a.Content
+                                        </div>
+                                        <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                                            @if (_exportState?.DriveFolderId is not null)
+                                            {
+                                                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary"
+                                                           StartIcon="@Icons.Material.Filled.CloudUpload"
+                                                           OnClick="@(async () => await ExportAnalysisToDriveAsync(a.Id))"
+                                                           Disabled="_driveExporting">
+                                                    Nahrát na Drive
+                                                </MudButton>
+                                            }
+                                        </MudStack>
+                                    </MudStack>
+                                </ChildContent>
+                            </MudExpansionPanel>
+                        }
+                    </MudExpansionPanels>
+                </MudPaper>
+            }
         </MudStack>
     }
 </MudContainer>
@@ -1427,6 +1480,7 @@
     private bool _ragEmbedding;
     private bool _ragDescriptionEmbedded;
     private int _ragAnalysisCount;
+    private List<RagAnalysisInfo> _savedAnalyses = [];
     private record RagChunkInfo(Guid AnalysisId, string? Title, string ContentExcerpt, string Source, double Similarity, DateTime CreatedAt);
     private record RagAskResponse(string Answer, List<RagChunkInfo> Sources, bool HasEmbeddings);
     private record RagEmbedStatus(int TotalAnalyses, int WithEmbedding);
@@ -1652,7 +1706,7 @@
     // ── AI text helpers ────────────────────────────────────────────────────
 
     private async Task TriggerSmartTagsAsync() => await RunAiTextAsync(
-        $"api/ollama/bulk-smart-tags?batchSize=1",
+        $"api/ollama/bulk-smart-tags?batchSize=1&listingId={Id}&force=true",
         "Tagy vygenerovány.", "Generování tagů selhalo.");
 
     private async Task TriggerPriceOpinionAsync()
@@ -2263,6 +2317,34 @@
         }
     }
 
+    private async Task ExportAnalysisToDriveAsync(Guid analysisId)
+    {
+        _driveExporting = true;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync(
+                $"api/listings/{Id}/export-analysis-to-drive?analysisId={analysisId}", null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Analýza nahrána na Google Drive.", Severity.Success);
+                await LoadDriveAnalysisFilesAsync();
+            }
+            else
+            {
+                Snackbar.Add($"Chyba při nahrávání: {response.StatusCode}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _driveExporting = false;
+        }
+    }
+
     private async Task CopyDriveUrlAsync()
     {
         if (_driveResult is null) return;
@@ -2550,7 +2632,7 @@
 
     // ─── RAG Chat ──────────────────────────────────────────────────────────────
 
-    private record RagAnalysisInfo(Guid Id, string Source, bool HasEmbedding, string? Title);
+    private record RagAnalysisInfo(Guid Id, string Source, bool HasEmbedding, string? Title, string? Content, DateTime CreatedAt);
 
     private async Task LoadRagAnalysesAsync()
     {
@@ -2560,6 +2642,7 @@
                 $"api/listings/{Id}/analyses", _cts.Token);
             if (analyses is not null)
             {
+                _savedAnalyses = analyses;
                 _ragAnalysisCount = analyses.Count;
                 _ragDescriptionEmbedded = analyses.Any(a => a.Source == "auto");
             }

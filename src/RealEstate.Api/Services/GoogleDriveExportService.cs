@@ -260,6 +260,27 @@ public sealed class GoogleDriveExportService(
         }
     }
 
+    public async Task<string> SaveAnalysisAsync(Guid listingId, string markdownContent, string title, CancellationToken ct = default)
+    {
+        var listing = await dbContext.Listings
+            .AsNoTracking()
+            .Select(l => new { l.Id, l.DriveFolderId })
+            .FirstOrDefaultAsync(l => l.Id == listingId, ct)
+            ?? throw new KeyNotFoundException($"Inzerát {listingId} nenalezen");
+
+        if (string.IsNullOrWhiteSpace(listing.DriveFolderId))
+            throw new InvalidOperationException($"Inzerát {listingId} nemá Google Drive složku. Nejprve spusťte export.");
+
+        var driveService = await CreateDriveServiceAsync();
+        var safeName = ListingExportContentBuilder.SanitizeName(title);
+        var fileName = $"ANALYZA_{DateTime.Now:yyyyMMdd_HHmm}_{safeName}.md";
+        var fileId = await UploadTextAsync(driveService, fileName, markdownContent, "text/markdown", listing.DriveFolderId, ct);
+        await SetPublicReadAsync(driveService, fileId, ct);
+        var fileUrl = $"https://drive.google.com/file/d/{fileId}/view";
+        logger.LogInformation("Uložena analýza do Google Drive složky {FolderId} jako {File} ({Url})", listing.DriveFolderId, fileName, fileUrl);
+        return fileUrl;
+    }
+
     private async Task<DriveService> CreateDriveServiceAsync()
     {
         // Preferujeme OAuth UserToken (soubory vlastní uživatel, má storage quota)
