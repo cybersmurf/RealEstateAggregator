@@ -961,20 +961,56 @@
     // ─── Naše cílová kritéria (upravte dle potřeby) ─────────────────────────────
     private const string  TargetPropertyType   = "House";
     private const string  TargetOfferType      = "Sale";
-    private const decimal TargetMaxPrice       = 10_000_000m;
-    private const double  TargetMinAreaBuiltUp = 80.0;
+    private const decimal TargetMaxPrice       = 7_500_000m;   // 1. Cena ≤ 7,5M
+    private const double  TargetMinAreaBuiltUp = 100.0;        // 2. Plocha ≥ 100 m²
+    private const int     TargetMinRooms       = 4;            // 3. Dispozice 4+kk a výše
+
+    // 4. Lokalita: osa Rajhrad–Pohořelice–Lechovice–Znojmo (±6 km od hlavní silnice D52/416)
+    private static readonly HashSet<string> _targetMunicipalities = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // D52: Brno → Rajhrad → Pohořelice
+        "Rajhrad", "Rajhradice", "Holasice", "Opatovice", "Blučina", "Unkovice",
+        "Syrovice", "Kupařovice", "Vranovice", "Přibice", "Šakvice",
+        "Pohořelice", "Ivaň", "Nová Ves u Pohořelic", "Vlanice",
+        // Silnice 416: Pohořelice → Miroslav → Lechovice → Znojmo
+        "Vlasatice", "Micmanice", "Silůvky",
+        "Miroslav", "Miroslavské Knínice", "Jiřice u Miroslavi",
+        "Prosiměřice", "Hrušovany nad Jevišovkou",
+        "Lechovice", "Žerotice", "Tridentice", "Vrbovec",
+        "Hodonice", "Nový Šaldorf-Sedlešovice", "Nový Šaldorf", "Sedlešovice",
+        "Dobšice", "Suchohrdly", "Přímětice", "Čížov", "Kuchařovice",
+        "Znojmo",
+    };
+
     // 5. kritérium: zahrada → vyhodnoceno z AiNormalizedData (has_garden)
+
+    private static bool IsOnTargetCorridor(ListingSummaryDto item)
+    {
+        // Přesná shoda obce
+        if (!string.IsNullOrEmpty(item.Municipality) &&
+            _targetMunicipalities.Contains(item.Municipality))
+            return true;
+        // Fallback: LocationText obsahuje název cílové obce
+        if (!string.IsNullOrEmpty(item.LocationText))
+            return _targetMunicipalities.Any(m =>
+                item.LocationText.Contains(m, StringComparison.OrdinalIgnoreCase));
+        return false;
+    }
 
     private static (int score, int total) ScoreListingTarget(ListingSummaryDto item)
     {
         const int total = 5;
         var score = 0;
 
-        if (item.PropertyType == TargetPropertyType)  score++;
-        if (item.OfferType    == TargetOfferType)     score++;
+        // 1. Cena
         if (item.Price.HasValue && item.Price.Value <= TargetMaxPrice) score++;
+        // 2. Plocha
         if (item.AreaBuiltUp.HasValue && item.AreaBuiltUp.Value >= TargetMinAreaBuiltUp) score++;
-
+        // 3. Dispozice 4+kk a výše
+        if (item.Rooms.HasValue && item.Rooms.Value >= TargetMinRooms) score++;
+        // 4. Lokalita na ose
+        if (IsOnTargetCorridor(item)) score++;
+        // 5. Zahrada
         if (!string.IsNullOrEmpty(item.AiNormalizedData))
         {
             try
