@@ -98,7 +98,7 @@ public sealed class OllamaTextService(
         Use null for unknown values. heating_type: gas|electric|solid_fuel|heat_pump|district|other.
         ownership: personal|cooperative|company|state.
         energy_class: A|B|C|D|E|F|G or null.
-        is_single_floor: true if the house is entirely on one level (bungalov, přízemní, přízemí, bez schodů).
+        is_single_floor: true if the house is entirely on one level (bungalov, přízemní, přízemí, bez schodů, parter, 1NP, 1. NP, přízemní dům, no stairs). Also true if the listing explicitly mentions that all rooms are on one floor. Use null if uncertain.
         has_storage: true if listing mentions storage space (sklep, sklad, půda, garáž, přístřešek).
         extension_possible: true if there is potential for extension or loft conversion (vestavba, přístavba, podkroví, atip).
         """;
