@@ -200,7 +200,8 @@ public sealed class SpatialService(
             LEFT JOIN re_realestate.listing_photos p
                 ON p.listing_id = l.id AND p.order_index = 0
             WHERE l.is_active = true
-              AND l.location_point IS NOT NULL
+              AND l.latitude IS NOT NULL
+              AND l.longitude IS NOT NULL
             """;
 
         var extraWhere = BuildExtraFilters(request, out var extraParams, 0);

@@ -225,6 +225,33 @@ class TestCombinedFilters:
         assert ok is False
         assert reason is not None
 
+    def test_cesky_offer_type_prodej_projde(self):
+        """offer_type='Prodej' musí projít – normalizuje se na 'Sale'."""
+        fm = make_fm({"search_filters": {
+            "houses": {"enabled": True, "max_price": 8_500_000, "offer_types": ["Sale", "Rent"]}
+        }})
+        listing = valid_listing(property_type="House", offer_type="Prodej", price=5_000_000)
+        ok, reason = fm.should_include_listing(listing)
+        assert ok is True, f"Prodej byl nesprávně filtrován: {reason}"
+
+    def test_cesky_offer_type_pronajem_projde(self):
+        """offer_type='Pronájem' musí projít – normalizuje se na 'Rent'."""
+        fm = make_fm({"search_filters": {
+            "houses": {"enabled": True, "max_price": 8_500_000, "offer_types": ["Sale", "Rent"]}
+        }})
+        listing = valid_listing(property_type="House", offer_type="Pronájem", price=5_000_000)
+        ok, reason = fm.should_include_listing(listing)
+        assert ok is True, f"Pronájem byl nesprávně filtrován: {reason}"
+
+    def test_anglicky_offer_type_sale_projde(self):
+        """offer_type='Sale' (anglicky) musí projít bez normalizace."""
+        fm = make_fm({"search_filters": {
+            "houses": {"enabled": True, "max_price": 8_500_000, "offer_types": ["Sale"]}
+        }})
+        listing = valid_listing(property_type="House", offer_type="Sale", price=5_000_000)
+        ok, reason = fm.should_include_listing(listing)
+        assert ok is True, f"Sale byl nesprávně filtrován: {reason}"
+
 
 # ---------------------------------------------------------------------------
 # FilterManager – default konfigurace (bez config souboru)
@@ -246,9 +273,9 @@ class TestFilterManagerDefaultConfig:
     def test_default_config_max_price_house(self):
         fm = FilterManager.__new__(FilterManager)
         cfg = fm._get_default_config()
-        assert cfg["search_filters"]["houses"]["max_price"] == 8_500_000
+        assert cfg["search_filters"]["houses"]["max_price"] == 10_000_000
 
     def test_default_config_max_price_land(self):
         fm = FilterManager.__new__(FilterManager)
         cfg = fm._get_default_config()
-        assert cfg["search_filters"]["land"]["max_price"] == 2_000_000
+        assert cfg["search_filters"]["land"]["max_price"] == 3_500_000

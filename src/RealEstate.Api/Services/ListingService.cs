@@ -275,20 +275,31 @@ public class ListingService : IListingService
             predicate = predicate.And(x => filter.SourceCodes.Contains(x.Source.Code));
         }
 
-        // Location
+        // Location – sloupce district/region/municipality jsou ve většině inzerátů NULL
+        // (scrapery je nenaplňují), veškerá lokace je v location_text.
+        // Použijeme case-insensitive ILIKE přes location_text jako fallback.
         if (!string.IsNullOrWhiteSpace(filter.Region))
         {
-            predicate = predicate.And(x => x.Region == filter.Region);
+            var regionPattern = $"%{filter.Region}%";
+            predicate = predicate.And(x =>
+                (x.Region != null && EF.Functions.ILike(x.Region, regionPattern)) ||
+                EF.Functions.ILike(x.LocationText, regionPattern));
         }
 
         if (!string.IsNullOrWhiteSpace(filter.District))
         {
-            predicate = predicate.And(x => x.District == filter.District);
+            var districtPattern = $"%{filter.District}%";
+            predicate = predicate.And(x =>
+                (x.District != null && EF.Functions.ILike(x.District, districtPattern)) ||
+                EF.Functions.ILike(x.LocationText, districtPattern));
         }
 
         if (!string.IsNullOrWhiteSpace(filter.Municipality))
         {
-            predicate = predicate.And(x => x.Municipality == filter.Municipality);
+            var municipalityPattern = $"%{filter.Municipality}%";
+            predicate = predicate.And(x =>
+                (x.Municipality != null && EF.Functions.ILike(x.Municipality, municipalityPattern)) ||
+                EF.Functions.ILike(x.LocationText, municipalityPattern));
         }
 
         // Price
@@ -396,6 +407,28 @@ public class ListingService : IListingService
 
         // Jen aktivní inzeráty
         predicate = predicate.And(x => x.IsActive);
+
+        // Bounding box (mapa – obdélníková oblast výběrem na mapě)
+        if (filter.BboxLatMin is not null)
+        {
+            var v = filter.BboxLatMin.Value;
+            predicate = predicate.And(x => x.Latitude != null && x.Latitude >= v);
+        }
+        if (filter.BboxLatMax is not null)
+        {
+            var v = filter.BboxLatMax.Value;
+            predicate = predicate.And(x => x.Latitude != null && x.Latitude <= v);
+        }
+        if (filter.BboxLonMin is not null)
+        {
+            var v = filter.BboxLonMin.Value;
+            predicate = predicate.And(x => x.Longitude != null && x.Longitude >= v);
+        }
+        if (filter.BboxLonMax is not null)
+        {
+            var v = filter.BboxLonMax.Value;
+            predicate = predicate.And(x => x.Longitude != null && x.Longitude <= v);
+        }
 
         return predicate;
     }
@@ -561,6 +594,7 @@ public class ListingService : IListingService
         var taggedStatuses = new[] { "Liked", "Disliked", "ToVisit", "Visited" };
 
         var listings = await _repository.Query()
+            .Where(l => l.IsActive)
             .Where(l => l.UserStates.Any(s =>
                 s.UserId == DefaultUserId && taggedStatuses.Contains(s.Status)))
             .OrderByDescending(l =>

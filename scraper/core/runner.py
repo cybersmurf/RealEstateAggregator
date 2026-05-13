@@ -72,6 +72,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             "LEXAMO",
             "CENTURY21",
             "REAS",
+            "BAZOS",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
@@ -88,6 +89,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         from core.scrapers.lexamo_scraper import LexamoScraper
         from core.scrapers.century21_scraper import Century21Scraper
         from core.scrapers.reas_scraper import ReasScraper
+        from core.scrapers.bazos_scraper import BazosScraper
 
         # Vybuduj tasku pro paralelní scraping
         tasks = []
@@ -121,13 +123,35 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             sreality_config = scraper_config.get("sreality", {})
             detail_fetch_concurrency = sreality_config.get("detail_fetch_concurrency", 5)
             fetch_details = sreality_config.get("fetch_details", True)
-            scraper = SrealityScraper(
-                fetch_details=fetch_details,
-                detail_fetch_concurrency=detail_fetch_concurrency,
-                locality_region_id=sreality_config.get("locality_region_id"),
-                locality_district_id=sreality_config.get("locality_district_id"),
-            )
-            tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
+            locality_region_id = sreality_config.get("locality_region_id")
+
+            # Podpora více district IDs (locality_district_ids: [77, 79])
+            # s fallbackem na starý skalární locality_district_id: 77
+            district_ids: list = sreality_config.get("locality_district_ids") or []
+            if not district_ids:
+                single_id = sreality_config.get("locality_district_id")
+                if single_id is not None:
+                    district_ids = [single_id]
+
+            if district_ids:
+                for district_id in district_ids:
+                    logger.info(f"Job {job_id}: Scheduling Sreality scraper for district_id={district_id}")
+                    scraper = SrealityScraper(
+                        fetch_details=fetch_details,
+                        detail_fetch_concurrency=detail_fetch_concurrency,
+                        locality_region_id=locality_region_id,
+                        locality_district_id=district_id,
+                    )
+                    tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
+            else:
+                # Bez filtru okresu – celá republika (fallback)
+                scraper = SrealityScraper(
+                    fetch_details=fetch_details,
+                    detail_fetch_concurrency=detail_fetch_concurrency,
+                    locality_region_id=locality_region_id,
+                    locality_district_id=None,
+                )
+                tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
 
         if "IDNES" in source_codes:
             logger.info(f"Job {job_id}: Scheduling Idnes Reality scraper...")
@@ -168,6 +192,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             logger.info(f"Job {job_id}: Scheduling Reas.cz scraper...")
             scraper = ReasScraper(fetch_details=True, detail_concurrency=5)
             tasks.append(("REAS", scraper.run(full_rescan=request.full_rescan)))
+
+        if "BAZOS" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Bazos.cz scraper...")
+            scraper = BazosScraper()
+            tasks.append(("BAZOS", scraper.run(full_rescan=request.full_rescan)))
 
         # Čas před spuštěním scrapingu – slouží pro deaktivaci neviděných inzerátů
         scrape_started_at = datetime.utcnow()

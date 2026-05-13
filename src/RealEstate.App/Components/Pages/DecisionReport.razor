@@ -6,6 +6,7 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
+@inject PhotosBaseUrl PhotosBase
 
 <PageTitle>Finální rozhodovací report</PageTitle>
 
@@ -112,15 +113,20 @@
                             <div style="display:flex; flex-wrap:wrap; gap:0;">
 
                                 <!-- Foto -->
-                                @if (!string.IsNullOrWhiteSpace(card.Listing.Photos.FirstOrDefault()?.StoredUrl ?? card.Listing.Photos.FirstOrDefault()?.OriginalUrl))
+                                @{ var _drPhoto = card.Listing.Photos.FirstOrDefault(); }
+                                @if (_drPhoto is not null)
                                 {
+                                    var _drSrc = PhotosBase.Resolve(_drPhoto.StoredUrl, _drPhoto.OriginalUrl);
+                                    @if (!string.IsNullOrWhiteSpace(_drSrc))
+                                    {
                                     <div style="flex:0 0 220px; min-width:160px; max-width:220px; overflow:hidden; cursor:pointer;"
                                          @onclick="@(() => Navigation.NavigateTo($"/listings/{card.Listing.Id}"))">
-                                        <img src="@(card.Listing.Photos.First().StoredUrl ?? card.Listing.Photos.First().OriginalUrl)"
+                                        <img src="@_drSrc"
                                              alt="Foto nemovitosti"
                                              style="width:100%; height:200px; object-fit:cover; display:block;"
                                              loading="lazy" />
                                     </div>
+                                    }
                                 }
 
                                 <!-- Obsah karty -->

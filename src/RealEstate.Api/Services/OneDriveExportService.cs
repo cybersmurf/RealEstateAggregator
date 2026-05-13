@@ -51,7 +51,7 @@ public sealed class OneDriveExportService(
         var folderId = await CreateFolderAsync(http, folderName, rootId, ct);
         logger.LogInformation("Vytvořena OneDrive složka: {Name} ({Id})", folderName, folderId);
 
-        var photos = listing.Photos.OrderBy(p => p.Order).Take(20).ToList();
+        var photos = listing.Photos.OrderBy(p => p.Order).Take(50).ToList();
         var photoLinks = new List<PhotoLink>();
         if (photos.Count > 0)
         {

@@ -46,7 +46,7 @@ public class Listing
     public DateTime? GeocodedAt { get; set; }
     public string? GeocodeSource { get; set; }   // "scraper" | "nominatim" | "manual"
 
-    // �🔥 pgvector: OpenAI embedding (1536 dimensions) for semantic search
+    // 🔥 pgvector: Ollama nomic-embed-text embedding (768 dimensions) for semantic search
     public Vector? DescriptionEmbedding { get; set; }
 
     // Export folder IDs – ukládámy po úspěšném exportu, aby byl export idempotentní

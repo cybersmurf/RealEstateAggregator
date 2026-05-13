@@ -5,6 +5,7 @@
 @inject HttpClient Http
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
+@inject PhotosBaseUrl PhotosBase
 
 <PageTitle>Moje inzeráty</PageTitle>
 
@@ -131,7 +132,7 @@
                                          Elevation="1">
                                     @if (!string.IsNullOrWhiteSpace(item.ThumbnailUrl))
                                     {
-                                        <MudCardMedia Image="@item.ThumbnailUrl" Height="160" />
+                                        <MudCardMedia Image="@PhotosBase.Resolve(item.ThumbnailUrl)" Height="160" />
                                     }
                                     else
                                     {

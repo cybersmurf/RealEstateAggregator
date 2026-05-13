@@ -57,7 +57,7 @@ BASE_WEB = "https://www.sreality.cz"
 DISTRICT_ID_TO_NAME: Dict[int, str] = {
     77: "Znojmo",
     78: "Brno-město",
-    79: "Brno-venkov",
+    73: "Brno-venkov",
     80: "Břeclav",
     81: "Hodonín",
     82: "Vyškov",
@@ -438,6 +438,12 @@ class SrealityScraper:
         }
 
     def _merge_detail(self, normalized: Dict[str, Any], detail: Dict[str, Any]) -> Dict[str, Any]:
+        # 🔥 Cena z detail API je aktuálnější než z list API – vždy ji přebij
+        detail_price_czk = detail.get("price_czk") or {}
+        detail_price = detail_price_czk.get("value_raw")
+        if detail_price and detail_price > 1:
+            normalized["price"] = detail_price
+
         # 🔥 SReality API vrací 'text' jako dict {'name': 'Popis', 'value': '...'} nebo string
         description_raw = detail.get("text") or detail.get("description")
         if description_raw:
@@ -464,6 +470,14 @@ class SrealityScraper:
             disposition = params.get("Dispozice")
             if disposition:
                 normalized["disposition"] = str(disposition).strip()
+            # 🔥 Stavba → construction_type (přímé API pole je přesnější než regex fallback)
+            stavba = params.get("Stavba")
+            if stavba:
+                normalized["construction_type"] = stavba.strip()
+            # 🔥 Stav objektu → condition (přímé API pole je přesnější než regex fallback)
+            stav = params.get("Stav objektu")
+            if stav:
+                normalized["condition"] = stav.strip()
 
         detail_seo = detail.get("seo") or {}
         if detail_seo:

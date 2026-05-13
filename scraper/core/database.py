@@ -2,13 +2,36 @@
 Database utilities for scraper.
 Provides async connection pool and CRUD operations for listings.
 """
+import os
 import re
 import asyncpg
+import httpx
 import logging
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+
+# Cesta k lokálnímu úložišti fotek (sdílený volume s .NET API)
+# API ukládá do /app/wwwroot/uploads, scraper do /app/uploads — oba na stejném Docker volume.
+# Výsledný stored_url = "/uploads/listings/{id}/photos/{order}.jpg"
+_UPLOADS_BASE_PATH: Optional[Path] = None
+
+def _get_uploads_base_path() -> Optional[Path]:
+    """Vrátí base path pro lokální ukládání fotek, nebo None pokud není nakonfigurováno."""
+    global _UPLOADS_BASE_PATH
+    if _UPLOADS_BASE_PATH is None:
+        env_path = os.environ.get("UPLOADS_BASE_PATH", "")
+        if env_path:
+            _UPLOADS_BASE_PATH = Path(env_path)
+    return _UPLOADS_BASE_PATH
+
+# HTTP klient sdílený pro inline photo download (timeout 15s na fotku)
+_PHOTO_DOWNLOAD_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+}
 
 from .filters import get_filter_manager
 
@@ -325,6 +348,30 @@ class DatabaseManager:
             logger.debug(f"Upserted listing {final_listing_id} (external_id={external_id})")
             return final_listing_id
 
+    async def deactivate_listing(self, source_code: str, external_id: str) -> bool:
+        """
+        Okamžitě deaktivuje konkrétní inzerát (source_code + external_id).
+        Používá se při detekci "Prodáno"/"Rezervováno" na detail stránce scraperu.
+
+        Returns: True pokud byl inzerát nalezen a deaktivován, False pokud neexistoval.
+        """
+        async with self.acquire() as conn:
+            status = await conn.execute(
+                """
+                UPDATE re_realestate.listings
+                SET is_active = false
+                WHERE source_code = $1
+                  AND external_id = $2
+                  AND is_active = true
+                """,
+                source_code,
+                external_id
+            )
+            affected = int(status.split()[-1]) if status else 0
+            if affected > 0:
+                logger.info(f"Deactivated sold/reserved listing: source={source_code} external_id={external_id}")
+            return affected > 0
+
     async def deactivate_unseen_listings(self, source_code: str, seen_since: datetime) -> int:
         """
         Deaktivuje inzeráty ze zdroje source_code, které nebyly viděny od seen_since.
@@ -350,74 +397,151 @@ class DatabaseManager:
                 logger.info(f"Deactivated {deactivated} expired listings for source {source_code} (not seen since {seen_since})")
             return deactivated
 
+    async def _download_photo_to_storage(
+        self,
+        photo_url: str,
+        listing_id: UUID,
+        order_index: int,
+        http_client: httpx.AsyncClient,
+    ) -> Optional[str]:
+        """
+        Stáhne fotku z CDN a uloží ji do sdíleného uploads volume.
+        Vrátí relativní stored_url (např. "/uploads/listings/{id}/photos/0.jpg")
+        nebo None pokud download selhal.
+
+        Cesta v kontejneru: {UPLOADS_BASE_PATH}/listings/{id}/photos/{order}.ext
+        API volume mountpoint:  /app/wwwroot/uploads  → stored_url prefix /uploads/
+        Scraper volume mountpoint: /app/uploads      → stored_url prefix /uploads/
+        """
+        uploads_base = _get_uploads_base_path()
+        if uploads_base is None:
+            return None  # Inline download není nakonfigurován
+
+        try:
+            response = await http_client.get(photo_url, headers=_PHOTO_DOWNLOAD_HEADERS, follow_redirects=True)
+            if response.status_code != 200:
+                logger.debug(f"Photo download HTTP {response.status_code}: {photo_url}")
+                return None
+
+            content_type = response.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+            ext = {
+                "image/png": ".png",
+                "image/webp": ".webp",
+                "image/gif": ".gif",
+            }.get(content_type, ".jpg")
+
+            # Uložit do sdíleného volume
+            photo_dir = uploads_base / "listings" / str(listing_id) / "photos"
+            photo_dir.mkdir(parents=True, exist_ok=True)
+            file_path = photo_dir / f"{order_index}{ext}"
+            file_path.write_bytes(response.content)
+
+            return f"/uploads/listings/{listing_id}/photos/{order_index}{ext}"
+
+        except Exception as e:
+            logger.debug(f"Photo download failed for {photo_url}: {e}")
+            return None
+
     async def _upsert_photos(self, conn, listing_id: UUID, photo_urls: List[str]) -> None:
         """
-        Upsert fotek pro listing.
-        
+        Upsert fotek pro listing. Nové fotky jsou ihned staženy inline (pokud je
+        UPLOADS_BASE_PATH nastaven) — kritické pro CDN s krátkodobými tokeny (Sreality sdn.cz).
+
         ⚠️  ZACHOVÁVÁ KLASIFIKACE:
         - Existující fotky s classified_at != NULL jsou ponechány (včetně metadata)
         - Jen updatuje order_index, pokud se změnil
         - Smaže jen fotky, které už nejsou v novém seznamu
         - Přidá nové fotky, pokud se objevily
-        
+
         WICHTIG: Běží v transakci, aby byly operace atomické.
         """
+        # Pre-download nových fotek PŘED transakcí (HTTP I/O mimo transakci)
+        new_urls_to_download: Dict[str, Optional[str]] = {}  # url → stored_url or None
+        uploads_base = _get_uploads_base_path()
+
+        # Zjistí, které URLs jsou NOVÉ (ještě nejsou v DB)
+        existing_check = await conn.fetch(
+            "SELECT original_url FROM re_realestate.listing_photos WHERE listing_id = $1",
+            listing_id,
+        )
+        existing_urls_set = {row["original_url"] for row in existing_check}
+
+        new_photo_urls = [
+            (idx, url) for idx, url in enumerate(photo_urls[:50])
+            if url not in existing_urls_set
+        ]
+
+        if new_photo_urls and uploads_base is not None:
+            async with httpx.AsyncClient(timeout=15.0) as http_client:
+                for idx, url in new_photo_urls:
+                    stored = await self._download_photo_to_storage(url, listing_id, idx, http_client)
+                    new_urls_to_download[url] = stored
+            downloaded = sum(1 for v in new_urls_to_download.values() if v is not None)
+            if new_photo_urls:
+                logger.debug(
+                    f"Inline photo download: {downloaded}/{len(new_photo_urls)} OK for listing {listing_id}"
+                )
+
         async with conn.transaction():
             # Načíst existující fotky pro tento listing
             existing = await conn.fetch(
                 """
-                SELECT id, original_url, order_index, classified_at, stored_url, 
-                       photo_category, photo_labels, damage_detected, 
+                SELECT id, original_url, order_index, classified_at, stored_url,
+                       photo_category, photo_labels, damage_detected,
                        classification_confidence, photo_description
-                FROM re_realestate.listing_photos 
+                FROM re_realestate.listing_photos
                 WHERE listing_id = $1
                 """,
-                listing_id
+                listing_id,
             )
-            
-            existing_by_url = {row['original_url']: row for row in existing}
+
+            existing_by_url = {row["original_url"]: row for row in existing}
             new_urls_set = set(photo_urls[:50])
-            
+
             # 1. UPDATE existujících fotek (změněný order_index)
             for idx, photo_url in enumerate(photo_urls[:50]):
                 if photo_url in existing_by_url:
                     row = existing_by_url[photo_url]
-                    if row['order_index'] != idx:
+                    if row["order_index"] != idx:
                         await conn.execute(
                             "UPDATE re_realestate.listing_photos SET order_index = $1 WHERE id = $2",
-                            idx, row['id']
+                            idx,
+                            row["id"],
                         )
-            
+
             # 2. INSERT nových fotek (které ještě nejsou v DB)
             for idx, photo_url in enumerate(photo_urls[:50]):
                 if photo_url not in existing_by_url:
                     photo_id = uuid4()
+                    stored_url = new_urls_to_download.get(photo_url)  # None pokud download selhal
                     await conn.execute(
                         """
                         INSERT INTO re_realestate.listing_photos (
-                            id, listing_id, original_url, order_index, created_at
+                            id, listing_id, original_url, order_index, stored_url, created_at
                         )
-                        VALUES ($1, $2, $3, $4, $5)
+                        VALUES ($1, $2, $3, $4, $5, $6)
                         """,
                         photo_id,
                         listing_id,
                         photo_url,
                         idx,
-                        datetime.utcnow()
+                        stored_url,
+                        datetime.utcnow(),
                     )
-            
+
             # 3. DELETE fotek, které zmizely (ale JEN ty bez klasifikace)
             #    → Klasifikované fotky ponecháváme, i kdyby scraper přestal vracet URL
             urls_to_delete = set(existing_by_url.keys()) - new_urls_set
             for url in urls_to_delete:
                 row = existing_by_url[url]
-                if row['classified_at'] is None:
+                if row["classified_at"] is None:
                     await conn.execute(
                         "DELETE FROM re_realestate.listing_photos WHERE id = $1",
-                        row['id']
+                        row["id"],
                     )
-        
+
         logger.debug(f"Upserted {len(photo_urls)} photos for listing {listing_id} (preserved classifications)")
+
     
     # ============================================================================
     # Scrape Jobs Persistence

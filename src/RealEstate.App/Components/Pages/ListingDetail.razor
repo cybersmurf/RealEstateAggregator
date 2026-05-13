@@ -6,6 +6,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@inject PhotosBaseUrl PhotosBase
 
 <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
     @if (_loading)
@@ -23,6 +24,14 @@
     else
     {
         <MudStack Spacing="3">
+            <!-- Inactive banner -->
+            @if (!_listing.IsActive)
+            {
+                <MudAlert Severity="Severity.Warning" Icon="@Icons.Material.Filled.VisibilityOff" Dense="false">
+                    <b>Inzerát již není aktivní.</b> Byl stažen z realitního portálu nebo prodán. Data jsou zachována pouze pro archivní účely.
+                </MudAlert>
+            }
+
             <!-- Header -->
             <MudPaper Class="pa-4">
                 <MudStack Spacing="2">
@@ -49,7 +58,7 @@
                     <MudCarousel TData="object" Style="height:400px;" ShowArrows="true" ShowBullets="true" EnableSwipeGesture="true" AutoCycle="false">
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {
-                            var photoSrc = !string.IsNullOrEmpty(photo.StoredUrl) ? photo.StoredUrl : photo.OriginalUrl;
+                            var photoSrc = PhotosBase.Resolve(photo.StoredUrl, photo.OriginalUrl);
                             <MudCarouselItem>
                                 <div class="d-flex justify-center align-center" style="height:100%">
                                     <img src="@photoSrc" alt="Foto"
@@ -125,7 +134,7 @@
                         @{ int _photoIdx = 0; }
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {
-                            var pSrc = !string.IsNullOrEmpty(photo.StoredUrl) ? photo.StoredUrl : photo.OriginalUrl;
+                            var pSrc = PhotosBase.Resolve(photo.StoredUrl, photo.OriginalUrl);
                             var fb   = _photoFeedbacks.GetValueOrDefault(photo.Id);
                             var borderStyle = photo.DamageDetected
                                 ? "border: 2px solid var(--mud-palette-error);"
@@ -1319,7 +1328,7 @@
 {
     var _lbPhotos = _listing.Photos.OrderBy(p => p.Order).ToList();
     var _lbPhoto  = _lbPhotos[Math.Clamp(_lbIdx, 0, _lbPhotos.Count - 1)];
-    var _lbSrc    = !string.IsNullOrEmpty(_lbPhoto.StoredUrl) ? _lbPhoto.StoredUrl : _lbPhoto.OriginalUrl;
+    var _lbSrc    = PhotosBase.Resolve(_lbPhoto.StoredUrl, _lbPhoto.OriginalUrl);
     var _lbTotal  = _lbPhotos.Count;
     <div style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.93);display:flex;align-items:center;justify-content:center;"
          @onclick="LightboxClose"

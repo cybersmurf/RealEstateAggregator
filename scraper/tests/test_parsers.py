@@ -164,10 +164,39 @@ class TestRemaxParseListPage:
 
 MOCK_REMAX_DETAIL_HTML = """
 <html><body>
-  <h1>Prodej rodinného domu 5+1, 161 m², Znojmo</h1>
-  <span class="location-text">Znojmo, Jihomoravský kraj</span>
-  <div>Nabídková cena: 3 500 000 Kč</div>
-  <p>Plocha pozemku: 750 m²</p>
+  <h2 class="pd-header__title">Prodej rodinného domu 5+1, 161 m², Znojmo</h2>
+  <div class="pd-header__address">Znojmo, okres Znojmo mapa</div>
+  <div class="pd-header__price">3 500 000 Kč (za nemovitost) B Velmi úsporná</div>
+  <div class="pd-base-info__content-collapse-inner">
+    <p>Prostorný rodinný dům 5+1 v klidné části Znojma. Dům je po kompletní rekonstrukci,
+    nachází se na pozemku 750 m².</p>
+  </div>
+  <div class="pd-detail-info">
+    <div class="pd-detail-info__row">
+      <span class="pd-detail-info__label">Užitná plocha:</span>
+      <span class="pd-detail-info__value">161 m²</span>
+    </div>
+    <div class="pd-detail-info__row">
+      <span class="pd-detail-info__label">Plocha parcely:</span>
+      <span class="pd-detail-info__value">750 m²</span>
+    </div>
+    <div class="pd-detail-info__row">
+      <span class="pd-detail-info__label">Stav objektu:</span>
+      <span class="pd-detail-info__value">Po rekonstrukci</span>
+    </div>
+    <div class="pd-detail-info__row">
+      <span class="pd-detail-info__label">Druh objektu:</span>
+      <span class="pd-detail-info__value">Cihlová</span>
+    </div>
+    <div class="pd-detail-info__row">
+      <span class="pd-detail-info__label">Typ nemovitosti:</span>
+      <span class="pd-detail-info__value">Domy a vily</span>
+    </div>
+  </div>
+  <div class="pictogram">
+    <div class="pictogram__item" data-toggle="tooltip" title="Počet pokojů">5+1 <i class="icon-rooms"></i></div>
+    <div class="pictogram__item" data-toggle="tooltip" title="Užitná plocha">161 m<sup>2</sup></div>
+  </div>
   <img src="https://mlsf.remax-czech.cz/media/photo_001.jpg" alt="foto 1">
   <img src="https://mlsf.remax-czech.cz/media/photo_002.jpg" alt="foto 2">
   <img src="https://cdn.external.cz/irrelevant.jpg" alt="ext">
@@ -193,11 +222,33 @@ class TestRemaxParseDetailPage:
         result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
         assert result.get("price") == 3500000
 
-    def test_extrahuje_plochu(self):
+    def test_extrahuje_plochu_uzitkovou(self):
         result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
-        # Alespoň jedna z ploch zastavěné nebo pozemku musí být nalezena
-        area_fields = [result.get("area_built_up"), result.get("area_land")]
-        assert any(a is not None for a in area_fields)
+        assert result.get("area_built_up") == 161.0
+
+    def test_extrahuje_plochu_pozemku(self):
+        result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
+        assert result.get("area_land") == 750.0
+
+    def test_extrahuje_stav_objektu(self):
+        result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
+        assert result.get("condition") == "Po rekonstrukci"
+
+    def test_extrahuje_druh_objektu(self):
+        result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
+        assert result.get("construction_type") == "Cihlová"
+
+    def test_extrahuje_popis(self):
+        result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
+        desc = result.get("description", "")
+        assert "kompletní rekonstrukci" in desc
+        assert "Prodat Koupit" not in desc  # navigace nesmí být v popisu
+
+    def test_extrahuje_lokaci(self):
+        result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
+        loc = result.get("location_text", "")
+        assert "Znojmo" in loc
+        assert "mapa" not in loc.lower()
 
     def test_extrahuje_fotografie(self):
         result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
@@ -210,7 +261,6 @@ class TestRemaxParseDetailPage:
         assert result.get("property_type") == "Dům"
 
     def test_deduplication_photos(self):
-        """Každé URL fotky se vyskytuje jen jednou."""
         result = self.scraper._parse_detail_page(MOCK_REMAX_DETAIL_HTML, MOCK_LIST_ITEM)
         photos = result.get("photos", [])
         assert len(photos) == len(set(photos))

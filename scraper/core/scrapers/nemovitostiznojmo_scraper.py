@@ -237,17 +237,41 @@ class NemovitostiZnojmoScraper:
                     else:
                         result["area_built_up"] = area_val
             
-            # Lokace
+            # Lokace – HTML Eurobydleni má label a hodnotu v jednom elementu,
+            # např. "Přesná adresa Božice, Znojmo" nebo "Adresa Božice".
+            # Stripujeme label a preferujeme delší hodnotu (s okresem > bez okresu).
             if "lokalita" in text or "adresa" in text or "obec" in text:
-                # Zkusíme najít hodnotu vedle labelu
+                # Odstraň prefixový label: "přesná adresa", "adresa:", "lokalita", "obec"
+                clean_text = re.sub(
+                    r'^(?:p[řr]esn[áa]\s+)?(?:lokalita|adresa|obec|m[íi]sto):?\s*',
+                    '', text, flags=re.I,
+                ).strip()
+                # Fallback na strukturovaný val_el (ne vždy existuje)
                 val_el = row.select_one("td:nth-child(2), span.value, strong")
                 if val_el:
-                    result["location_text"] = val_el.get_text(strip=True)[:200]
-                else:
-                    # Fallback na celý text bez labelu
-                    clean_text = re.sub(r'^(lokalita|adresa|obec|místo):?\s*', '', text, flags=re.I)
-                    if clean_text and len(clean_text) > 3:
+                    val_text = val_el.get_text(strip=True)
+                    if len(val_text) > len(clean_text):
+                        clean_text = val_text
+                if clean_text and len(clean_text) > 3:
+                    existing = result.get("location_text", "")
+                    if len(clean_text) > len(existing):
                         result["location_text"] = clean_text[:200]
+
+            # GPS souřadnice přímo z textu řádku (ušetří Nominatim geocoding)
+            if "gps latitude" in text or "zeměpisná šířka" in text:
+                m = re.search(r'(\d{2,3}[.,]\d+)', text)
+                if m:
+                    try:
+                        result["latitude"] = float(m.group(1).replace(",", "."))
+                    except ValueError:
+                        pass
+            if "gps longitude" in text or "zeměpisná délka" in text:
+                m = re.search(r'(\d{1,3}[.,]\d+)', text)
+                if m:
+                    try:
+                        result["longitude"] = float(m.group(1).replace(",", "."))
+                    except ValueError:
+                        pass
 
         # Pokud jsme nenašli lokaci v parametrech, zkusíme najít v textu
         if "location_text" not in result or not result["location_text"]:

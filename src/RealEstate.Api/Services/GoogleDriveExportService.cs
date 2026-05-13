@@ -51,7 +51,7 @@ public sealed class GoogleDriveExportService(
 
         logger.LogInformation("Vytvořena Drive složka: {Name} ({Id})", folderName, folder.Id);
 
-        var photos = listing.Photos.OrderBy(p => p.Order).Take(20).ToList();
+        var photos = listing.Photos.OrderBy(p => p.Order).Take(50).ToList();
         var photoLinks = new List<PhotoLink>();
         if (photos.Count > 0)
         {

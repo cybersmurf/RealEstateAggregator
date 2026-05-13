@@ -5,15 +5,17 @@ using System.Text.Json.Serialization;
 namespace RealEstate.Api.Services;
 
 /// <summary>
-/// Embedding + chat service nad lokální Ollama instancí.
-/// Embedding: nomic-embed-text (768 dim) – nebo libovolný embed model z Ollama.
-/// Chat: qwen2.5:14b nebo libovolný chat model.
+/// Embedding + chat service.
+/// Embedding: nomic-embed-text (768 dim) přes lokální Ollama – beze změny.
+/// Chat: mistral-small-2506 přes Mistral API (dříve qwen2.5:14b přes Ollama).
 /// </summary>
 public sealed class OllamaEmbeddingService : IEmbeddingService
 {
     private readonly HttpClient _http;
+    private readonly IHttpClientFactory _httpFactory;
     private readonly string _embedModel;
-    private readonly string _chatModel;
+    private readonly string _mistralChatModel;
+    private readonly string _mistralApiKey;
     private readonly int _dimensions;
     private readonly ILogger<OllamaEmbeddingService> _logger;
 
@@ -25,8 +27,10 @@ public sealed class OllamaEmbeddingService : IEmbeddingService
         ILogger<OllamaEmbeddingService> logger)
     {
         _logger = logger;
+        _httpFactory = httpFactory;
         _embedModel = config["Ollama:EmbeddingModel"] ?? "nomic-embed-text";
-        _chatModel = config["Ollama:ChatModel"] ?? "qwen2.5:14b";
+        _mistralChatModel = config["Mistral:ChatModel"] ?? "mistral-small-2506";
+        _mistralApiKey = config["Mistral:ApiKey"] ?? string.Empty;
         _dimensions = int.TryParse(config["Embedding:VectorDimensions"], out var d) ? d : 768;
 
         var baseUrl = config["Ollama:BaseUrl"] ?? "http://localhost:11434";
@@ -36,8 +40,8 @@ public sealed class OllamaEmbeddingService : IEmbeddingService
 
         IsConfigured = true;
         logger.LogInformation(
-            "Ollama service configured (base={Base}, embed={Embed}, chat={Chat}, dim={Dim})",
-            baseUrl, _embedModel, _chatModel, _dimensions);
+            "OllamaEmbeddingService configured (base={Base}, embed={Embed}, mistral-chat={Chat}, dim={Dim})",
+            baseUrl, _embedModel, _mistralChatModel, _dimensions);
     }
 
     // ─── Embedding ────────────────────────────────────────────────────────────
@@ -72,35 +76,42 @@ public sealed class OllamaEmbeddingService : IEmbeddingService
         }
     }
 
-    // ─── Chat ─────────────────────────────────────────────────────────────────
+    // ─── Chat (Mistral API) ───────────────────────────────────────────────────
 
-    public async Task<string> ChatAsync(string systemPrompt, string userMessage, CancellationToken ct = default)
+    public async Task<string> ChatAsync(string systemPrompt, string userMessage, CancellationToken ct = default, bool jsonMode = false)
     {
         try
         {
-            var request = new
+            var requestNode = new System.Text.Json.Nodes.JsonObject
             {
-                model = _chatModel,
-                stream = false,
-                messages = new[]
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user",   content = userMessage  }
-                }
+                ["model"]  = _mistralChatModel,
+                ["messages"] = new System.Text.Json.Nodes.JsonArray(
+                    new System.Text.Json.Nodes.JsonObject { ["role"] = "system", ["content"] = systemPrompt },
+                    new System.Text.Json.Nodes.JsonObject { ["role"] = "user",   ["content"] = userMessage  }
+                )
             };
+            if (jsonMode)
+                requestNode["response_format"] = new System.Text.Json.Nodes.JsonObject { ["type"] = "json_object" };
 
-            var resp = await _http.PostAsJsonAsync("api/chat", request, ct);
+            using var http = _httpFactory.CreateClient("MistralChat");
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _mistralApiKey);
+
+            using var body = new StringContent(
+                requestNode.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
+            using var resp = await http.PostAsync(
+                "https://api.mistral.ai/v1/chat/completions", body, ct);
             resp.EnsureSuccessStatusCode();
 
-            var result = await resp.Content.ReadFromJsonAsync<OllamaChatResponse>(
+            var result = await resp.Content.ReadFromJsonAsync<MistralChatResponse>(
                 cancellationToken: ct);
 
-            return result?.Message?.Content
-                ?? "[Ollama vrátilo prázdnou odpověď]";
+            return result?.Choices?.FirstOrDefault()?.Message?.Content?.Trim()
+                ?? "[Mistral vrátilo prázdnou odpověď]";
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ollama chat failed (model={Model})", _chatModel);
+            _logger.LogError(ex, "Mistral chat failed (model={Model})", _mistralChatModel);
             throw;
         }
     }
@@ -113,13 +124,20 @@ public sealed class OllamaEmbeddingService : IEmbeddingService
         public List<float[]>? Embeddings { get; set; }
     }
 
-    private sealed class OllamaChatResponse
+    // Mistral chat/completions response (stejný formát jako OpenAI)
+    private sealed class MistralChatResponse
     {
-        [JsonPropertyName("message")]
-        public OllamaMessage? Message { get; set; }
+        [JsonPropertyName("choices")]
+        public List<MistralChoice>? Choices { get; set; }
     }
 
-    private sealed class OllamaMessage
+    private sealed class MistralChoice
+    {
+        [JsonPropertyName("message")]
+        public MistralMessage? Message { get; set; }
+    }
+
+    private sealed class MistralMessage
     {
         [JsonPropertyName("content")]
         public string? Content { get; set; }

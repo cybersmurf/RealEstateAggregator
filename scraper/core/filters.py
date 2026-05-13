@@ -38,8 +38,8 @@ class FilterManager:
         return {
             "search_filters": {
                 "target_districts": ["Znojmo"],
-                "houses": {"enabled": True, "max_price": 8500000},
-                "land": {"enabled": True, "max_price": 2000000},
+                "houses": {"enabled": True, "max_price": 10000000},
+                "land": {"enabled": True, "max_price": 3500000},
             },
             "quality_filters": {
                 "require_photos": True,
@@ -101,12 +101,26 @@ class FilterManager:
         
         return (True, None)
     
+    # Mapování českých property_type hodnot na anglické (shodné s DB mapováním)
+    _PT_NORMALIZE = {
+        "Dům": "House", "Byt": "Apartment", "Pozemek": "Land",
+        "Chata": "Cottage", "Komerční": "Commercial",
+        "Garáž": "Garage", "Ostatní": "Other",
+    }
+
+    # Mapování českých offer_type hodnot na anglické (shodné s DB mapováním)
+    _OT_NORMALIZE = {
+        "Prodej": "Sale", "Pronájem": "Rent", "Dražba": "Auction",
+    }
+
     def _check_search_filters(self, listing_data: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """Kontroluje search filtry (geografické, cenové)."""
         sf = self.search_filters
-        
-        property_type = listing_data.get("property_type", "Ostatní")
-        offer_type = listing_data.get("offer_type", "Sale")
+
+        raw_type = listing_data.get("property_type", "Ostatní")
+        property_type = self._PT_NORMALIZE.get(raw_type, raw_type)
+        raw_offer = listing_data.get("offer_type", "Sale")
+        offer_type = self._OT_NORMALIZE.get(raw_offer, raw_offer)
         price = listing_data.get("price")
         # 🔥 Kombinuj všechna lokační pole pro robustnější geo filtrování.
         # Sreality API vrací někdy jen "Ulice, Obec" bez okresu → spoléháme na

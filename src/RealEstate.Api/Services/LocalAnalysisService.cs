@@ -44,6 +44,7 @@ public sealed class LocalAnalysisService(
     private string OllamaCloudBaseUrl   => (config["OllamaCloud:BaseUrl"] ?? "https://ollama.com/v1").TrimEnd('/');
     private string? AnthropicApiKey     => config["Anthropic:ApiKey"];
     private const string AnthropicBaseUrl = "https://api.anthropic.com/v1";
+    private string OpenRouterReferer    => config["OpenRouter:Referer"] ?? Environment.GetEnvironmentVariable("PUBLIC_API_URL") ?? "http://localhost:5001";
 
     // ─── Prompt pro popis fotky (česky, stručně) ─────────────────────────────
     private const string PhotoDescPrompt = """
@@ -385,11 +386,12 @@ public sealed class LocalAnalysisService(
             var requestObj = new
             {
                 model,
-                messages    = messagesList,
-                tools       = toolDefs,
-                tool_choice = turn == 0 ? (object)"any" : "auto",  // Mistral: "any" = musí zavolat tool
-                temperature = 0.3,
-                max_tokens  = 4096,
+                messages            = messagesList,
+                tools               = toolDefs,
+                tool_choice         = turn == 0 ? (object)"any" : "auto",  // Mistral: "any" = musí zavolat tool
+                parallel_tool_calls = true,   // Mistral Large 3 – volá všechny nástroje v jednom kole
+                temperature         = 0.3,
+                max_tokens          = 4096,
             };
 
             using var body = new StringContent(
@@ -640,7 +642,7 @@ public sealed class LocalAnalysisService(
                         OpenRouterApiKey ?? throw new InvalidOperationException("OpenRouter:ApiKey není nastaven."),
                         effectiveModel["openrouter/".Length..],
                         systemPrompt, userMessage, ct,
-                        new() { ["HTTP-Referer"] = "http://localhost:5001", ["X-Title"] = "RealEstateAggregator" })
+                        new() { ["HTTP-Referer"] = OpenRouterReferer, ["X-Title"] = "RealEstateAggregator" })
                     : effectiveModel.StartsWith("ollama-cloud/", StringComparison.OrdinalIgnoreCase)
                         ? await ExternalOpenAiChatAsync(
                             OllamaCloudBaseUrl,
@@ -778,29 +780,51 @@ public sealed class LocalAnalysisService(
 
         var base64 = Convert.ToBase64String(imageBytes);
 
-        var request = new
+        if (string.IsNullOrWhiteSpace(MistralApiKey))
         {
-            model   = VisionModel,
-            prompt  = PhotoDescPrompt,
-            images  = new[] { base64 },
-            stream  = false,
-            options = new { temperature = 0.2, num_predict = 150 }
+            logger.LogWarning("MISTRAL_API_KEY není nastaven, popis fotky přeskočen");
+            return null;
+        }
+
+        var requestBody = new
+        {
+            model = config["Mistral:VisionModel"] ?? "mistral-small-2506",
+            messages = new[]
+            {
+                new
+                {
+                    role = "user",
+                    content = new object[]
+                    {
+                        new { type = "image_url", image_url = new { url = $"data:image/jpeg;base64,{base64}" } },
+                        new { type = "text", text = PhotoDescPrompt }
+                    }
+                }
+            },
+            max_tokens = 200,
+            temperature = 0.2
         };
 
-        using var ollamaHttp = httpClientFactory.CreateClient("OllamaVision");
+        using var mistralHttp = httpClientFactory.CreateClient("MistralVision");
+        mistralHttp.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", MistralApiKey);
         using var content = new StringContent(
-            JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
 
-        using var response = await ollamaHttp.PostAsync($"{OllamaBaseUrl}/api/generate", content, ct);
+        using var response = await mistralHttp.PostAsync($"{MistralBaseUrl}/chat/completions", content, ct);
         if (!response.IsSuccessStatusCode)
         {
-            logger.LogWarning("Vision HTTP {Status} pro foto {Id}", (int)response.StatusCode, photoId);
+            logger.LogWarning("Mistral Vision HTTP {Status} pro foto {Id}", (int)response.StatusCode, photoId);
             return null;
         }
 
         var body = await response.Content.ReadAsStringAsync(ct);
-        var parsed = JsonSerializer.Deserialize<OllamaGenerateResp>(body, JsonOpts);
-        return parsed?.Response?.Trim();
+        using var respDoc = JsonDocument.Parse(body);
+        return respDoc.RootElement
+            .GetProperty("choices")[0]
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString()?.Trim();
     }
 
     // ─── Prompt building ─────────────────────────────────────────────────────
@@ -1292,9 +1316,6 @@ public sealed class LocalAnalysisService(
             || text.Contains("developerský projekt")
             || l.Condition is "Nový" or "Nová";
     }
-
-    // Interní DTO pro Ollama /api/generate response
-    private sealed record OllamaGenerateResp(string? Response);
 
     // Interní DTO pro Ollama /api/chat response
     private sealed record OllamaChatResp(OllamaChatMessage? Message);

@@ -21,10 +21,10 @@ public static class PhotoEndpoints
             .WithSummary("Vrátí statistiku stažených vs. nestažených fotek.")
             .Produces<PhotoDownloadStatsDto>(200);
 
-        // ── Ollama Vision klasifikace ─────────────────────────────────────
+        // ── Mistral Vision klasifikace ────────────────────────────────────
         group.MapPost("/bulk-classify", BulkClassify)
             .WithName("BulkClassifyPhotos")
-            .WithSummary("Klasifikuje dávku fotek přes Ollama Vision (llama3.2-vision). Vyžaduje stažené fotky (stored_url != null).")
+            .WithSummary("Klasifikuje dávku fotek přes Mistral Vision. Vyžaduje stažené fotky (stored_url != null).")
             .Produces<PhotoClassificationResultDto>(200);
 
         group.MapGet("/classification-stats", GetClassificationStats)
@@ -92,7 +92,9 @@ public static class PhotoEndpoints
         [FromServices] IPhotoClassificationService service = default!,
         CancellationToken cancellationToken = default)
     {
-        if (batchSize < 1 || batchSize > 50)
+        // Validace batchSize jen pro globální bulk (bez listingId).
+        // Když je listingId zadáno, service zpracuje VŠECHNY fotky listingu bez omezení.
+        if (!listingId.HasValue && (batchSize < 1 || batchSize > 50))
             return Results.Problem(
                 title: "Neplatný batchSize",
                 detail: "batchSize musí být v rozmezí 1–50 (Vision model je pomalý).",
@@ -117,7 +119,7 @@ public static class PhotoEndpoints
         [FromServices] IPhotoClassificationService service = default!,
         CancellationToken cancellationToken = default)
     {
-        if (batchSize < 1 || batchSize > 50)
+        if (!listingId.HasValue && (batchSize < 1 || batchSize > 50))
             return Results.Problem(
                 title: "Neplatný batchSize",
                 detail: "batchSize musí být v rozmezí 1–50.",
@@ -182,7 +184,7 @@ public static class PhotoEndpoints
         [FromServices] IPhotoClassificationService service = default!,
         CancellationToken cancellationToken = default)
     {
-        if (batchSize < 1 || batchSize > 50)
+        if (!listingId.HasValue && (batchSize < 1 || batchSize > 50))
             return Results.Problem(
                 title: "Neplatný batchSize",
                 detail: "batchSize musí být v rozmezí 1–50.",

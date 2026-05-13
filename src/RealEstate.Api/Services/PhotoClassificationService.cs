@@ -8,7 +8,7 @@ using RealEstate.Infrastructure;
 namespace RealEstate.Api.Services;
 
 /// <summary>
-/// Klasifikuje fotky nemovitostí přes Ollama Vision API (llama3.2-vision).
+/// Klasifikuje fotky nemovitostí přes Mistral Vision API (mistral-small-2506).
 /// Čte soubory z lokálního storage (wwwroot/uploads/...) a posílá jako base64.
 /// Výsledky ukládá do sloupců photo_category, photo_labels, damage_detected, classified_at.
 /// </summary>
@@ -25,16 +25,18 @@ public sealed class PhotoClassificationService(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    // Ollama generate endpoint
-    private string OllamaBaseUrl =>
-        Environment.GetEnvironmentVariable("OLLAMA_BASE_URL")
-        ?? configuration["Ollama:BaseUrl"]
-        ?? "http://localhost:11434";
+    // Mistral Vision API
+    private string MistralApiKey =>
+        Environment.GetEnvironmentVariable("MISTRAL_API_KEY")
+        ?? configuration["Mistral:ApiKey"]
+        ?? throw new InvalidOperationException("MISTRAL_API_KEY není nakonfigurován");
 
-    private string VisionModel =>
-        Environment.GetEnvironmentVariable("OLLAMA_VISION_MODEL")
-        ?? configuration["Ollama:VisionModel"]
-        ?? "llama3.2-vision:11b";
+    private string MistralVisionModel =>
+        Environment.GetEnvironmentVariable("MISTRAL_VISION_MODEL")
+        ?? configuration["Mistral:VisionModel"]
+        ?? "mistral-small-2506";
+
+    private const string MistralApiUrl = "https://api.mistral.ai/v1/chat/completions";
 
     // Public base URL odstraníme ze stored_url abychom dostali relativní cestu k souboru
     private string PublicBaseUrl =>
@@ -89,10 +91,10 @@ public sealed class PhotoClassificationService(
                         || u.Status == "Visited")));
         }
 
-        var photos = await query
-            .OrderBy(p => p.ListingId)
-            .ThenBy(p => p.Order)
-            .Take(batchSize)
+        // Pokud je zadán konkrétní listing, klasifikuj VŠECHNY jeho fotky.
+        // BatchSize se aplikuje jen pro globální bulk bez listingId.
+        var orderedQuery = query.OrderBy(p => p.ListingId).ThenBy(p => p.Order);
+        var photos = await (listingId.HasValue ? orderedQuery : orderedQuery.Take(batchSize))
             .ToListAsync(ct);
 
         if (photos.Count == 0)
@@ -116,7 +118,9 @@ public sealed class PhotoClassificationService(
 
         int succeeded = 0, failed = 0;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        using var httpClient = httpClientFactory.CreateClient("OllamaVision");
+        using var httpClient = httpClientFactory.CreateClient("MistralVision");
+        httpClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", MistralApiKey);
 
         foreach (var photo in photos)
         {
@@ -161,108 +165,14 @@ public sealed class PhotoClassificationService(
                     failed++;
                     continue;
                 }
-                var base64 = Convert.ToBase64String(imageBytes);
 
-                var ollamaUrl = $"{OllamaBaseUrl.TrimEnd('/')}/api/generate";
-
-                // ── 1. Volání: JSON klasifikace (format:json zaručuje valid JSON) ─────
-                var classifyRequest = new
-                {
-                    model = VisionModel,
-                    prompt = ClassificationPrompt,
-                    images = new[] { base64 },
-                    stream = false,
-                    format = "json",
-                    options = new { temperature = 0.1, num_predict = 256 }
-                };
-
-                using var classifyContent = new StringContent(
-                    JsonSerializer.Serialize(classifyRequest), Encoding.UTF8, "application/json");
-                // CancellationToken.None: nechceme přerušit Ollama volání kvůli HTTP request timeoutu
-                // (Blazor HttpClient má default 100s; vision model může trvat i 5 min)
-                // Bezpečnostní síť = OllamaVision HttpClient.Timeout = 5 minut
-                using var classifyResponse = await httpClient.PostAsync(ollamaUrl, classifyContent, CancellationToken.None);
-
-                if (!classifyResponse.IsSuccessStatusCode)
-                {
-                    var body = await classifyResponse.Content.ReadAsStringAsync(CancellationToken.None);
-                    logger.LogWarning(
-                        "Ollama classify HTTP {Status} for listing {ListingId} photo {Order}: {Body}",
-                        (int)classifyResponse.StatusCode, photo.ListingId, photo.Order,
-                        body[..Math.Min(200, body.Length)]);
-                    failed++;
-                    continue;
-                }
-
-                var classifyBody = await classifyResponse.Content.ReadAsStringAsync(CancellationToken.None);
-                var classifyOllama = JsonSerializer.Deserialize<OllamaGenerateResponse>(classifyBody, _jsonOptions);
-
-                if (string.IsNullOrWhiteSpace(classifyOllama?.Response))
-                {
-                    logger.LogWarning("Empty JSON response for listing {ListingId} photo {Order}",
-                        photo.ListingId, photo.Order);
-                    failed++;
-                    continue;
-                }
-
-                // Parsuj JSON klasifikaci (regex fallback pokud JSON useknutý)
-                PhotoClassificationJson? classification = null;
-                try
-                {
-                    classification = JsonSerializer.Deserialize<PhotoClassificationJson>(
-                        classifyOllama.Response, _jsonOptions);
-                }
-                catch (JsonException)
-                {
-                    classification = TryParsePartialJson(classifyOllama.Response);
-                }
+                var (classification, photoDescription) = await RunMistralClassificationAsync(
+                    httpClient, imageBytes, photo.ListingId, photo.Id, CancellationToken.None);
 
                 if (classification == null || string.IsNullOrWhiteSpace(classification.Category))
                 {
-                    logger.LogWarning(
-                        "Could not parse classification JSON for listing {ListingId} photo {Order}: {Raw}",
-                        photo.ListingId, photo.Order,
-                        classifyOllama.Response[..Math.Min(200, classifyOllama.Response.Length)]);
                     failed++;
                     continue;
-                }
-
-                // ── 2. Volání: volný text popis česky (BEZ format:json – neskne se) ──
-                string? photoDescription = null;
-                try
-                {
-                    var descRequest = new
-                    {
-                        model = VisionModel,
-                        prompt = DescriptionPrompt,
-                        images = new[] { base64 },
-                        stream = false,
-                        options = new { temperature = 0.3, num_predict = 200 }
-                        // Záměrně BEZ format:json – volný text je spolehlivější pro delší výstup
-                    };
-
-                    using var descContent = new StringContent(
-                        JsonSerializer.Serialize(descRequest), Encoding.UTF8, "application/json");
-                    using var descResponse = await httpClient.PostAsync(ollamaUrl, descContent, CancellationToken.None);
-
-                    if (descResponse.IsSuccessStatusCode)
-                    {
-                        var descBody = await descResponse.Content.ReadAsStringAsync(CancellationToken.None);
-                        var descOllama = JsonSerializer.Deserialize<OllamaGenerateResponse>(descBody, _jsonOptions);
-                        if (!string.IsNullOrWhiteSpace(descOllama?.Response))
-                        {
-                            var raw = descOllama.Response.Trim();
-                            // Ořízni na max 400 znaků na celé větě (LLM někdy opakuje věty)
-                            photoDescription = TrimToSentence(raw, maxLength: 400);
-                        }
-                    }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    // Popis není kritický – logujeme jako debug, pokračujeme bez něj
-                    logger.LogDebug(ex,
-                        "Description call failed for listing {ListingId} photo {Order}, continuing without it",
-                        photo.ListingId, photo.Order);
                 }
 
                 // ── Uložení výsledku do DB ──────────────────────────────────────────
@@ -340,10 +250,10 @@ public sealed class PhotoClassificationService(
                         || u.Status == "Visited")));
         }
 
-        var photos = await query
-            .OrderBy(p => p.ListingId)
-            .ThenBy(p => p.UploadedAt)
-            .Take(batchSize)
+        // Pokud je zadán konkrétní listing, klasifikuj VŠECHNY jeho fotky.
+        // BatchSize se aplikuje jen pro globální bulk bez listingId.
+        var orderedInspQuery = query.OrderBy(p => p.ListingId).ThenBy(p => p.UploadedAt);
+        var photos = await (listingId.HasValue ? orderedInspQuery : orderedInspQuery.Take(batchSize))
             .ToListAsync(ct);
 
         if (photos.Count == 0)
@@ -367,7 +277,9 @@ public sealed class PhotoClassificationService(
 
         int succeeded = 0, failed = 0;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        using var httpClient = httpClientFactory.CreateClient("OllamaVision");
+        using var httpClient = httpClientFactory.CreateClient("MistralVision");
+        httpClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", MistralApiKey);
 
         foreach (var photo in photos)
         {
@@ -385,8 +297,8 @@ public sealed class PhotoClassificationService(
                 }
 
                 var imageBytes = await File.ReadAllBytesAsync(localPath, ct);
-                var (classification, description) = await RunOllamaClassificationAsync(
-                    httpClient, imageBytes, photo.ListingId, photo.Id, ct);
+                var (classification, description) = await RunMistralClassificationAsync(
+                    httpClient, imageBytes, photo.ListingId, photo.Id, CancellationToken.None);
 
                 if (classification == null)
                 {
@@ -450,57 +362,30 @@ public sealed class PhotoClassificationService(
     }
 
     /// <summary>
-    /// Sdílená Ollama logika pro oba typy fotek (listing + inspection).
+    /// Sdílená Mistral Vision logika pro oba typy fotek (listing + inspection).
     /// Vrátí (classification, description) nebo (null, null) při selhání.
     /// </summary>
-    private async Task<(PhotoClassificationJson? Classification, string? Description)> RunOllamaClassificationAsync(
+    private async Task<(PhotoClassificationJson? Classification, string? Description)> RunMistralClassificationAsync(
         HttpClient httpClient, byte[] imageBytes, Guid listingId, Guid photoId, CancellationToken ct)
     {
-        var base64    = Convert.ToBase64String(imageBytes);
-        var ollamaUrl = $"{OllamaBaseUrl.TrimEnd('/')}/api/generate";
+        var base64 = Convert.ToBase64String(imageBytes);
 
         // 1. JSON klasifikace
-        var classifyRequest = new
+        var classifyRaw = await CallMistralVisionAsync(httpClient, base64, ClassificationPrompt, 256, 0.1, ct);
+        if (classifyRaw is null)
         {
-            model   = VisionModel,
-            prompt  = ClassificationPrompt,
-            images  = new[] { base64 },
-            stream  = false,
-            format  = "json",
-            options = new { temperature = 0.1, num_predict = 256 }
-        };
-
-        using var classifyContent = new StringContent(
-            JsonSerializer.Serialize(classifyRequest), Encoding.UTF8, "application/json");
-        using var classifyResponse = await httpClient.PostAsync(ollamaUrl, classifyContent, CancellationToken.None);
-
-        if (!classifyResponse.IsSuccessStatusCode)
-        {
-            var body = await classifyResponse.Content.ReadAsStringAsync(CancellationToken.None);
-            logger.LogWarning("Ollama classify HTTP {Status} for {ListingId}/{PhotoId}: {Body}",
-                (int)classifyResponse.StatusCode, listingId, photoId,
-                body[..Math.Min(200, body.Length)]);
-            return (null, null);
-        }
-
-        var classifyBody   = await classifyResponse.Content.ReadAsStringAsync(CancellationToken.None);
-        var classifyOllama = JsonSerializer.Deserialize<OllamaGenerateResponse>(classifyBody, _jsonOptions);
-
-        if (string.IsNullOrWhiteSpace(classifyOllama?.Response))
-        {
-            logger.LogWarning("Empty JSON response for {ListingId}/{PhotoId}", listingId, photoId);
+            logger.LogWarning("Mistral classify call failed for {ListingId}/{PhotoId}", listingId, photoId);
             return (null, null);
         }
 
         PhotoClassificationJson? classification = null;
-        try { classification = JsonSerializer.Deserialize<PhotoClassificationJson>(classifyOllama.Response, _jsonOptions); }
-        catch (JsonException) { classification = TryParsePartialJson(classifyOllama.Response); }
+        try { classification = JsonSerializer.Deserialize<PhotoClassificationJson>(classifyRaw, _jsonOptions); }
+        catch (JsonException) { classification = TryParsePartialJson(classifyRaw); }
 
         if (classification == null || string.IsNullOrWhiteSpace(classification.Category))
         {
             logger.LogWarning("Could not parse classification for {ListingId}/{PhotoId}: {Raw}",
-                listingId, photoId,
-                classifyOllama.Response[..Math.Min(200, classifyOllama.Response.Length)]);
+                listingId, photoId, classifyRaw[..Math.Min(200, classifyRaw.Length)]);
             return (null, null);
         }
 
@@ -508,24 +393,9 @@ public sealed class PhotoClassificationService(
         string? description = null;
         try
         {
-            var descRequest = new
-            {
-                model   = VisionModel,
-                prompt  = DescriptionPrompt,
-                images  = new[] { base64 },
-                stream  = false,
-                options = new { temperature = 0.3, num_predict = 200 }
-            };
-            using var descContent = new StringContent(
-                JsonSerializer.Serialize(descRequest), Encoding.UTF8, "application/json");
-            using var descResponse = await httpClient.PostAsync(ollamaUrl, descContent, CancellationToken.None);
-            if (descResponse.IsSuccessStatusCode)
-            {
-                var descBody   = await descResponse.Content.ReadAsStringAsync(CancellationToken.None);
-                var descOllama = JsonSerializer.Deserialize<OllamaGenerateResponse>(descBody, _jsonOptions);
-                if (!string.IsNullOrWhiteSpace(descOllama?.Response))
-                    description = TrimToSentence(descOllama.Response.Trim(), maxLength: 400);
-            }
+            var descRaw = await CallMistralVisionAsync(httpClient, base64, DescriptionPrompt, 200, 0.3, ct);
+            if (!string.IsNullOrWhiteSpace(descRaw))
+                description = TrimToSentence(descRaw.Trim(), maxLength: 400);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -533,6 +403,50 @@ public sealed class PhotoClassificationService(
         }
 
         return (classification, description);
+    }
+
+    /// <summary>
+    /// Jeden Mistral Vision API call – vrátí surový text odpovědi (code fences odstraněny).
+    /// </summary>
+    private async Task<string?> CallMistralVisionAsync(
+        HttpClient httpClient, string base64, string prompt,
+        int maxTokens, double temperature, CancellationToken ct)
+    {
+        var requestBody = new
+        {
+            model = MistralVisionModel,
+            messages = new[]
+            {
+                new
+                {
+                    role = "user",
+                    content = new object[]
+                    {
+                        new { type = "image_url", image_url = new { url = $"data:image/jpeg;base64,{base64}" } },
+                        new { type = "text", text = prompt }
+                    }
+                }
+            },
+            max_tokens = maxTokens,
+            temperature = temperature
+        };
+
+        using var content = new StringContent(
+            JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+        using var response = await httpClient.PostAsync(MistralApiUrl, content, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
+            logger.LogWarning("Mistral Vision HTTP {Status}: {Body}",
+                (int)response.StatusCode, errBody[..Math.Min(300, errBody.Length)]);
+            return null;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(CancellationToken.None);
+        var resp = JsonSerializer.Deserialize<MistralChatResponse>(body, _jsonOptions);
+        var rawContent = resp?.Choices?[0]?.Message?.Content;
+        return rawContent is null ? null : StripCodeFences(rawContent);
     }
 
     public async Task<PhotoClassificationStatsDto> GetClassificationStatsAsync(CancellationToken ct)
@@ -704,11 +618,12 @@ public sealed class PhotoClassificationService(
     {
         batchSize = Math.Clamp(batchSize, 1, 50);
 
-        var photos = await db.ListingPhotos
+        // Pokud je zadán konkrétní listing, generuj alt text pro VŠECHNY jeho fotky.
+        var altQuery = db.ListingPhotos
             .Where(p => (p.StoredUrl != null || p.OriginalUrl != null) && p.AltText == null)
             .Where(p => listingId == null || p.ListingId == listingId)
-            .OrderBy(p => p.ListingId).ThenBy(p => p.Order)
-            .Take(batchSize)
+            .OrderBy(p => p.ListingId).ThenBy(p => p.Order);
+        var photos = await (listingId.HasValue ? altQuery : altQuery.Take(batchSize))
             .ToListAsync(ct);
 
         if (photos.Count == 0)
@@ -721,7 +636,9 @@ public sealed class PhotoClassificationService(
 
         int succeeded = 0, failed = 0;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        using var httpClient = httpClientFactory.CreateClient("OllamaVision");
+        using var httpClient = httpClientFactory.CreateClient("MistralVision");
+        httpClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", MistralApiKey);
 
         foreach (var photo in photos)
         {
@@ -745,30 +662,11 @@ public sealed class PhotoClassificationService(
                 else { failed++; continue; }
 
                 var base64 = Convert.ToBase64String(imageBytes);
-                var ollamaUrl = $"{OllamaBaseUrl.TrimEnd('/')}/api/generate";
+                var altRaw = await CallMistralVisionAsync(httpClient, base64, AltTextPrompt, 80, 0.2, ct);
 
-                var request = new
-                {
-                    model = VisionModel,
-                    prompt = AltTextPrompt,
-                    images = new[] { base64 },
-                    stream = false,
-                    options = new { temperature = 0.2, num_predict = 80 }
-                };
+                if (string.IsNullOrWhiteSpace(altRaw)) { failed++; continue; }
 
-                using var content = new StringContent(
-                    System.Text.Json.JsonSerializer.Serialize(request),
-                    System.Text.Encoding.UTF8, "application/json");
-                using var response = await httpClient.PostAsync(ollamaUrl, content, ct);
-
-                if (!response.IsSuccessStatusCode) { failed++; continue; }
-
-                var body = await response.Content.ReadAsStringAsync(ct);
-                var ollama = System.Text.Json.JsonSerializer.Deserialize<OllamaGenerateResponse>(body, _jsonOptions);
-
-                if (string.IsNullOrWhiteSpace(ollama?.Response)) { failed++; continue; }
-
-                var altText = ollama.Response.Trim();
+                var altText = altRaw.Trim();
                 // Ořízni na max 150 znaků
                 if (altText.Length > 150) altText = altText[..150].TrimEnd();
                 photo.AltText = altText;
@@ -801,10 +699,38 @@ public sealed class PhotoClassificationService(
 
     // ── Interní deserialization modely ───────────────────────────────────────
 
-    private sealed class OllamaGenerateResponse
+    private sealed class MistralChatResponse
     {
-        [JsonPropertyName("response")]
-        public string? Response { get; set; }
+        [JsonPropertyName("choices")]
+        public MistralChoice[]? Choices { get; set; }
+    }
+
+    private sealed class MistralChoice
+    {
+        [JsonPropertyName("message")]
+        public MistralMessage? Message { get; set; }
+    }
+
+    private sealed class MistralMessage
+    {
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+    }
+
+    /// <summary>
+    /// Odstraní ```json ... ``` code fences z odpovědi Mistral.
+    /// </summary>
+    private static string StripCodeFences(string text)
+    {
+        var s = text.Trim();
+        if (s.StartsWith("```", StringComparison.Ordinal))
+        {
+            var newline = s.IndexOf('\n');
+            s = newline >= 0 ? s[(newline + 1)..] : s[3..];
+        }
+        if (s.EndsWith("```", StringComparison.Ordinal))
+            s = s[..s.LastIndexOf("```")].TrimEnd();
+        return s.Trim();
     }
 
     private sealed class PhotoClassificationJson

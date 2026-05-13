@@ -55,7 +55,7 @@ def _cap_output(text: str, max_chars: int = 0) -> str:
     )
 
 
-def _resize_image(raw_bytes: bytes, max_width: int = 1200, quality: int = 72) -> bytes:
+def _resize_image(raw_bytes: bytes, max_width: int = 800, quality: int = 60) -> bytes:
     """Resize image to max_width keeping aspect ratio, compress to JPEG."""
     try:
         img = Image.open(io.BytesIO(raw_bytes))
@@ -71,14 +71,43 @@ def _resize_image(raw_bytes: bytes, max_width: int = 1200, quality: int = 72) ->
     except Exception:
         return raw_bytes  # fallback: original
 
+# ─── Mistral Vision helper ───────────────────────────────────────────────────
+
+async def _analyze_with_mistral_vision(b64: str, prompt: str, client: httpx.AsyncClient) -> str:
+    """Pošle obrázek na Mistral Vision API a vrátí textový popis."""
+    resp = await client.post(
+        "https://api.mistral.ai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"},
+        json={
+            "model": MISTRAL_VISION_MODEL,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+            "max_tokens": 512,
+            "temperature": 0.1,
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
+
+
 # ─── Konfigurace ──────────────────────────────────────────────────────────────
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:5001")
+# Veřejná URL pro stahování fotek (storedUrl je relativní /uploads/...). Může být jiná než API_BASE_URL
+# když API není veřejně dostupné (např. port 15001 blokovaný firewallem na serveru).
+# Výchozí = stejná jako API_BASE_URL, ale na produkci nastav na veřejně dostupnou URL (port App).
+PHOTOS_BASE_URL = os.getenv("PHOTOS_BASE_URL", API_BASE_URL)
 API_TIMEOUT = float(os.getenv("API_TIMEOUT_SECONDS", "30"))
 TRANSPORT = os.getenv("TRANSPORT", "stdio")   # "stdio" nebo "sse"
 PORT = int(os.getenv("PORT", "8002"))
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava:7b")
+MISTRAL_API_KEY      = os.getenv("MISTRAL_API_KEY",      "Auf12P50gxnU6Py6l5qokYCBmYfWKtkU")
+MISTRAL_VISION_MODEL = os.getenv("MISTRAL_VISION_MODEL", "mistral-small-2506")
 
 # Max znaků které jeden MCP tool vrátí – omezuje výši kontextu a kreditů Claude
 MAX_OUTPUT_CHARS = int(os.getenv("MCP_MAX_OUTPUT_CHARS", "200000"))
@@ -99,8 +128,8 @@ Dostupné nástroje:
 - get_listing: Detailní informace o konkrétním inzerátu (text + metadata + fotky jako URL)
 - get_listing_photos: 📸 Fotky Z INZERÁTU jako obrázky viditelné v chatu
 - get_inspection_photos: 📷 Fotky Z PROHLÍDKY jako obrázky viditelné v chatu
-- analyze_inspection_photos: 🔍 AI analýza fotek z prohlídky (llava vision) – místnost, stav, popis, nedostatky
-- analyze_listing_photos: 🔍 AI analýza fotek z inzerátu (llava vision) – přehled před prohlídkou
+- analyze_inspection_photos: 🔍 AI analýza fotek z prohlídky (Mistral Vision / llava) – místnost, stav, popis, nedostatky
+- analyze_listing_photos: 🔍 AI analýza fotek z inzerátu (Mistral Vision / llava) – přehled před prohlídkou
 - get_analyses: Zobrazení uložených analýz pro inzerát
 - save_analysis: Uložení nové analýzy textu (automaticky se vygeneruje embedding)
 - ask_listing: RAG dotaz nad analýzami konkrétního inzerátu
@@ -323,10 +352,10 @@ async def get_listing(listing_id: str) -> str:
 
 
 @mcp.tool()
-async def get_inspection_photos(listing_id: str, page: int = 1, page_size: int = 10) -> list:
+async def get_inspection_photos(listing_id: str, page: int = 1, page_size: int = 5) -> list:
     """
     📷 Vrátí fotky z prohlídky jako OBRÁZKY (ne URL).
-    Claude je vidí přímo v chatu! Fotky jsou automaticky zmenšeny na max 1200px.
+    Claude je vidí přímo v chatu! Fotky jsou automaticky zmenšeny na max 800px.
 
     Args:
         listing_id: UUID inzerátu
@@ -361,7 +390,12 @@ async def get_inspection_photos(listing_id: str, page: int = 1, page_size: int =
         for i, p in enumerate(page_photos, start + 1):
             filename = p.get('originalFileName', f'photo-{i}.jpg')
             filesize_kb = p.get('fileSizeBytes', 0) // 1024
-            url = p.get('url', '')
+            raw_url = p.get('url', '')
+            # Relativní URL → stahuj přes API_BASE_URL (lokální)
+            if raw_url.startswith("/"):
+                url = API_BASE_URL.rstrip("/") + raw_url
+            else:
+                url = raw_url
             result.append(TextContent(type="text", text=f"**{i}. {filename}** (orig. {filesize_kb} KB)"))
             try:
                 if url:
@@ -378,10 +412,10 @@ async def get_inspection_photos(listing_id: str, page: int = 1, page_size: int =
 
 
 @mcp.tool()
-async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 10) -> list:
+async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 5) -> list:
     """
     📸 Vrátí fotky z inzerátu jako OBRÁZKY (ne URL).
-    Claude je vidí přímo v chatu! Fotky jsou automaticky zmenšeny na max 1200px.
+    Claude je vidí přímo v chatu! Fotky jsou automaticky zmenšeny na max 800px.
 
     Args:
         listing_id: UUID inzerátu
@@ -415,7 +449,16 @@ async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 10
 
     async with httpx.AsyncClient(timeout=60) as client:
         for i, p in enumerate(page_photos, start + 1):
-            url = p.get("storedUrl") or p.get("originalUrl") or ""
+            stored = p.get("storedUrl") or ""
+            original = p.get("originalUrl") or ""
+            # storedUrl je relativní /uploads/... → stahuj přes API_BASE_URL (lokální)
+            # originalUrl je přímá CDN URL (fallback pokud stored není k dispozici)
+            if stored.startswith("/"):
+                url = API_BASE_URL.rstrip("/") + stored
+            elif stored:
+                url = stored
+            else:
+                url = original
             if not url:
                 continue
             result.append(TextContent(type="text", text=f"**{i}.**"))
@@ -476,7 +519,7 @@ async def analyze_inspection_photos(listing_id: str, page: int = 1, page_size: i
     cached_count = sum(1 for p in page_photos if p.get("aiDescription") and not force)
     lines = [
         f"## 🔍 AI analýza fotek z prohlídky – stránka {page}/{total_pages} ({start+1}–{end} z {total})",
-        f"Model: `{OLLAMA_VISION_MODEL}` | Inzerát: `{listing_id}` | 💾 Cache: {cached_count}/{len(page_photos)}\n",
+        f"Model: `{MISTRAL_VISION_MODEL}` | Inzerát: `{listing_id}` | 💾 Cache: {cached_count}/{len(page_photos)}\n",
     ]
 
     async with httpx.AsyncClient(timeout=120) as client:
@@ -484,6 +527,8 @@ async def analyze_inspection_photos(listing_id: str, page: int = 1, page_size: i
             photo_id = p.get("id", "")
             filename = p.get("originalFileName", f"photo-{i}.jpg")
             url = p.get("url", "")
+            if url and url.startswith("/"):
+                url = API_BASE_URL.rstrip("/") + url
             cached = p.get("aiDescription")
             lines.append(f"\n---\n### Fotka {i}: `{filename}`")
 
@@ -501,18 +546,7 @@ async def analyze_inspection_photos(listing_id: str, page: int = 1, page_size: i
                 resized = _resize_image(r.content, max_width=800, quality=80)
                 b64 = base64.b64encode(resized).decode()
 
-                ollama_resp = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/chat",
-                    json={
-                        "model": OLLAMA_VISION_MODEL,
-                        "messages": [{"role": "user", "content": PROMPT, "images": [b64]}],
-                        "stream": False,
-                        "options": {"temperature": 0.1},
-                    },
-                    timeout=60,
-                )
-                ollama_resp.raise_for_status()
-                answer = ollama_resp.json()["message"]["content"].strip()
+                answer = await _analyze_with_mistral_vision(b64, PROMPT, client)
                 lines.append(answer)
 
                 # Ulož do DB
@@ -527,7 +561,7 @@ async def analyze_inspection_photos(listing_id: str, page: int = 1, page_size: i
                         logger.warning(f"Failed to save ai_description for photo {photo_id}: {save_err}")
 
             except Exception as e:
-                logger.warning(f"Ollama analysis failed for {filename}: {e}")
+                logger.warning(f"Mistral analysis failed for {filename}: {e}")
                 lines.append(f"❌ Analýza selhala: {e}")
 
     if page < total_pages:
@@ -585,13 +619,15 @@ async def analyze_listing_photos(listing_id: str, page: int = 1, page_size: int 
     cached_count = sum(1 for p in page_photos if p.get("aiDescription") and not force)
     lines = [
         f"## 🔍 AI analýza fotek z inzerátu – stránka {page}/{total_pages} ({start+1}–{end} z {total})",
-        f"**{title}** | Model: `{OLLAMA_VISION_MODEL}` | 💾 Cache: {cached_count}/{len(page_photos)}\n",
+        f"**{title}** | Model: `{MISTRAL_VISION_MODEL}` | 💾 Cache: {cached_count}/{len(page_photos)}\n",
     ]
 
     async with httpx.AsyncClient(timeout=120) as client:
         for i, p in enumerate(page_photos, start + 1):
             photo_id = p.get("id", "")
             url = p.get("storedUrl") or p.get("originalUrl") or ""
+            if url and url.startswith("/"):
+                url = API_BASE_URL.rstrip("/") + url
             cached = p.get("aiDescription")
             lines.append(f"\n---\n### Fotka {i}")
 
@@ -609,18 +645,7 @@ async def analyze_listing_photos(listing_id: str, page: int = 1, page_size: int 
                 resized = _resize_image(r.content, max_width=800, quality=80)
                 b64 = base64.b64encode(resized).decode()
 
-                ollama_resp = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/chat",
-                    json={
-                        "model": OLLAMA_VISION_MODEL,
-                        "messages": [{"role": "user", "content": PROMPT, "images": [b64]}],
-                        "stream": False,
-                        "options": {"temperature": 0.1},
-                    },
-                    timeout=60,
-                )
-                ollama_resp.raise_for_status()
-                answer = ollama_resp.json()["message"]["content"].strip()
+                answer = await _analyze_with_mistral_vision(b64, PROMPT, client)
                 lines.append(answer)
 
                 # Ulož do DB
@@ -635,7 +660,7 @@ async def analyze_listing_photos(listing_id: str, page: int = 1, page_size: int 
                         logger.warning(f"Failed to save ai_description for listing photo {photo_id}: {save_err}")
 
             except Exception as e:
-                logger.warning(f"Ollama analysis failed for listing photo {i}: {e}")
+                logger.warning(f"Mistral analysis failed for listing photo {i}: {e}")
                 lines.append(f"❌ Analýza selhala: {e}")
 
     if page < total_pages:
@@ -709,7 +734,7 @@ async def analyze_tovisit_listings(
 
     lines = [
         f"## 🏠 AI analýza fotek inzerátů 'K návštěvě'",
-        f"**Celkem inzerátů:** {len(listings)} | **Model:** `{OLLAMA_VISION_MODEL}`",
+        f"**Celkem inzerátů:** {len(listings)} | **Model:** `{MISTRAL_VISION_MODEL}`",
         f"**Fotek max / inzerát:** {max_photos_per_listing} | **force:** {force}\n",
     ]
 
@@ -769,18 +794,7 @@ async def analyze_tovisit_listings(
                     resized = _resize_image(r.content, max_width=800, quality=80)
                     b64 = base64.b64encode(resized).decode()
 
-                    ollama_resp = await client.post(
-                        f"{OLLAMA_BASE_URL}/api/chat",
-                        json={
-                            "model": OLLAMA_VISION_MODEL,
-                            "messages": [{"role": "user", "content": PROMPT, "images": [b64]}],
-                            "stream": False,
-                            "options": {"temperature": 0.1},
-                        },
-                        timeout=90,
-                    )
-                    ollama_resp.raise_for_status()
-                    answer = ollama_resp.json()["message"]["content"].strip()
+                    answer = await _analyze_with_mistral_vision(b64, PROMPT, client)
                     listing_analyzed += 1
                     total_analyzed += 1
 
@@ -798,7 +812,7 @@ async def analyze_tovisit_listings(
                             )
 
                 except Exception as e:
-                    logger.warning(f"Ollama analysis failed for listing {listing_id} photo {i}: {e}")
+                    logger.warning(f"Vision analysis failed for listing {listing_id} photo {i}: {e}")
                     listing_failed += 1
                     total_failed += 1
 

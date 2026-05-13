@@ -26,11 +26,16 @@ from ..http_utils import http_retry
 logger = logging.getLogger(__name__)
 
 
-# Konfigurace search URL pro ruzne lokality (default - Znojmo)
+# Konfigurace search URL pro Znojmo + Brno-venkov
 # 🔥 Možná být přepsáno z settings.yaml v runner.py
 DEFAULT_SEARCH_CONFIGS = [
     {
         "url": "https://www.mmreality.cz/nemovitosti/prodej/domy/znojmo/",
+        "offer_type": "Prodej",
+        "property_type": "Dům",
+    },
+    {
+        "url": "https://www.mmreality.cz/nemovitosti/prodej/domy/brno-venkov/",
         "offer_type": "Prodej",
         "property_type": "Dům",
     },
@@ -40,7 +45,17 @@ DEFAULT_SEARCH_CONFIGS = [
         "property_type": "Byt",
     },
     {
+        "url": "https://www.mmreality.cz/nemovitosti/prodej/byty/brno-venkov/",
+        "offer_type": "Prodej",
+        "property_type": "Byt",
+    },
+    {
         "url": "https://www.mmreality.cz/nemovitosti/prodej/pozemky/znojmo/",
+        "offer_type": "Prodej",
+        "property_type": "Pozemek",
+    },
+    {
+        "url": "https://www.mmreality.cz/nemovitosti/prodej/pozemky/brno-venkov/",
         "offer_type": "Prodej",
         "property_type": "Pozemek",
     },

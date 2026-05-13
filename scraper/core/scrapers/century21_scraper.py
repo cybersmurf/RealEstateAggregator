@@ -32,15 +32,15 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
 }
 
-# Znojmo region – pokrývá všechny typy nemovitostí a transakce
+# Znojmo + Brno-venkov – pokrývá všechny typy nemovitostí a transakce
 SEARCH_CONFIGS = [
-    {"regions": ["Jihomoravský"], "county": ["Znojmo"], "propertyType": ["HOUSE"],      "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo"], "propertyType": ["HOUSE"],      "listingType": "RENT"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo"], "propertyType": ["FLAT"],       "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo"], "propertyType": ["FLAT"],       "listingType": "RENT"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo"], "propertyType": ["LAND"],       "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo"], "propertyType": ["COMMERCIAL"], "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo"], "propertyType": ["GARAGE"],     "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["HOUSE"],      "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["HOUSE"],      "listingType": "RENT"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["FLAT"],       "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["FLAT"],       "listingType": "RENT"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["LAND"],       "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["COMMERCIAL"], "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["GARAGE"],     "listingType": "SALE"},
 ]
 
 OFFER_TYPE_MAP = {

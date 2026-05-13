@@ -42,6 +42,15 @@ public static class CadastreEndpoints
             .Produces(400)
             .Produces(500);
 
+        // ── OCR PDF (Mistral OCR API) ──────────────────────────────────────────
+        group.MapPost("/listings/{listingId:guid}/ocr-pdf", OcrPdf)
+            .WithName("OcrCadastrePdf")
+            .WithSummary("OCR PDF dokumentu z KN přes Mistral OCR API – vyžaduje MISTRAL_API_KEY")
+            .DisableAntiforgery()
+            .Produces<CadastreOcrResultDto>(200)
+            .Produces(400)
+            .Produces(500);
+
         return app;
     }
 
@@ -136,6 +145,44 @@ public static class CadastreEndpoints
         catch (Exception ex)
         {
             return Results.Problem($"OCR zpracování selhalo: {ex.Message}");
+        }
+    }
+
+    private static async Task<IResult> OcrPdf(
+        Guid listingId,
+        IFormFile file,
+        ICadastreService service,
+        CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return Results.BadRequest("Soubor nebyl odeslán nebo je prázdný.");
+
+        if (!string.Equals(file.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest("Soubor musí být PDF (application/pdf).");
+
+        if (file.Length > 20 * 1024 * 1024)
+            return Results.BadRequest("Soubor je příliš velký (max 20 MB).");
+
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms, ct);
+            var pdfData = ms.ToArray();
+
+            var result = await service.OcrPdfAsync(listingId, pdfData, ct);
+            return Results.Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return Results.NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"PDF OCR zpracování selhalo: {ex.Message}");
         }
     }
 }

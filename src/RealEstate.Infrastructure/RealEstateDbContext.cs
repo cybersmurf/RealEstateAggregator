@@ -106,7 +106,7 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.FirstSeenAt).HasColumnName("first_seen_at").HasColumnType("timestamptz");
             entity.Property(e => e.LastSeenAt).HasColumnName("last_seen_at").HasColumnType("timestamptz");
             entity.Property(e => e.IsActive).HasColumnName("is_active");
-            entity.Property(e => e.DescriptionEmbedding).HasColumnName("description_embedding").HasColumnType("vector(1536)");
+            entity.Property(e => e.DescriptionEmbedding).HasColumnName("description_embedding").HasColumnType("vector(768)");
 
             // 📍 GPS souřadnice
             entity.Property(e => e.Latitude).HasColumnName("latitude");

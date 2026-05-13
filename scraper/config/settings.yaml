@@ -66,25 +66,38 @@ deactivation_threshold: 3
 # SEARCH FILTERS - Geografické a cenové filtry
 # ============================================================================
 search_filters:
-  # Primární region interest - Znojmo okres
+  # Primární region interest - koridor Znojmo → Pohořelice
   target_districts:
     - "Znojmo"        # Okres/město
     - "znojemsk"      # Znojemský okres (v URL slugách)
     - "jihomoravsk"   # Jihomoravský kraj (záloha pro scrapers, které nedávají okres)
+    - "Brno-venkov"   # Celý okres Brno-venkov (Pohořelice, Mušov, Miroslav, …)
+    - "brno-venkov"   # lowercase varianta
+    - "Pohořelice"    # Pohořelice a okolí (okres Brno-venkov, sever koridoru)
+    - "pohořelice"    # lowercase varianta (URL slug)
+    - "Vlasatice"     # Obec v koridoru (Brno-venkov)
+    - "Šumice"        # Obec v koridoru (Brno-venkov)
+    - "Olbramovice"   # Obec v koridoru (Brno-venkov)
+    - "Branišovice"   # Obec v koridoru (Brno-venkov/Znojmo hranice)
+    - "Troskotovice"  # Obec v koridoru (Brno-venkov)
+    - "Miroslav"      # Obec v koridoru (Znojmo/BRV hranice)
+    - "Mušov"         # Obec u Pohořelic (Brno-venkov)
+    - "Dolní Kounice" # Obec v koridoru (Brno-venkov)
+    - "Velké Němčice" # Obec u Pohořelic (Brno-venkov)
 
   # Filtery pro domy (Houses)
   houses:
     enabled: true
-    max_price: 8500000  # Kč
-    min_price: null     # null = bez minima
+    max_price: 10000000  # Kč
+    min_price: null      # null = bez minima
     offer_types:
-      - "Sale"          # Prodej
-      - "Rent"          # Pronájem
-    
+      - "Sale"           # Prodej
+      - "Rent"           # Pronájem
+
   # Filtery pro stavební pozemky (Land)
   land:
     enabled: true
-    max_price: 2000000  # Kč
+    max_price: 3500000  # Kč – stavební pozemky Znojmo oblast
     min_price: null
     offer_types:
       - "Sale"
@@ -148,7 +161,11 @@ scrapers:
   sreality:
     detail_fetch_concurrency: 5  # 🔥 Number of concurrent detail requests
     fetch_details: true
-    locality_district_id: 77     # Znojmo okres (locality_district_id=77, JMK/region 14)
+    # Scrape multiple districts – jedna instance scraperu per district
+    locality_district_ids:
+      - 77   # Znojmo (ID=77)
+      - 73   # Brno-venkov (ID=73) – Pohořelice, Vlasatice, Mušov, Miroslav, Žabčice, Dolní Kounice, …
+    # locality_district_id: 77  # legacy – nahrazeno listem výše
   min_description_length: 20  # znaků
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -169,14 +169,12 @@ public sealed class CadastreService(
     {
         var base64 = Convert.ToBase64String(imageData);
 
-        var ollamaBaseUrl = Environment.GetEnvironmentVariable("OLLAMA_BASE_URL")
-            ?? configuration["Ollama:BaseUrl"]
-            ?? "http://localhost:11434";
-        var visionModel = Environment.GetEnvironmentVariable("OLLAMA_VISION_MODEL")
-            ?? configuration["Ollama:VisionModel"]
-            ?? "llama3.2-vision:11b";
-
-        var ollamaUrl = $"{ollamaBaseUrl.TrimEnd('/')}/api/generate";
+        var mistralApiKey = Environment.GetEnvironmentVariable("MISTRAL_API_KEY")
+            ?? configuration["Mistral:ApiKey"]
+            ?? throw new InvalidOperationException("MISTRAL_API_KEY není nakonfigurován");
+        var visionModel = Environment.GetEnvironmentVariable("MISTRAL_VISION_MODEL")
+            ?? configuration["Mistral:VisionModel"]
+            ?? "mistral-small-2506";
 
         const string ocrPrompt = """
             You are analyzing a screenshot from the Czech cadastre system (nahlizeni.cuzk.cz / nahlizenidokn.cuzk.cz).
@@ -216,28 +214,51 @@ public sealed class CadastreService(
         var requestBody = new
         {
             model = visionModel,
-            prompt = ocrPrompt,
-            images = new[] { base64 },
-            stream = false,
-            format = "json",
-            options = new { temperature = 0.1, num_predict = 2048 }
+            messages = new[]
+            {
+                new
+                {
+                    role = "user",
+                    content = new object[]
+                    {
+                        new { type = "image_url", image_url = new { url = $"data:image/jpeg;base64,{base64}" } },
+                        new { type = "text", text = ocrPrompt }
+                    }
+                }
+            },
+            max_tokens = 2048,
+            temperature = 0.1
         };
 
-        using var httpClient = httpClientFactory.CreateClient("OllamaVision");
-        httpClient.Timeout = TimeSpan.FromMinutes(5);
+        using var httpClient = httpClientFactory.CreateClient("MistralVision");
+        httpClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", mistralApiKey);
 
         var jsonContent = new StringContent(
             JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
 
-        logger.LogInformation("KN OCR: calling Ollama Vision for listing {ListingId}", listingId);
-        var response = await httpClient.PostAsync(ollamaUrl, jsonContent, ct);
+        logger.LogInformation("KN OCR: volám Mistral Vision pro listing {ListingId}", listingId);
+        var response = await httpClient.PostAsync("https://api.mistral.ai/v1/chat/completions", jsonContent, ct);
         response.EnsureSuccessStatusCode();
 
         var rawBody = await response.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(rawBody);
-        var ocrRawJson = doc.RootElement.TryGetProperty("response", out var respEl)
-            ? respEl.GetString() ?? "{}"
-            : "{}";
+        var rawContent = doc.RootElement
+            .GetProperty("choices")[0]
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString() ?? "{}";
+
+        // Odstraníme případné ```json code fences z odpovědi Mistral
+        var ocrRawJson = rawContent.Trim();
+        if (ocrRawJson.StartsWith("```", StringComparison.Ordinal))
+        {
+            var nl = ocrRawJson.IndexOf('\n');
+            ocrRawJson = nl >= 0 ? ocrRawJson[(nl + 1)..] : ocrRawJson[3..];
+        }
+        if (ocrRawJson.EndsWith("```", StringComparison.Ordinal))
+            ocrRawJson = ocrRawJson[..ocrRawJson.LastIndexOf("```")].TrimEnd();
+        ocrRawJson = ocrRawJson.Trim();
 
         logger.LogInformation("KN OCR raw response for {ListingId}: {Raw}",
             listingId, ocrRawJson[..Math.Min(300, ocrRawJson.Length)]);
@@ -293,6 +314,170 @@ public sealed class CadastreService(
 
         await db.SaveChangesAsync(ct);
         logger.LogInformation("KN OCR saved for listing {ListingId}: parcel={Parcel}, LV={Lv}, area={Area}",
+            listingId, existing.ParcelNumber, existing.LvNumber, existing.LandAreaM2);
+
+        return new CadastreOcrResultDto(ToDto(existing), ocrRawJson);
+    }
+
+    // ─── OCR PDF (Mistral OCR API) ────────────────────────────────────────────
+    public async Task<CadastreOcrResultDto> OcrPdfAsync(
+        Guid listingId, byte[] pdfData, CancellationToken ct = default)
+    {
+        var mistralApiKey = Environment.GetEnvironmentVariable("MISTRAL_API_KEY")
+            ?? configuration["Mistral:ApiKey"]
+            ?? "";
+        if (string.IsNullOrWhiteSpace(mistralApiKey))
+            throw new InvalidOperationException(
+                "MISTRAL_API_KEY není nakonfigurován. Nastavte env proměnnou nebo Mistral:ApiKey v appsettings.");
+
+        const string mistralBase = "https://api.mistral.ai/v1";
+        var base64Pdf = Convert.ToBase64String(pdfData);
+
+        using var httpClient = httpClientFactory.CreateClient("MistralOcr");
+        httpClient.Timeout = TimeSpan.FromMinutes(3);
+
+        // ── Krok 1: Mistral OCR → Markdown ───────────────────────────────────
+        var ocrRequest = JsonSerializer.Serialize(new
+        {
+            model = "mistral-ocr-latest",
+            document = new
+            {
+                type = "document_url",
+                document_url = $"data:application/pdf;base64,{base64Pdf}",
+            },
+        });
+
+        using var ocrMsg = new HttpRequestMessage(HttpMethod.Post, $"{mistralBase}/ocr")
+        {
+            Content = new StringContent(ocrRequest, Encoding.UTF8, "application/json"),
+        };
+        ocrMsg.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", mistralApiKey);
+
+        logger.LogInformation("KN OCR PDF: volám Mistral OCR pro listing {ListingId} ({Bytes} B)",
+            listingId, pdfData.Length);
+        var ocrResponse = await httpClient.SendAsync(ocrMsg, ct);
+        ocrResponse.EnsureSuccessStatusCode();
+
+        var ocrBody = await ocrResponse.Content.ReadAsStringAsync(ct);
+        using var ocrDoc = JsonDocument.Parse(ocrBody);
+
+        // Slep všechny stránky do jednoho markdownu
+        var sb = new System.Text.StringBuilder();
+        if (ocrDoc.RootElement.TryGetProperty("pages", out var pages))
+            foreach (var page in pages.EnumerateArray())
+                if (page.TryGetProperty("markdown", out var md))
+                    sb.AppendLine(md.GetString());
+
+        var fullMarkdown = sb.ToString();
+        logger.LogInformation("KN OCR PDF: markdown {Len} znaků pro listing {ListingId}",
+            fullMarkdown.Length, listingId);
+
+        // ── Krok 2: Extrahuj strukturovaná KN data přes Mistral chat ─────────
+        const string extractSystem = """
+            You are analyzing text extracted from a Czech cadastre (nahlizeni.cuzk.cz) document.
+            Extract ALL available data and return ONLY valid JSON, nothing else.
+            Return exactly this JSON structure (use null for missing fields):
+            {
+              "parcel_number": "60",
+              "lv_number": "1088",
+              "land_area_m2": 593,
+              "land_type": "zastavěná plocha a nádvoří",
+              "municipality": "Štítary",
+              "cadastral_area": "Štítary na Moravě",
+              "owner_info": "fyzická osoba",
+              "protection": null,
+              "encumbrances": [
+                {"type": "Zástavní právo smluvní"}
+              ],
+              "building_number": "113",
+              "building_type": "zemědělská usedlost"
+            }
+            encumbrances = ALL items from "Omezení vlastnického práva". Empty array [] if none.
+            """;
+
+        var chatRequest = JsonSerializer.Serialize(new
+        {
+            model = "mistral-large-latest",
+            messages = new[]
+            {
+                new { role = "system", content = extractSystem },
+                new { role = "user",   content = fullMarkdown[..Math.Min(fullMarkdown.Length, 12000)] },
+            },
+            response_format = new { type = "json_object" },
+            temperature = 0.1,
+            max_tokens = 1024,
+        });
+
+        using var chatMsg = new HttpRequestMessage(HttpMethod.Post, $"{mistralBase}/chat/completions")
+        {
+            Content = new StringContent(chatRequest, Encoding.UTF8, "application/json"),
+        };
+        chatMsg.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", mistralApiKey);
+
+        var chatResponse = await httpClient.SendAsync(chatMsg, ct);
+        chatResponse.EnsureSuccessStatusCode();
+
+        var chatBody = await chatResponse.Content.ReadAsStringAsync(ct);
+        using var chatDoc = JsonDocument.Parse(chatBody);
+        var ocrRawJson = chatDoc.RootElement
+            .GetProperty("choices")[0]
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString() ?? "{}";
+
+        logger.LogInformation("KN OCR PDF extracted JSON for {ListingId}: {Raw}",
+            listingId, ocrRawJson[..Math.Min(300, ocrRawJson.Length)]);
+
+        // ── Krok 3: Parse + upsert DB ─────────────────────────────────────────
+        KnOcrData? ocr = null;
+        try
+        {
+            ocr = JsonSerializer.Deserialize<KnOcrData>(ocrRawJson, _ocrJsonOptions);
+        }
+        catch (JsonException jex)
+        {
+            logger.LogWarning(jex, "KN OCR PDF: JSON parse failed");
+            var match = System.Text.RegularExpressions.Regex.Match(ocrRawJson, @"\{[\s\S]+\}");
+            if (match.Success)
+                try { ocr = JsonSerializer.Deserialize<KnOcrData>(match.Value, _ocrJsonOptions); }
+                catch { /* skip */ }
+        }
+
+        var existing = await db.ListingCadastreData
+            .FirstOrDefaultAsync(x => x.ListingId == listingId, ct);
+
+        if (existing is null)
+        {
+            var listing = await db.Listings.AsNoTracking()
+                .FirstOrDefaultAsync(l => l.Id == listingId, ct);
+            existing = new ListingCadastreData
+            {
+                ListingId = listingId,
+                AddressSearched = listing?.Municipality ?? listing?.LocationText ?? "",
+            };
+            db.ListingCadastreData.Add(existing);
+        }
+
+        if (ocr is not null)
+        {
+            existing.ParcelNumber = ocr.ParcelNumber ?? existing.ParcelNumber;
+            existing.LvNumber     = ocr.LvNumber ?? existing.LvNumber;
+            existing.LandAreaM2   = ocr.LandAreaM2 ?? existing.LandAreaM2;
+            existing.LandType     = ocr.LandType ?? existing.LandType;
+            existing.OwnerType    = ocr.OwnerInfo ?? existing.OwnerType;
+            if (ocr.Encumbrances?.Count > 0)
+                existing.EncumbrancesJson = JsonSerializer.Serialize(ocr.Encumbrances, _ocrJsonOptions);
+        }
+
+        existing.FetchStatus  = "mistral-ocr";
+        existing.FetchError   = null;
+        existing.FetchedAt    = DateTime.UtcNow;
+        existing.RawRuianJson = IsValidJson(ocrRawJson) ? ocrRawJson : null;
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("KN OCR PDF saved for listing {ListingId}: parcel={Parcel}, LV={Lv}, area={Area}",
             listingId, existing.ParcelNumber, existing.LvNumber, existing.LandAreaM2);
 
         return new CadastreOcrResultDto(ToDto(existing), ocrRawJson);

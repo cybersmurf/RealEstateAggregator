@@ -31,4 +31,12 @@ public interface ICadastreService
     /// Uloží/přepíše katastrální data s FetchStatus = "ocr".
     /// </summary>
     Task<CadastreOcrResultDto> OcrScreenshotAsync(Guid listingId, byte[] imageData, CancellationToken ct = default);
+
+    /// <summary>
+    /// OCR PDF dokumentu ze státní správy přes Mistral OCR API (mistral-ocr-latest).
+    /// Přijímá byte pole PDF, extrahuje text a pak strukturuje KN data přes Mistral chat.
+    /// Uloží/přepíše katastrální data s FetchStatus = "mistral-ocr".
+    /// Vyžaduje MISTRAL_API_KEY v environment nebo konfiguraci.
+    /// </summary>
+    Task<CadastreOcrResultDto> OcrPdfAsync(Guid listingId, byte[] pdfData, CancellationToken ct = default);
 }

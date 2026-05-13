@@ -19,6 +19,11 @@ builder.Services.AddHttpClient("RealEstateApi", client =>
     client.DefaultRequestHeaders.Add("X-Api-Key", scrapingApiKey);
 });
 
+// Veřejná URL API pro sestavení absoluntích URL fotek v prohlížeči
+// V Dockeru: ApiPublicUrl=${PUBLIC_API_URL:-http://localhost:5001}
+builder.Services.AddSingleton<PhotosBaseUrl>(_ =>
+    new PhotosBaseUrl(builder.Configuration["ApiPublicUrl"] ?? "http://localhost:5001"));
+
 // Register HttpClient as singleton for DI
 builder.Services.AddScoped(sp =>
 {
@@ -41,8 +46,31 @@ app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages:
 
 app.UseAntiforgery();
 
+app.UseStaticFiles(); // Serves runtime-uploaded files from wwwroot (e.g. /uploads/)
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+/// <summary>Veřejná base URL API pro sestavení absolutních URL fotek v prohlížeči.</summary>
+public sealed record PhotosBaseUrl(string Value)
+{
+    /// <summary>Převede stored_url (relativní /uploads/... nebo absolutní http://...) na plnou URL.</summary>
+    public string Resolve(string? storedUrl, string? fallbackOriginalUrl = null)
+    {
+        if (string.IsNullOrWhiteSpace(storedUrl))
+            return fallbackOriginalUrl ?? string.Empty;
+        // Relativní cesta → prefix veřejnou URL API
+        if (storedUrl.StartsWith('/'))
+            return Value.TrimEnd('/') + storedUrl;
+        // Absolutní URL (legacy záznamy s localhost:5001) → přepíš base
+        if (storedUrl.StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase) ||
+            storedUrl.StartsWith("http://127.0.0.1", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = new Uri(storedUrl).PathAndQuery;
+            return Value.TrimEnd('/') + path;
+        }
+        return storedUrl;
+    }
+}

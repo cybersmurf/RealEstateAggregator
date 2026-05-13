@@ -36,6 +36,22 @@ class IdnesRealityScraper:
     # nemovitosti-hledani.xml.gz contains search/filter pages only
     LISTING_SITEMAPS = ["nemovitosti.xml.gz", "nemovitosti2.xml.gz", "nemovitosti3.xml.gz"]
     SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
+    # Slugy lokalit které chceme skrápat (bez diakritiky, lowercase, jako v iDnes URL)
+    TARGET_URL_SLUGS = [
+        "znojmo",
+        "brno-venkov",
+        "pohorelice",
+        "miroslav",
+        "musov",
+        "pasohlav",
+        "vlasatice",
+        "sumice",
+        "olbramovice",
+        "branisovice",
+        "troskotovice",
+        "dolni-kounice",
+        "velke-nemcice",
+    ]
     SOURCE_CODE = "IDNES"
 
     def __init__(self):
@@ -150,15 +166,17 @@ class IdnesRealityScraper:
                 batch_urls = [
                     loc_elem.text
                     for loc_elem in root.findall(f".//{{{ns}}}loc")
-                    if loc_elem.text and "/detail/" in loc_elem.text and "znojmo" in loc_elem.text.lower()
+                    if loc_elem.text
+                    and "/detail/" in loc_elem.text
+                    and any(slug in loc_elem.text.lower() for slug in self.TARGET_URL_SLUGS)
                 ]
                 urls.extend(batch_urls)
-                logger.info(f"Sitemap {sitemap_name}: {len(batch_urls)} Znojmo URLs")
+                logger.info(f"Sitemap {sitemap_name}: {len(batch_urls)} target-area URLs")
 
             except Exception as exc:
                 logger.error(f"Failed to process sitemap {sitemap_name}: {exc}")
 
-        logger.info(f"Total Znojmo detail URLs found: {len(urls)}")
+        logger.info(f"Total target-area detail URLs found: {len(urls)}")
         return urls
 
     @http_retry

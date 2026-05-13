@@ -55,7 +55,7 @@ public sealed class OllamaTextService(
         return await ProcessBatchAsync(listings, ct, async (listing, c) =>
         {
             var userMsg = $"Název: {listing.Title}\nPopis: {listing.Description![..Math.Min(2000, listing.Description.Length)]}";
-            var response = await embedding.ChatAsync(SmartTagsSystem, userMsg, c);
+            var response = await embedding.ChatAsync(SmartTagsSystem, userMsg, c, jsonMode: true);
 
             var tags = TryParseJsonArray(response);
             if (tags is null || tags.Count == 0)
@@ -120,7 +120,7 @@ public sealed class OllamaTextService(
         return await ProcessBatchAsync(listings, ct, async (listing, c) =>
         {
             var userMsg = $"Název: {listing.Title}\nLocalita: {listing.LocationText}\nPopis: {listing.Description![..Math.Min(2500, listing.Description.Length)]}";
-            var response = await embedding.ChatAsync(NormalizeSystem, userMsg, c);
+            var response = await embedding.ChatAsync(NormalizeSystem, userMsg, c, jsonMode: true);
 
             var json = TryParseJson(response);
             if (json is null)
@@ -226,7 +226,7 @@ public sealed class OllamaTextService(
 
             var userMsg = BuildPriceOpinionMessage(listing, notes, analysisSnippets);
 
-            var response = await embedding.ChatAsync(PriceOpinionSystem, userMsg, c);
+            var response = await embedding.ChatAsync(PriceOpinionSystem, userMsg, c, jsonMode: true);
             var parsed = TryParseJsonObject<PriceOpinionJson>(response);
 
             if (parsed is null || string.IsNullOrWhiteSpace(parsed.Signal)

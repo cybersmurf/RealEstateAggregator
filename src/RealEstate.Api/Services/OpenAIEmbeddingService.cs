@@ -56,7 +56,7 @@ public sealed class OpenAIEmbeddingService : IEmbeddingService
         }
     }
 
-    public async Task<string> ChatAsync(string systemPrompt, string userMessage, CancellationToken ct = default)
+    public async Task<string> ChatAsync(string systemPrompt, string userMessage, CancellationToken ct = default, bool jsonMode = false)
     {
         if (_client is null)
             return "[RAG není dostupný – OpenAI API klíč není nakonfigurován.]";
@@ -69,7 +69,10 @@ public sealed class OpenAIEmbeddingService : IEmbeddingService
                 new SystemChatMessage(systemPrompt),
                 new UserChatMessage(userMessage)
             };
-            var response = await chatClient.CompleteChatAsync(messages, cancellationToken: ct);
+            var chatOptions = new OpenAI.Chat.ChatCompletionOptions();
+            if (jsonMode)
+                chatOptions.ResponseFormat = OpenAI.Chat.ChatResponseFormat.CreateJsonObjectFormat();
+            var response = await chatClient.CompleteChatAsync(messages, chatOptions, cancellationToken: ct);
             return response.Value.Content[0].Text;
         }
         catch (Exception ex)

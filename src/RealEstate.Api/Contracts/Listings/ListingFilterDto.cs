@@ -39,6 +39,12 @@ public sealed class ListingFilterDto
     /// <summary>Sestupně = true, vzestupně = false (výchozí)</summary>
     public bool SortDescending { get; set; } = false;
 
+    /// <summary>Geografický bounding box – filtrování inzerátů v obdélníkové oblasti na mapě.</summary>
+    public double? BboxLatMin { get; set; }
+    public double? BboxLatMax { get; set; }
+    public double? BboxLonMin { get; set; }
+    public double? BboxLonMax { get; set; }
+
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 50;
 }

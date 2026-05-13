@@ -39,21 +39,35 @@ class RemaxScraper:
     BASE_URL = "https://www.remax-czech.cz"
     SOURCE_CODE = "REMAX"
     
-    # Znojmo-specific search URLs (domy + pozemky prodej a pronájem)
+    # Znojmo + Brno-venkov search URLs (domy + pozemky + byty)
     SEARCH_CONFIGS = [
         {
             "url": "https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/znojmo/",
             "offer_type": "Prodej",
             "property_type": "Dům",
         },
-        # pronajeti URL vrací 404 – REMAX nemá Znojmo pronájmy domů
+        {
+            "url": "https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/brno-venkov/",
+            "offer_type": "Prodej",
+            "property_type": "Dům",
+        },
         {
             "url": "https://www.remax-czech.cz/reality/pozemky/prodej/jihomoravsky-kraj/znojmo/",
             "offer_type": "Prodej",
             "property_type": "Pozemek",
         },
         {
+            "url": "https://www.remax-czech.cz/reality/pozemky/prodej/jihomoravsky-kraj/brno-venkov/",
+            "offer_type": "Prodej",
+            "property_type": "Pozemek",
+        },
+        {
             "url": "https://www.remax-czech.cz/reality/byty/prodej/jihomoravsky-kraj/znojmo/",
+            "offer_type": "Prodej",
+            "property_type": "Byt",
+        },
+        {
+            "url": "https://www.remax-czech.cz/reality/byty/prodej/jihomoravsky-kraj/brno-venkov/",
             "offer_type": "Prodej",
             "property_type": "Byt",
         },
@@ -131,6 +145,15 @@ class RemaxScraper:
                                 # Fetch detail page pro kompletní data
                                 detail_url = item["detail_url"]
                                 detail_html = await self._fetch_page_http(detail_url)
+
+                                # Zkontroluj, zda inzerát není prodaný/rezervovaný
+                                if self._detect_sold_status(detail_html):
+                                    logger.info(f"Listing {item['external_id']} is sold/reserved – deactivating")
+                                    db = get_db_manager()
+                                    await db.deactivate_listing(self.SOURCE_CODE, item["external_id"])
+                                    metrics.increment_scraped()
+                                    continue
+
                                 normalized = self._parse_detail_page(detail_html, item)
                                 
                                 await self._save_listing(normalized)
@@ -168,6 +191,44 @@ class RemaxScraper:
         response = await self._http_client.get(url)
         response.raise_for_status()
         return response.text
+
+    def _detect_sold_status(self, html: str) -> bool:
+        """
+        Detekuje, zda inzerát na detailní stránce REMAX nese status "Prodáno",
+        "Rezervováno" nebo "Pronajato" (tj. již není dostupný).
+
+        Hledá v:
+          - elementech s třídami obsahujícími "status", "label", "badge", "ribbon"
+          - titulku stránky (h1, h2)
+          - title tagu
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        sold_keywords = {"prodáno", "rezervováno", "pronajato", "prodano", "rezervovano"}
+
+        # Kontrola title tagu
+        title_tag = soup.find("title")
+        if title_tag:
+            if any(kw in title_tag.get_text().lower() for kw in sold_keywords):
+                return True
+
+        # Kontrola h1/h2 nadpisů
+        for heading in soup.find_all(["h1", "h2"]):
+            if any(kw in heading.get_text().lower() for kw in sold_keywords):
+                return True
+
+        # Kontrola elementů se status/label/badge/ribbon třídami
+        for el in soup.find_all(class_=True):
+            classes = " ".join(el.get("class", []))
+            if any(c in classes for c in ("status", "label", "badge", "ribbon", "stamp", "tag")):
+                if any(kw in el.get_text().lower() for kw in sold_keywords):
+                    return True
+
+        # Kontrola data-atributů (REMAX občas používá data-status)
+        for el in soup.find_all(attrs={"data-status": True}):
+            if any(kw in el["data-status"].lower() for kw in sold_keywords):
+                return True
+
+        return False
 
     def _parse_list_page(self, html: str) -> List[Dict[str, Any]]:
         """
@@ -227,114 +288,154 @@ class RemaxScraper:
     def _parse_detail_page(self, html: str, list_item: Dict[str, Any]) -> Dict[str, Any]:
         """
         Parsuje detail stránku inzerátu.
-        
-        Selektory jsou založené na skutečné struktuře REMAX detailu (leden 2026).
+
+        Selektory jsou založené na skutečné struktuře REMAX detailu (březen 2026):
+        - .pd-base-info__content-collapse-inner  → popis nemovitosti
+        - .pd-detail-info__row                   → parametry (label + value)
+        - .pd-header__address                    → adresa/lokace
+        - .pd-header__price                      → cena
+        - .pictogram__item[data-toggle=tooltip]  → ikony (pokoje, plochy)
         """
         soup = BeautifulSoup(html, "html.parser")
 
-        # Extrahuj hlavní data
         result = {
             "source_code": self.SOURCE_CODE,
             "external_id": list_item["external_id"],
             "url": list_item["detail_url"],
         }
-        
-        # Title (z H1 nebo page title)
-        h1 = soup.find('h1')
-        if h1:
-            result["title"] = h1.get_text(' ', strip=True)[:200]
+
+        # ── Title ──────────────────────────────────────────────────────────────
+        title_el = soup.select_one('h2.pd-header__title') or soup.find('h1')
+        if title_el:
+            result["title"] = title_el.get_text(' ', strip=True)[:200]
         else:
             result["title"] = list_item.get("title", "")
-        
-        # Location — zkusí různé strategie
-        location_text = ""
-        # 1) Hledat breadcrumb nebo meta lokaci
-        for sel in ['[class*="location"]', '[class*="address"]', '[class*="breadcrumb"]', '.property-location']:
-            el = soup.select_one(sel)
-            if el:
-                location_text = el.get_text(' ', strip=True)[:200]
-                break
-        # 2) Textové uzly s "ulice", "část obce", "okres"
-        if not location_text:
-            location_candidates = soup.find_all(string=re.compile(r'ulice|část obce|okres|Znojmo', re.I))
-            if location_candidates:
-                location_text = location_candidates[0].strip()[:200]
-        # 3) Záloha: extrahuj z URL (REMAX URLs: /reality/detail/ID/prodej-domu-znojmo-...)
-        if not location_text:
-            url_slug = list_item.get("detail_url", "")
-            slug_match = re.search(r'/reality/detail/\d+/(.+)', url_slug)
-            if slug_match:
-                location_text = slug_match.group(1).replace('-', ' ')[:200]
-        result["location_text"] = location_text
-        
-        # Price (hledej čísla s "Kč")
-        price_text = soup.find(string=re.compile(r'(\d[\d\s]+)\s*Kč'))
-        if price_text:
-            price_match = re.search(r'(\d[\d\s]+)\s*Kč', price_text)
-            if price_match:
-                price_str = price_match.group(1).replace(' ', '').replace('\xa0', '')
+
+        # ── Location ───────────────────────────────────────────────────────────
+        # 1) Strukturovaná adresa z pd-header__address
+        addr_el = soup.select_one('.pd-header__address')
+        if addr_el:
+            # Odstraň případný "mapa" odkaz z poslední části
+            location_text = addr_el.get_text(' ', strip=True)
+            location_text = re.sub(r'\s*mapa\s*$', '', location_text, flags=re.I).strip()
+        else:
+            # 2) Záloha: hint ze scrapnutého list_item
+            location_text = list_item.get("location_text", "")
+        result["location_text"] = location_text[:200]
+
+        # ── Description ────────────────────────────────────────────────────────
+        # Cílový selektor: .pd-base-info__content-collapse-inner
+        desc_el = soup.select_one('.pd-base-info__content-collapse-inner')
+        if desc_el:
+            result["description"] = desc_el.get_text(' ', strip=True)[:5000]
+        else:
+            # Záloha: h4 perex + první obsáhlý odstavec
+            parts = []
+            h4 = soup.select_one('.pd-base-info__content h4')
+            if h4:
+                parts.append(h4.get_text(' ', strip=True))
+            result["description"] = ' '.join(parts)[:5000]
+
+        # ── Structured parameters from pd-detail-info__row ─────────────────────
+        params: Dict[str, str] = {}
+        for row in soup.select('.pd-detail-info__row'):
+            label_el = row.select_one('.pd-detail-info__label')
+            value_el = row.select_one('.pd-detail-info__value')
+            if label_el and value_el:
+                label = label_el.get_text(strip=True).rstrip(':').strip()
+                value = value_el.get_text(' ', strip=True)
+                params[label] = value
+
+        # Užitná plocha / Plocha parcely
+        if 'Užitná plocha' in params:
+            m = re.search(r'(\d[\d\s]*)', params['Užitná plocha'])
+            if m:
+                result["area_built_up"] = float(m.group(1).replace(' ', '').replace('\xa0', ''))
+        if 'Plocha parcely' in params:
+            m = re.search(r'(\d[\d\s]*)', params['Plocha parcely'])
+            if m:
+                result["area_land"] = float(m.group(1).replace(' ', '').replace('\xa0', ''))
+
+        # Stav objektu → condition
+        if 'Stav objektu' in params:
+            result["condition"] = params['Stav objektu']
+
+        # Druh objektu → construction_type (Cihlová, Panel, Dřevostavba…)
+        if 'Druh objektu' in params:
+            result["construction_type"] = params['Druh objektu']
+
+        # ── Disposition (pokoje) ───────────────────────────────────────────────
+        # Zkus pictogram__item s title="Počet pokojů"
+        for item in soup.select('.pictogram__item'):
+            if item.get('title', '') == 'Počet pokojů':
+                raw = item.get_text(strip=True)
+                m = re.search(r'(\d+\+(?:\d+|kk))', raw, re.I)
+                if m:
+                    result["disposition"] = m.group(1).upper().replace('KK', 'kk')
+                    break
+        # Záloha: regex na titulek
+        if 'disposition' not in result:
+            disp_m = re.search(r'(\d+\+(?:\d+|kk))', result.get("title", ""), re.I)
+            if disp_m:
+                result["disposition"] = disp_m.group(1).upper().replace('KK', 'kk')
+
+        # ── Price ──────────────────────────────────────────────────────────────
+        price_el = soup.select_one('.pd-header__price')
+        if price_el:
+            price_text = price_el.get_text(' ', strip=True)
+            price_m = re.search(r'([\d\s\xa0]+)\s*Kč', price_text)
+            if price_m:
                 try:
-                    result["price"] = float(price_str)
+                    result["price"] = float(
+                        price_m.group(1).replace(' ', '').replace('\xa0', '').replace('\u202f', '')
+                    )
                 except ValueError:
-                    result["price"] = None
-        
-        # Description (dlouhý text odstavce)
-        description_parts = []
-        for p in soup.find_all(['p', 'div'], limit=20):
-            text = p.get_text(' ', strip=True)
-            if len(text) > 100:  # Delší odstavce jsou pravděpodobně popis
-                description_parts.append(text)
-            if len(description_parts) >= 3:  # Max 3 odstavce
-                break
-        result["description"] = '\n\n'.join(description_parts)[:2000]
-        
-        # Area (hledej "m²" nebo "m2")
-        area_texts = soup.find_all(string=re.compile(r'(\d+)\s*m[²2]'))
-        if area_texts:
-            for area_text in area_texts[:2]:  # Max 2 first matches
-                match = re.search(r'(\d+)\s*m[²2]', area_text)
-                if match:
-                    area_value = float(match.group(1))
-                    # Rozlišíme zastavěnou plochu vs pozemek podle kontextu
-                    if 'pozemek' in area_text.lower() or 'parcela' in area_text.lower():
-                        result["area_land"] = area_value
-                    else:
-                        if "area_built_up" not in result:
-                            result["area_built_up"] = area_value
-        
-        # Photos (hledej <img> s URL obsahujícími "remax")
+                    pass
+        if 'price' not in result:
+            # Záloha: první výskyt "čísla Kč" na stránce
+            price_node = soup.find(string=re.compile(r'(\d[\d\s\xa0]+)\s*Kč'))
+            if price_node:
+                pm = re.search(r'([\d\s\xa0]+)\s*Kč', price_node)
+                if pm:
+                    try:
+                        result["price"] = float(
+                            pm.group(1).replace(' ', '').replace('\xa0', '').replace('\u202f', '')
+                        )
+                    except ValueError:
+                        pass
+
+        # ── Photos ────────────────────────────────────────────────────────────
         photo_urls = []
         for img in soup.find_all('img'):
             src = img.get('src', '')
-            if 'mlsf.remax-czech.cz' in src or '/data/' in src:
-                # Absolutní URL
+            if 'mlsf.remax-czech.cz' in src or ('/data/' in src and 'remax' in src):
                 photo_url = urljoin(self.BASE_URL, src)
                 if photo_url not in photo_urls:
                     photo_urls.append(photo_url)
-        result["photos"] = photo_urls[:50]  # Max 50 photos
-        
-        # Property type (dedukuj z titulu)
+        result["photos"] = photo_urls[:50]
+
+        # ── Property type ─────────────────────────────────────────────────────
         title_lower = result.get("title", "").lower()
-        if "dům" in title_lower or "domu" in title_lower or "vila" in title_lower or "vilay" in title_lower:
+        typ_param = params.get('Typ nemovitosti', '').lower()
+        if "dům" in title_lower or "domu" in title_lower or "vila" in title_lower or "domy" in typ_param:
             result["property_type"] = "Dům"
-        elif "byt" in title_lower or "bytu" in title_lower:
+        elif "byt" in title_lower or "bytu" in title_lower or "byty" in typ_param:
             result["property_type"] = "Byt"
-        elif "pozemek" in title_lower:
+        elif "pozemek" in title_lower or "pozemky" in typ_param:
             result["property_type"] = "Pozemek"
-        elif "komerč" in title_lower or "sklado" in title_lower or "kancelář" in title_lower:
+        elif any(kw in title_lower for kw in ['komerč', 'sklado', 'kancelář', 'provozov']):
             result["property_type"] = "Komerční"
         else:
-            # Záloha: použij hint ze search config
             result["property_type"] = list_item.get("property_type_hint", "Ostatní")
-        
-        # Offer type (prodej vs pronájem) - záloha: hint ze search config URL
+
+        # ── Offer type ────────────────────────────────────────────────────────
         if "pronájem" in title_lower or "pronajem" in title_lower:
             result["offer_type"] = "Pronájem"
         elif "prodej" in title_lower:
             result["offer_type"] = "Prodej"
         else:
             result["offer_type"] = list_item.get("offer_type_hint", "Prodej")
-        
+
         return result
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:

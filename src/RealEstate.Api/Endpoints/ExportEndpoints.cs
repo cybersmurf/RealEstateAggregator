@@ -134,7 +134,7 @@ public static class ExportEndpoints
 
         var photos = listing.Photos
             .OrderBy(p => p.Order)
-            .Take(20)
+            .Take(50)
             .Where(p => !string.IsNullOrWhiteSpace(p.OriginalUrl))
             .Select((p, i) =>
             {
@@ -315,8 +315,6 @@ public static class ExportEndpoints
                 await driveService.UploadInspectionPhotosAsync(inspectionFolderId, files, ct);
 
             // ── Lokální kopie pro MCP/AI analýzu ──────────────────────────────
-            var photosBaseUrl = Environment.GetEnvironmentVariable("PHOTOS_PUBLIC_BASE_URL")
-                ?? $"{req.Scheme}://{req.Host}";
             var inspDir = Path.Combine(env.WebRootPath, "uploads", "listings", id.ToString(), "inspection");
             Directory.CreateDirectory(inspDir);
 
@@ -339,7 +337,7 @@ public static class ExportEndpoints
                 var fullPath = Path.Combine(inspDir, fileName);
                 await File.WriteAllBytesAsync(fullPath, data, ct);
 
-                var relUrl = $"{photosBaseUrl}/uploads/listings/{id}/inspection/{fileName}";
+                var relUrl = $"/uploads/listings/{id}/inspection/{fileName}";
                 db.UserListingPhotos.Add(new UserListingPhoto
                 {
                     Id = Guid.NewGuid(),

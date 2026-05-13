@@ -8,21 +8,16 @@ namespace RealEstate.Api.Services;
 /// Downloads listing photos from their original external URLs
 /// and stores them locally via IStorageService.
 /// <br/>
-/// <b>stored_url</b> format: full public URL like
-/// <c>http://localhost:5001/uploads/listings/{id}/photos/0_abc.jpg</c>
+/// <b>stored_url</b> format: relative path like
+/// <c>/uploads/listings/{id}/photos/0_abc.jpg</c>
+/// (Blazor app prepends ApiPublicUrl at render time)
 /// </summary>
 public sealed class PhotoDownloadService(
     RealEstateDbContext db,
     IStorageService storageService,
     IHttpClientFactory httpClientFactory,
-    IConfiguration configuration,
     ILogger<PhotoDownloadService> logger) : IPhotoDownloadService
 {
-    // Set PHOTOS_PUBLIC_BASE_URL env var in production to the externally accessible API URL
-    private readonly string _publicBaseUrl =
-        Environment.GetEnvironmentVariable("PHOTOS_PUBLIC_BASE_URL")
-        ?? configuration["Photos:PublicBaseUrl"]
-        ?? "http://localhost:5001";
 
     // Statusy, které spadají pod "moje inzeráty" (= uživatel je aktivně sleduje)
     private static readonly string[] MyListingStatuses = ["Liked", "ToVisit", "Visited"];
@@ -46,10 +41,10 @@ public sealed class PhotoDownloadService(
                     s.ListingId == p.ListingId &&
                     MyListingStatuses.Contains(s.Status)));
 
-        var photos = await query
-            .OrderBy(p => p.ListingId)
-            .ThenBy(p => p.Order)
-            .Take(batchSize)
+        // Pokud je zadán konkrétní listing, stáhni VŠECHNY jeho fotky (žádný batching).
+        // BatchSize se aplikuje jen pro globální bulk bez listingId.
+        var orderedQuery = query.OrderBy(p => p.ListingId).ThenBy(p => p.Order);
+        var photos = await (listingId.HasValue ? orderedQuery : orderedQuery.Take(batchSize))
             .ToListAsync(ct);
 
         if (photos.Count == 0)
@@ -101,13 +96,12 @@ public sealed class PhotoDownloadService(
 
                 var relativePath = await storageService.UploadFileAsync(stream, fileName, folder, ct);
 
-                // ── Build public URL and update DB ─────────────────────────────────────────
-                var publicUrl = $"{_publicBaseUrl.TrimEnd('/')}/{relativePath}";
-                photo.StoredUrl = publicUrl;
+                // ── Store relative path only – Blazor prepends ApiPublicUrl at render time ─
+                photo.StoredUrl = $"/{relativePath.TrimStart('/')}";
 
                 logger.LogDebug(
                     "Stored photo {Order} for listing {ListingId} → {Url}",
-                    photo.Order, photo.ListingId, publicUrl);
+                    photo.Order, photo.ListingId, photo.StoredUrl);
 
                 succeeded++;
             }
@@ -127,8 +121,7 @@ public sealed class PhotoDownloadService(
         stopwatch.Stop();
         var avgMs = photos.Count > 0 ? stopwatch.ElapsedMilliseconds / (double)photos.Count : 0;
 
-        var remaining = await db.ListingPhotos
-            .CountAsync(p => p.StoredUrl == null && (listingId == null || p.ListingId == listingId), ct);
+        var remaining = await query.CountAsync(ct);
 
         logger.LogInformation(
             "Photo batch: {Processed} processed, {Succeeded} succeeded, {Failed} failed. Remaining: {Remaining}",
