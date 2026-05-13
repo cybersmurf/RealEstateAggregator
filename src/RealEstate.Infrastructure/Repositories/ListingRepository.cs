@@ -21,7 +21,7 @@ public sealed class ListingRepository : IListingRepository
         return _context.Listings
             .AsExpandable() // Důležité pro PredicateBuilder + EF Core
             .Include(l => l.Source)
-            .Include(l => l.Photos)
+            .Include(l => l.Photos.OrderBy(p => p.Order).Take(1)) // Jen thumbnail pro seznam
             .Include(l => l.UserStates.Where(s => s.UserId == DefaultUserId)) // Filtered Include – načte jen záznamy pro výchozího uživatele
             .AsSplitQuery()  // Prevents cartesian explosion when paging with multiple Includes
             .AsQueryable();
