@@ -353,6 +353,11 @@
                                 <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="mt-1"
                                          Icon="@Icons.Material.Filled.Star">@tScore/@tTotal kritérií</MudChip>
                             }
+                            @if (IsSingleFloor(item))
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined" Class="mt-1"
+                                         Icon="@Icons.Material.Filled.Cottage">Přízemní</MudChip>
+                            }
                             @if (!string.IsNullOrWhiteSpace(item.PriceSignal))
                             {
                                 <MudChip T="string" Size="Size.Small" Class="mt-1"
@@ -983,6 +988,18 @@
     };
 
     // 5. kritérium: zahrada → vyhodnoceno z AiNormalizedData (has_garden)
+
+    private static bool IsSingleFloor(ListingSummaryDto item)
+    {
+        if (string.IsNullOrEmpty(item.AiNormalizedData)) return false;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(item.AiNormalizedData);
+            return doc.RootElement.TryGetProperty("is_single_floor", out var v) &&
+                   v.ValueKind == System.Text.Json.JsonValueKind.True;
+        }
+        catch { return false; }
+    }
 
     private static bool IsOnTargetCorridor(ListingSummaryDto item)
     {
