@@ -34,8 +34,12 @@ git stash && git pull && git stash pop && docker compose build app && docker com
 `network: host` in build sections = required (systemd-resolved DNS fix).
 
 ### Listing Card Badge System (Listings.razor)
-Card chip order: **TargetScore → PriceSignal → SmartTags**
-- `ScoreListingTarget()` → "Náš cíl" (5/5, green) or "X/5 kritérií" (≥3, yellow)
+Card chip order: **TargetScore → Přízemní → PriceSignal → SmartTags**
+- `ScoreListingTarget()` → 5 kritérií: cena ≤7,5M / plocha ≥100m² / pokoje ≥4 / lokalita (osa Rajhrad–Znojmo) / zahrada
+  - "Náš cíl" (5/5, zelená) nebo "X/5 kritérií" (≥3, žlutá, Outlined)
+  - **POZOR:** PropertyType a OfferType NEJSOU součástí skóre – jsou to filtry v UI
+- `IsSingleFloor()` → `is_single_floor==true` z AiNormalizedData → "Přízemní" (modrá, Outlined, Cottage)
+  - Manuální oprava: `UPDATE ... SET ai_normalized_data = ai_normalized_data || '{"is_single_floor": true}'::jsonb`
 - `PriceSignal`: "low"=green/TrendingDown, "fair"=warning, "high"=red/TrendingUp
 - `SmartTags`: JSON array, max 4 chips, Outlined/Secondary
 
@@ -51,13 +55,17 @@ If `CS2021: File name '**/*.cs'` during Docker build:
 { "has_garden": bool|null, "has_garage": bool|null, "has_basement": bool|null,
   "has_pool": bool|null, "has_terrace": bool|null, "has_balcony": bool|null,
   "has_elevator": bool|null, "has_storage": bool|null, "energy_class": "A"|"B"|null,
-  "heating_type": "gas"|"electric"|"other"|null, "year_built": int|null,
-  "floor": int|null, "total_floors": int|null, "ownership": "personal"|null }
+  "heating_type": "gas"|"electric"|"heat_pump"|"other"|null, "year_built": int|null,
+  "floor": int|null, "total_floors": int|null, "ownership": "personal"|null,
+  "is_single_floor": bool|null,  // true = bungalov/přízemní, null = nezjištěno
+  "extension_possible": bool|null }
 ```
+**is_single_floor detekce:** klíčová slova: bungalov, přízemní, přízemí, bez schodů, parter, 1NP, 1. NP
+Pokud AI nezjistí z textu → ručně: `ai_normalized_data || '{"is_single_floor": true}'::jsonb`
 
 ## Project State (May 2026)
 - 1558 listings, 13 sources, 97% GPS, AI: 91% normalize, 91% smart-tags, 79% price-signal
-- Commits: `e2a3ec3` (Náš cíl badge), `97f5e8c` (Docker DNS fix)
+- Commits: `b1a4349` (Náš cíl badge + kritéria 7,5M/100m²/4+kk/koridor), `6ae0cca` (Přízemní badge), `bb8db32` (is_single_floor prompt fix)
 - Photo downloads: background job running (~22k photos)
 
 ## Key Files

@@ -52,8 +52,7 @@ Karty jsou renderovány v `MudGrid` s responzivními breakpointy:
 │  │  📍 LocationText  Typo.caption, šedá          │    │
 │  │  ─────────────────────────────────────────── │    │
 │  │  [🎯 Náš cíl]     Score chip (pokud score=5) │    │
-│  │  [⭐ X/5 kritérií] Score chip (pokud score≥3)│    │
-│  │  [📈 PriceSignal]  AI cenový signál (pokud ≠null)│  │
+│  │  [⭐ X/5 kritérií] Score chip (pokud score≥3)│    │  │  [🏠 Přízemní]    Přízemní dům (pokud true)  │    ││  │  [📈 PriceSignal]  AI cenový signál (pokud ≠null)│  │
 │  │  [tag] [tag] [tag] [tag]  SmartTags (max 4)  │    │
 │  └──────────────────────────────────────────────┘    │
 │                                                      │
@@ -76,10 +75,10 @@ Hodnotí 5 kritérií:
 
 | # | Kritérium | Zdroj pole |
 |---|-----------|-----------|
-| 1 | `PropertyType == "House"` | `item.PropertyType` |
-| 2 | `OfferType == "Sale"` | `item.OfferType` |
-| 3 | `Price <= 10 000 000 Kč` | `item.Price` |
-| 4 | `AreaBuiltUp >= 80 m²` | `item.AreaBuiltUp` |
+| 1 | `Price ≤ 7 500 000 Kč` | `item.Price` |
+| 2 | `AreaBuiltUp ≥ 100 m²` | `item.AreaBuiltUp` |
+| 3 | `Rooms ≥ 4` (4+kk a výše) | `item.Rooms` |
+| 4 | Lokalita na ose Rajhrad–Pohořelice–Lechovice–Znojmo | `item.Municipality` / `item.LocationText` |
 | 5 | `has_garden == true` | `item.AiNormalizedData` (JSON) |
 
 Zobrazení:
@@ -91,7 +90,9 @@ Zobrazení:
 | 0–2/5 | *(nezobrazí se)* | – | – | – |
 
 > Konstanty lze upravit přímo v `Listings.razor`:  
-> `TargetPropertyType`, `TargetOfferType`, `TargetMaxPrice`, `TargetMinAreaBuiltUp`
+> `TargetMaxPrice` (7 500 000), `TargetMinAreaBuiltUp` (100), `TargetMinRooms` (4), `_targetMunicipalities` (HashSet)
+
+**⚠️ PropertyType a OfferType NEJSOU součástí skóre** – jsou to filtry v UI, ne kritéria `ScoreListingTarget`.
 
 ### 3.2 PriceSignal
 
@@ -119,6 +120,34 @@ Generuje AI job `OllamaTextService.GenerateSmartTagsAsync()`.
 ```
 
 Pomocná metoda: `ParseSmartTags(string? json) → List<string>`
+
+### 3.4 Přízemní badge
+
+Zdroj: `IsSingleFloor(item)` – čte `is_single_floor` z `AiNormalizedData` JSON.
+
+| Podmínka | Badge text | Barva | Varianta | Ikona |
+|----------|-----------|-------|---------|-------|
+| `is_single_floor == true` | "Přízemní" | `Color.Info` (modrá) | Outlined | `Cottage` |
+| `is_single_floor == false` nebo `null` | *(nezobrazí se)* | – | – | – |
+
+**Pozice:** za TargetScore chipem, před PriceSignal.
+
+**Jak AI detekuje `is_single_floor`:** klíčová slova v popisu inzerátu:
+`bungalov`, `přízemní`, `přízemí`, `bez schodů`, `parter`, `1NP`, `1. NP`, `přízemní dům`
+
+**Manuální oprava** (když AI nezjistí z textu):
+```sql
+UPDATE re_realestate.listings
+SET ai_normalized_data = ai_normalized_data || '{"is_single_floor": true}'::jsonb
+WHERE id = '<uuid>';
+```
+
+Implementace v `OllamaTextService.cs` (prompt):
+```
+is_single_floor: true if the house is entirely on one level (bungalov, přízemní, přízemí,
+bez schodů, parter, 1NP, 1. NP, přízemní dům, no stairs). Also true if the listing explicitly
+mentions that all rooms are on one floor. Use null if uncertain.
+```
 
 ---
 
