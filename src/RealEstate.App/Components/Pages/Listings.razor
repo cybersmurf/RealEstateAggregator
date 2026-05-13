@@ -50,6 +50,18 @@
                                   OnClearButtonClick="@(() => { _filter.SearchText = null; })" />
                 </MudItem>
 
+                <!-- Lokalita -->
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_filter.Municipality"
+                                  Label="Lokalita (obec, okres, kraj)"
+                                  Placeholder="např. Znojmo, Brno-venkov, Jihomoravský"
+                                  Variant="Variant.Outlined"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.LocationOn"
+                                  Clearable="true"
+                                  OnClearButtonClick="@(() => { _filter.Municipality = null; })" />
+                </MudItem>
+
                 <!-- Typ nemovitosti -->
                 <MudItem xs="6" md="3">
                     <MudSelect T="string?" @bind-Value="_filter.PropertyType"
@@ -487,15 +499,15 @@
 
     // Quick filtry
     private string? _activeQuickFilter;
-    private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType, string? UserStatus)> _quickFilters =
+    private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType, string? UserStatus, decimal? MaxPrice, int? RoomsMin, string? SearchText)> _quickFilters =
     [
-        ("houses-sale",  "Domy k prodeji",  "House",     "Sale", null),
-        ("apartments",   "Byty",             "Apartment", null,   null),
-        ("land-sale",    "Pozemky k prodeji","Land",      "Sale", null),
-        ("cottages",     "Chaty / chalupy",  "Cottage",   null,   null),
-        ("rent",         "Pronájem",          null,        "Rent", null),
-        ("liked",        "❤️ Oblíbené",        null,        null,   "Liked"),
-        ("to-visit",     "🚗 K návštěvě",      null,        null,   "ToVisit"),
+        ("velke-domy",       "🏡 Velké domy 4+",       "House", "Sale", null,      null,          4,    null),
+        ("velke-domy-garaz", "🏡 Velké domy + garáž",  "House", "Sale", null,      null,          4,    "garáž"),
+        ("domy-8m",          "🏠 Domy do 8M",           "House", "Sale", null,      8_000_000m,    null, null),
+        ("domy-6m",          "🏠 Domy do 6M",           "House", "Sale", null,      6_000_000m,    null, null),
+        ("land-sale",        "Pozemky k prodeji",       "Land",  "Sale", null,      null,          null, null),
+        ("liked",            "❤️ Oblíbené",              null,    null,   "Liked",   null,          null, null),
+        ("to-visit",         "🚗 K návštěvě",            null,    null,   "ToVisit", null,          null, null),
     ];
 
     // --- Filter state persistence (obnovení po návratu z detailu) ---
@@ -797,6 +809,9 @@
         _filter.PropertyType = qf.PropertyType;
         _filter.OfferType    = qf.OfferType;
         _filter.UserStatus   = qf.UserStatus;
+        _filter.PriceMax     = qf.MaxPrice;
+        _filter.RoomsMin     = qf.RoomsMin;
+        _filter.SearchText   = qf.SearchText;
 
         if (_cardView)
         {
