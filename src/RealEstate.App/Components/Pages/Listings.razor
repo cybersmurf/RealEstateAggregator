@@ -340,6 +340,27 @@
                                     @item.LocationText
                                 </MudText>
                             }
+                            @if (!string.IsNullOrWhiteSpace(item.PriceSignal))
+                            {
+                                <MudChip T="string" Size="Size.Small" Class="mt-1"
+                                         Color="@(item.PriceSignal == "low" ? Color.Success : item.PriceSignal == "high" ? Color.Error : Color.Warning)"
+                                         Icon="@(item.PriceSignal == "low" ? Icons.Material.Filled.TrendingDown : item.PriceSignal == "high" ? Icons.Material.Filled.TrendingUp : Icons.Material.Filled.TrendingFlat)">
+                                    @(item.PriceSignal == "low" ? "Podhodnocená" : item.PriceSignal == "high" ? "Nadhodnocená" : "Přiměřená")
+                                </MudChip>
+                            }
+                            @{
+                                var cardTags = ParseSmartTags(item.SmartTags);
+                            }
+                            @if (cardTags.Count > 0)
+                            {
+                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-1">
+                                    @foreach (var tag in cardTags.Take(4))
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary"
+                                                 Style="font-size:0.7rem;height:20px;">@tag</MudChip>
+                                    }
+                                </MudStack>
+                            }
                         </MudCardContent>
                         <MudCardActions Class="pa-2 pt-0">
                             @{ var cardLogo = SourceLogoUrl(item.SourceCode); }
@@ -924,9 +945,15 @@
         }
     }
 
-    private static string TranslatePropertyType(string? t) => t switch
+    private static List<string> ParseSmartTags(string? json)
     {
-        "House"      => "Dům",
+        if (string.IsNullOrEmpty(json)) return new();
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private static string TranslatePropertyType(string? t) => t switch
+    {        "House"      => "Dům",
         "Apartment"  => "Byt",
         "Land"       => "Pozemek",
         "Cottage"    => "Chata",
