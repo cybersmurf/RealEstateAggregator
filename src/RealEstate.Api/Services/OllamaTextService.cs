@@ -207,6 +207,7 @@ public sealed class OllamaTextService(
         var query = db.Listings
             .Include(l => l.UserStates)
             .Include(l => l.Analyses)
+            .AsSplitQuery()
             .Where(l => (force ? true : l.PriceSignal == null) && l.Price != null && l.Price > 0)
             .Where(l => listingId == null || l.Id == listingId);
 
@@ -253,6 +254,7 @@ public sealed class OllamaTextService(
         var listing = await db.Listings
             .Include(l => l.UserStates)
             .Include(l => l.Analyses)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(l => l.Id == listingId, ct)
             ?? throw new ArgumentException($"Inzerát {listingId} nenalezen.");
 

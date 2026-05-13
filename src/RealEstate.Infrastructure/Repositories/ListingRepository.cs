@@ -35,6 +35,7 @@ public sealed class ListingRepository : IListingRepository
             .Include(l => l.Source)
             .Include(l => l.Photos)
             .Include(l => l.UserStates)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(l => l.Id == id, ct);
     }
 
