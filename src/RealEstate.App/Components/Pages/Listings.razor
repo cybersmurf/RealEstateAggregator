@@ -340,6 +340,19 @@
                                     @item.LocationText
                                 </MudText>
                             }
+                            @{
+                                var (tScore, tTotal) = ScoreListingTarget(item);
+                            }
+                            @if (tScore == tTotal)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Class="mt-1"
+                                         Icon="@Icons.Material.Filled.TrackChanges">Náš cíl</MudChip>
+                            }
+                            else if (tScore >= 3)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="mt-1"
+                                         Icon="@Icons.Material.Filled.Star">@tScore/@tTotal kritérií</MudChip>
+                            }
                             @if (!string.IsNullOrWhiteSpace(item.PriceSignal))
                             {
                                 <MudChip T="string" Size="Size.Small" Class="mt-1"
@@ -943,6 +956,38 @@
         {
             Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
         }
+    }
+
+    // ─── Naše cílová kritéria (upravte dle potřeby) ─────────────────────────────
+    private const string  TargetPropertyType   = "House";
+    private const string  TargetOfferType      = "Sale";
+    private const decimal TargetMaxPrice       = 10_000_000m;
+    private const double  TargetMinAreaBuiltUp = 80.0;
+    // 5. kritérium: zahrada → vyhodnoceno z AiNormalizedData (has_garden)
+
+    private static (int score, int total) ScoreListingTarget(ListingSummaryDto item)
+    {
+        const int total = 5;
+        var score = 0;
+
+        if (item.PropertyType == TargetPropertyType)  score++;
+        if (item.OfferType    == TargetOfferType)     score++;
+        if (item.Price.HasValue && item.Price.Value <= TargetMaxPrice) score++;
+        if (item.AreaBuiltUp.HasValue && item.AreaBuiltUp.Value >= TargetMinAreaBuiltUp) score++;
+
+        if (!string.IsNullOrEmpty(item.AiNormalizedData))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(item.AiNormalizedData);
+                if (doc.RootElement.TryGetProperty("has_garden", out var g) &&
+                    g.ValueKind == System.Text.Json.JsonValueKind.True)
+                    score++;
+            }
+            catch { /* ignore malformed JSON */ }
+        }
+
+        return (score, total);
     }
 
     private static List<string> ParseSmartTags(string? json)
