@@ -29,6 +29,7 @@ services:
     build:
       context: .
       dockerfile: src/RealEstate.Api/Dockerfile
+      network: host  # Fix: systemd-resolved uses 127.0.0.53 which is unreachable inside build containers
     container_name: realestate-api
     ports:
       - "5001:8080"
@@ -74,6 +75,7 @@ services:
     build:
       context: .
       dockerfile: src/RealEstate.App/Dockerfile
+      network: host  # Fix: systemd-resolved uses 127.0.0.53 which is unreachable inside build containers
     container_name: realestate-app
     ports:
       - "5002:8080"
