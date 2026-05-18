@@ -161,11 +161,21 @@ scrapers:
   sreality:
     detail_fetch_concurrency: 5  # 🔥 Number of concurrent detail requests
     fetch_details: true
-    # Scrape multiple districts – jedna instance scraperu per district
+    # Scrape multiple districts – jedna instance scraperu per district × category
     locality_district_ids:
       - 77   # Znojmo (ID=77)
       - 73   # Brno-venkov (ID=73) – Pohořelice, Vlasatice, Mušov, Miroslav, Žabčice, Dolní Kounice, …
     # locality_district_id: 77  # legacy – nahrazeno listem výše
+    # Scrape separately per category_main_cb to avoid pagination overflow in incremental mode.
+    # Without this, a single query for all types returns 700+ results and incremental
+    # (5 pages × 60 = 300) misses houses on pages 6+.
+    # 2=Dům, 3=Pozemek, 4=Komerční
+    category_main_cbs:
+      - 2   # Domy (Houses)
+      - 3   # Pozemky (Land)
+      - 4   # Komerční (Commercial)
+    # Max pages per district+category in incremental mode (default: 5)
+    max_pages_incremental: 10
   min_description_length: 20  # znaků
 
 # ══════════════════════════════════════════════════════════════════════════════

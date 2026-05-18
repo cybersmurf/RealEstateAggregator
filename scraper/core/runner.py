@@ -124,6 +124,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             detail_fetch_concurrency = sreality_config.get("detail_fetch_concurrency", 5)
             fetch_details = sreality_config.get("fetch_details", True)
             locality_region_id = sreality_config.get("locality_region_id")
+            max_pages_incremental = sreality_config.get("max_pages_incremental", 5)
 
             # Podpora více district IDs (locality_district_ids: [77, 79])
             # s fallbackem na starý skalární locality_district_id: 77
@@ -133,25 +134,40 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
                 if single_id is not None:
                     district_ids = [single_id]
 
+            # 🔥 Per-category scraping: každá kombinace district × category_main_cb
+            # má vlastní scraper instanci. Bez toho by jeden query na celý okres
+            # (všechny kategorie) vrátil 700+ výsledků a incremental (5 str. × 60 = 300)
+            # by domy na stránkách 6+ vynechal.
+            category_main_cbs: list = sreality_config.get("category_main_cbs") or [None]
+
             if district_ids:
                 for district_id in district_ids:
-                    logger.info(f"Job {job_id}: Scheduling Sreality scraper for district_id={district_id}")
+                    for cat_main in category_main_cbs:
+                        logger.info(
+                            f"Job {job_id}: Scheduling Sreality scraper "
+                            f"district_id={district_id} category_main_cb={cat_main}"
+                        )
+                        scraper = SrealityScraper(
+                            category_main_cb=cat_main,
+                            fetch_details=fetch_details,
+                            detail_fetch_concurrency=detail_fetch_concurrency,
+                            locality_region_id=locality_region_id,
+                            locality_district_id=district_id,
+                            max_pages_incremental=max_pages_incremental,
+                        )
+                        tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
+            else:
+                # Bez filtru okresu – celá republika (fallback)
+                for cat_main in category_main_cbs:
                     scraper = SrealityScraper(
+                        category_main_cb=cat_main,
                         fetch_details=fetch_details,
                         detail_fetch_concurrency=detail_fetch_concurrency,
                         locality_region_id=locality_region_id,
-                        locality_district_id=district_id,
+                        locality_district_id=None,
+                        max_pages_incremental=max_pages_incremental,
                     )
                     tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
-            else:
-                # Bez filtru okresu – celá republika (fallback)
-                scraper = SrealityScraper(
-                    fetch_details=fetch_details,
-                    detail_fetch_concurrency=detail_fetch_concurrency,
-                    locality_region_id=locality_region_id,
-                    locality_district_id=None,
-                )
-                tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
 
         if "IDNES" in source_codes:
             logger.info(f"Job {job_id}: Scheduling Idnes Reality scraper...")

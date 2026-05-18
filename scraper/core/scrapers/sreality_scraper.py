@@ -90,6 +90,7 @@ class SrealityScraper:
         per_page: int = 60,
         fetch_details: bool = True,
         detail_fetch_concurrency: int = 5,
+        max_pages_incremental: int = 10,
     ) -> None:
         self.category_main_cb = category_main_cb
         self.category_type_cb = category_type_cb
@@ -98,11 +99,12 @@ class SrealityScraper:
         self.per_page = per_page
         self.fetch_details = fetch_details
         self.detail_fetch_concurrency = detail_fetch_concurrency  # 🔥 Semaphore limit
+        self.max_pages_incremental = max_pages_incremental
         self.scraped_count = 0
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
-        max_pages = 999 if full_rescan else 5
+        max_pages = 999 if full_rescan else self.max_pages_incremental
         return await self.scrape(max_pages=max_pages)
 
     async def scrape(self, max_pages: int = 5) -> int:
@@ -443,6 +445,30 @@ class SrealityScraper:
         detail_price = detail_price_czk.get("value_raw")
         if detail_price and detail_price > 1:
             normalized["price"] = detail_price
+
+        # 🔥 Počet shlédnutí inzerátu (SReality specific)
+        seen_count = detail.get("_embedded", {}).get("stats", {}).get("views")
+        if seen_count is None:
+            seen_count = detail.get("view_count") or detail.get("seen_count")
+        if isinstance(seen_count, int):
+            normalized["view_count"] = seen_count
+
+        # 🔥 Datum vložení inzerátu na SReality
+        date_created = (
+            detail.get("date_of_creation")
+            or detail.get("created_at")
+            or detail.get("date_start")
+        )
+        if date_created and not normalized.get("date_created_source"):
+            from datetime import timezone
+            import re as _re
+            if isinstance(date_created, (int, float)):
+                # Unix timestamp
+                normalized["date_created_source"] = datetime.fromtimestamp(
+                    date_created, tz=timezone.utc
+                ).isoformat()
+            elif isinstance(date_created, str) and _re.search(r"\d{4}", date_created):
+                normalized["date_created_source"] = date_created
 
         # 🔥 SReality API vrací 'text' jako dict {'name': 'Popis', 'value': '...'} nebo string
         description_raw = detail.get("text") or detail.get("description")
