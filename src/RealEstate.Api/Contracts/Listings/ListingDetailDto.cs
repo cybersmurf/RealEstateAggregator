@@ -43,6 +43,13 @@ public sealed class ListingDetailDto
     public string? DriveFolderUrl { get; set; }
     public string? DriveInspectionFolderUrl { get; set; }
 
+    /// <summary>Pokud je tento inzerát duplikátem (cross-source), ID primárního inzerátu.</summary>
+    public Guid? DuplicateOfListingId { get; set; }
+    /// <summary>Titulek primárního inzerátu (pokud je tohle duplikát).</summary>
+    public string? DuplicateOfTitle { get; set; }
+    /// <summary>Source code primárního inzerátu.</summary>
+    public string? DuplicateOfSourceCode { get; set; }
+
     // Ollama text features
     /// <summary>JSON pole 5 klíčových tagů: ["sklep","zahrada","garáž"]</summary>
     public string? SmartTags { get; set; }

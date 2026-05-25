@@ -55,6 +55,9 @@ public class Listing
     // a upload fotek z prohlídky fungoval i po refreshi stránky
     public string? DriveFolderId { get; set; }
     public string? DriveInspectionFolderId { get; set; }
+
+    /// <summary>Pokud je tento inzerát duplikátem jiného (stejný dům, jiný zdroj), odkazuje na primární listing.</summary>
+    public Guid? DuplicateOfListingId { get; set; }
     
     // ── Ollama text features ────────────────────────────────────────────────────
     /// <summary>JSON pole 5 klíčových tagů z popisu: ["sklep","zahrada","novostavba", ...]</summary>

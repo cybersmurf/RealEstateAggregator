@@ -104,6 +104,34 @@ public class ListingService : IListingService
 
         var userState = entity.UserStates.FirstOrDefault(s => s.UserId == DefaultUserId);
 
+        // Duplikát napříč zdroji – načti minimální info o primárním inzerátu
+        string? duplicateOfTitle = null;
+        string? duplicateOfSourceCode = null;
+        if (entity.DuplicateOfListingId is { } dupId)
+        {
+            var primary = await _dbContext.Listings
+                .AsNoTracking()
+                .Where(l => l.Id == dupId)
+                .Select(l => new { l.Title, SourceCode = l.Source.Code })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (primary is not null)
+            {
+                duplicateOfTitle = primary.Title;
+                duplicateOfSourceCode = primary.SourceCode;
+            }
+
+            // Pokud na duplikátu chybí user state, půjčíme si ho z primárního
+            if (userState is null)
+            {
+                var primaryState = await _dbContext.UserListingStates
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        s => s.ListingId == dupId && s.UserId == DefaultUserId,
+                        cancellationToken);
+                userState = primaryState;
+            }
+        }
+
         return new ListingDetailDto
         {
             Id = entity.Id,
@@ -164,6 +192,9 @@ public class ListingService : IListingService
             DriveInspectionFolderUrl = entity.DriveInspectionFolderId is not null
                 ? $"https://drive.google.com/drive/folders/{entity.DriveInspectionFolderId}"
                 : null,
+            DuplicateOfListingId = entity.DuplicateOfListingId,
+            DuplicateOfTitle = duplicateOfTitle,
+            DuplicateOfSourceCode = duplicateOfSourceCode,
             SmartTags = entity.SmartTags,
             AiNormalizedData = entity.AiNormalizedData,
             PriceSignal = entity.PriceSignal,

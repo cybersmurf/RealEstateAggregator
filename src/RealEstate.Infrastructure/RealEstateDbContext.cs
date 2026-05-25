@@ -127,6 +127,9 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.DriveFolderId).HasColumnName("drive_folder_id");
             entity.Property(e => e.DriveInspectionFolderId).HasColumnName("drive_inspection_folder_id");
 
+            entity.Property(e => e.DuplicateOfListingId).HasColumnName("duplicate_of_listing_id");
+            entity.HasIndex(e => e.DuplicateOfListingId).HasDatabaseName("ix_listings_duplicate_of");
+
             // Ollama text features
             entity.Property(e => e.SmartTags).HasColumnName("smart_tags").HasColumnType("text");
             entity.Property(e => e.SmartTagsAt).HasColumnName("smart_tags_at").HasColumnType("timestamptz");

@@ -32,6 +32,29 @@
                 </MudAlert>
             }
 
+            <!-- Duplicate banner -->
+            @if (_listing.DuplicateOfListingId is not null)
+            {
+                <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.ContentCopy" Dense="false">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudText>
+                            Tento inzerát je <b>duplikát</b> stejné nemovitosti z jiného zdroje.
+                            Primární záznam: <b>@_listing.DuplicateOfTitle</b>
+                            @if (!string.IsNullOrEmpty(_listing.DuplicateOfSourceCode))
+                            {
+                                <text> (@_listing.DuplicateOfSourceCode)</text>
+                            }
+                        </MudText>
+                        <MudSpacer />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.OpenInNew"
+                                   OnClick="@(() => Navigation.NavigateTo($"/listings/{_listing.DuplicateOfListingId}"))">
+                            Otevřít primární
+                        </MudButton>
+                    </MudStack>
+                </MudAlert>
+            }
+
             <!-- Header -->
             <MudPaper Class="pa-4">
                 <MudStack Spacing="2">

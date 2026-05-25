@@ -165,6 +165,10 @@ public static class DbInitializer
             ALTER TABLE re_realestate.listings DROP COLUMN IF EXISTS onedrive_folder_id;
             ALTER TABLE re_realestate.listings DROP COLUMN IF EXISTS onedrive_inspection_folder_id;
 
+            -- Duplicate detection napříč zdroji (stejný dům, jiný source)
+            ALTER TABLE re_realestate.listings ADD COLUMN IF NOT EXISTS duplicate_of_listing_id uuid REFERENCES re_realestate.listings(id) ON DELETE SET NULL;
+            CREATE INDEX IF NOT EXISTS ix_listings_duplicate_of ON re_realestate.listings(duplicate_of_listing_id);
+
             -- RAG: listing_analyses tabulka s pgvector embeddingy
             -- Dimenze 768 = nomic-embed-text (Ollama). Pro OpenAI text-embedding-3-small použij 1536.
             CREATE TABLE IF NOT EXISTS re_realestate.listing_analyses (
