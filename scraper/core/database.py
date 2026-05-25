@@ -269,6 +269,12 @@ class DatabaseManager:
         now = datetime.utcnow()
         
         async with self.acquire() as conn:
+            # 🔥 Načti stávající cenu před upsertem – pro detekci změny ceny
+            old_price = await conn.fetchval(
+                "SELECT price FROM re_realestate.listings WHERE source_id = $1 AND external_id = $2",
+                source_id, external_id
+            )
+
             # 🔥 ATOMIC UPSERT s ON CONFLICT DO UPDATE
             # Žádné race conditions - DB se postará o atomicitu
             result = await conn.fetchval(
@@ -279,10 +285,11 @@ class DatabaseManager:
                     location_text, area_built_up, area_land,
                     disposition, rooms, condition, construction_type,
                     latitude, longitude, geocoded_at, geocode_source,
+                    view_count, date_created_source,
                     first_seen_at, last_seen_at, is_active
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, true)
+                        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, true)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
                     url               = EXCLUDED.url,
@@ -308,6 +315,8 @@ class DatabaseManager:
                         WHEN EXCLUDED.latitude IS NOT NULL THEN EXCLUDED.geocode_source
                         ELSE re_realestate.listings.geocode_source
                     END,
+                    view_count          = COALESCE(EXCLUDED.view_count, re_realestate.listings.view_count),
+                    date_created_source = COALESCE(re_realestate.listings.date_created_source, EXCLUDED.date_created_source),
                     last_seen_at = EXCLUDED.last_seen_at,
                     is_active    = true
                 RETURNING id
@@ -334,13 +343,35 @@ class DatabaseManager:
                 listing_data.get("longitude"),
                 now if listing_data.get("latitude") is not None else None,
                 listing_data.get("geocode_source", "scraper") if listing_data.get("latitude") is not None else None,
+                listing_data.get("view_count"),
+                listing_data.get("date_created_source"),
                 now,
                 now
             )
             
             # Pokud UPDATE navrátil existující ID, použij to
             final_listing_id = result if result else listing_id
-            
+
+            # 🔥 Zaloguj změnu ceny do price_history
+            new_price = listing_data.get("price")
+            if new_price is not None:
+                # Log při první ceně (nový listing) NEBO při změně ceny
+                if old_price is None or old_price != new_price:
+                    await conn.execute(
+                        """
+                        INSERT INTO re_realestate.listing_price_history (listing_id, price, recorded_at, source)
+                        VALUES ($1, $2, $3, 'scraper')
+                        """,
+                        final_listing_id, new_price, now
+                    )
+                    if old_price is not None and old_price != new_price:
+                        diff_pct = round((float(new_price) - float(old_price)) / float(old_price) * 100, 1)
+                        direction = "⬇" if new_price < old_price else "⬆"
+                        logger.info(
+                            f"Price change {direction} {direction}: {listing_data.get('source_code')} "
+                            f"{external_id}: {old_price:,.0f} → {new_price:,.0f} Kč ({diff_pct:+.1f}%)"
+                        )
+
             # Synchronizuj fotky v transakci
             if "photos" in listing_data and listing_data["photos"]:
                 await self._upsert_photos(conn, final_listing_id, listing_data["photos"])
@@ -461,25 +492,33 @@ class DatabaseManager:
 
         # Zjistí, které URLs jsou NOVÉ (ještě nejsou v DB)
         existing_check = await conn.fetch(
-            "SELECT original_url FROM re_realestate.listing_photos WHERE listing_id = $1",
+            "SELECT original_url, stored_url FROM re_realestate.listing_photos WHERE listing_id = $1",
             listing_id,
         )
         existing_urls_set = {row["original_url"] for row in existing_check}
+        # Fotky které jsou v DB ale nemají stored_url (download dříve selhal) → retry
+        existing_no_stored = {row["original_url"] for row in existing_check if row["stored_url"] is None}
 
         new_photo_urls = [
             (idx, url) for idx, url in enumerate(photo_urls[:50])
             if url not in existing_urls_set
         ]
+        retry_photo_urls = [
+            (idx, url) for idx, url in enumerate(photo_urls[:50])
+            if url in existing_no_stored
+        ]
+        all_download_urls = new_photo_urls + retry_photo_urls
 
-        if new_photo_urls and uploads_base is not None:
+        if all_download_urls and uploads_base is not None:
             async with httpx.AsyncClient(timeout=15.0) as http_client:
-                for idx, url in new_photo_urls:
+                for idx, url in all_download_urls:
                     stored = await self._download_photo_to_storage(url, listing_id, idx, http_client)
                     new_urls_to_download[url] = stored
             downloaded = sum(1 for v in new_urls_to_download.values() if v is not None)
-            if new_photo_urls:
+            if all_download_urls:
                 logger.debug(
-                    f"Inline photo download: {downloaded}/{len(new_photo_urls)} OK for listing {listing_id}"
+                    f"Inline photo download: {downloaded}/{len(all_download_urls)} OK "
+                    f"({len(new_photo_urls)} new, {len(retry_photo_urls)} retry) for listing {listing_id}"
                 )
 
         async with conn.transaction():
@@ -498,15 +537,26 @@ class DatabaseManager:
             existing_by_url = {row["original_url"]: row for row in existing}
             new_urls_set = set(photo_urls[:50])
 
-            # 1. UPDATE existujících fotek (změněný order_index)
+            # 1. UPDATE existujících fotek (změněný order_index nebo retry stored_url)
             for idx, photo_url in enumerate(photo_urls[:50]):
                 if photo_url in existing_by_url:
                     row = existing_by_url[photo_url]
-                    if row["order_index"] != idx:
+                    new_order = row["order_index"] != idx
+                    retry_stored = new_urls_to_download.get(photo_url) if photo_url in existing_no_stored else None
+                    if new_order and retry_stored:
+                        await conn.execute(
+                            "UPDATE re_realestate.listing_photos SET order_index = $1, stored_url = $2 WHERE id = $3",
+                            idx, retry_stored, row["id"],
+                        )
+                    elif new_order:
                         await conn.execute(
                             "UPDATE re_realestate.listing_photos SET order_index = $1 WHERE id = $2",
-                            idx,
-                            row["id"],
+                            idx, row["id"],
+                        )
+                    elif retry_stored:
+                        await conn.execute(
+                            "UPDATE re_realestate.listing_photos SET stored_url = $1 WHERE id = $2",
+                            retry_stored, row["id"],
                         )
 
             # 2. INSERT nových fotek (které ještě nejsou v DB)
