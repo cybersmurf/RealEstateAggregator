@@ -481,9 +481,17 @@ class SrealityScraper:
             normalized["view_count"] = seen_count
 
         # v1 API: datum vložení je v "since" jako "YYYY-MM-DD" string
+        # asyncpg vyžaduje datetime objekt, ne string
         date_created = detail.get("since") or detail.get("date_of_creation")
         if date_created and not normalized.get("date_created_source"):
-            normalized["date_created_source"] = str(date_created)
+            try:
+                from datetime import datetime as _dt
+                if isinstance(date_created, str):
+                    normalized["date_created_source"] = _dt.fromisoformat(date_created)
+                else:
+                    normalized["date_created_source"] = date_created
+            except (ValueError, TypeError):
+                pass  # Nechej None
 
         # v1 API: popis je v "advert_description" (ne text.value)
         description = detail.get("advert_description")
