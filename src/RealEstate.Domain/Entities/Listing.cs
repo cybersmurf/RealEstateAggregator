@@ -39,7 +39,9 @@ public class Listing
     public DateTime FirstSeenAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastSeenAt { get; set; }
     public bool IsActive { get; set; } = true;
-    
+    // 🔥 SReality-specific: počet zobrazení a datum vložení inzerátu
+    public int? ViewCount { get; set; }
+    public DateTimeOffset? DateCreatedSource { get; set; }    
     // � GPS souřadnice (z scraperu nebo Nominatim geocoderu)
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
@@ -76,4 +78,5 @@ public class Listing
     public ICollection<UserListingState> UserStates { get; set; } = new List<UserListingState>();
     public ICollection<AnalysisJob> AnalysisJobs { get; set; } = new List<AnalysisJob>();
     public ICollection<ListingAnalysis> Analyses { get; set; } = new List<ListingAnalysis>();
+    public ICollection<ListingPriceHistory> PriceHistory { get; set; } = new List<ListingPriceHistory>();
 }

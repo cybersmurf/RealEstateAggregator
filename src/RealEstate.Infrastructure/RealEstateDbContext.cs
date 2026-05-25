@@ -24,6 +24,7 @@ public sealed class RealEstateDbContext : DbContext
     public DbSet<SpatialArea> SpatialAreas => Set<SpatialArea>();
     public DbSet<ListingAnalysis> ListingAnalyses => Set<ListingAnalysis>();
     public DbSet<ListingCadastreData> ListingCadastreData => Set<ListingCadastreData>();
+    public DbSet<ListingPriceHistory> ListingPriceHistories => Set<ListingPriceHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -113,6 +114,12 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.Longitude).HasColumnName("longitude");
             entity.Property(e => e.GeocodedAt).HasColumnName("geocoded_at").HasColumnType("timestamptz");
             entity.Property(e => e.GeocodeSource).HasColumnName("geocode_source").HasMaxLength(20);
+
+            // 🔥 SReality-specific: počet zobrazení a datum vložení na portál
+            entity.Property(e => e.ViewCount).HasColumnName("view_count");
+            entity.Property(e => e.DateCreatedSource)
+                .HasColumnName("date_created_source")
+                .HasColumnType("timestamptz");
 
             // location_point je spravován PostGIS triggerem – ignorujeme přímým EF
             entity.Ignore("LocationPoint");
@@ -391,6 +398,30 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamptz");
 
             entity.HasIndex(e => e.IsActive);
+        });
+
+        // =====================================================================
+        // ListingPriceHistory – historie cen inzerátů
+        // =====================================================================
+        modelBuilder.Entity<ListingPriceHistory>(entity =>
+        {
+            entity.ToTable("listing_price_history", "re_realestate");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.Price).HasColumnName("price");
+            entity.Property(e => e.RecordedAt)
+                .HasColumnName("recorded_at")
+                .HasColumnType("timestamptz");
+            entity.Property(e => e.Source).HasColumnName("source").HasMaxLength(50);
+
+            entity.HasOne(e => e.Listing)
+                .WithMany(l => l.PriceHistory)
+                .HasForeignKey(e => e.ListingId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.ListingId, e.RecordedAt });
         });
     }
 }
