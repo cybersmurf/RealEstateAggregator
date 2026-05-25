@@ -1,0 +1,35 @@
+@using MudBlazor
+@inject RealEstate.App.Services.SourceLogoProvider LogoProvider
+
+@*
+    SourceLogoBadge – jednotné vykreslení loga zdroje s textovým fallbackem.
+*@
+
+@if (Url is not null)
+{
+    <img src="@Url"
+         alt="@($"Logo {Name ?? Code}")"
+         height="@Height"
+         style="@($"max-width:{MaxWidth}; object-fit:contain; vertical-align:middle; {Style}")"
+         loading="lazy" />
+}
+else if (!string.IsNullOrEmpty(Name))
+{
+    <MudChip T="string" Size="@ChipSize" Color="Color.Default" Class="@Class">@Name</MudChip>
+}
+else if (!string.IsNullOrEmpty(Code))
+{
+    <MudChip T="string" Size="@ChipSize" Color="Color.Default" Class="@Class">@Code</MudChip>
+}
+
+@code {
+    [Parameter] public string? Code { get; set; }
+    [Parameter] public string? Name { get; set; }
+    [Parameter] public int Height { get; set; } = 24;
+    [Parameter] public string MaxWidth { get; set; } = "80px";
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Style { get; set; }
+    [Parameter] public Size ChipSize { get; set; } = Size.Small;
+
+    private string? Url => LogoProvider.GetLogoUrl(Code);
+}

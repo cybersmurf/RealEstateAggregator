@@ -1,0 +1,35 @@
+@using MudBlazor
+
+@*
+    EmptyState – jednotné prázdné stavy. Ikona, titulek, popis, volitelně tlačítko.
+*@
+
+<MudPaper Class="@($"pa-8 d-flex flex-column align-center justify-center {Class}")" Elevation="0" Style="@Style">
+    @if (!string.IsNullOrEmpty(Icon))
+    {
+        <MudIcon Icon="@Icon" Size="Size.Large" Class="mb-3" Style="@($"color: var(--mud-palette-text-secondary); font-size: 4rem;")" aria-hidden="true" />
+    }
+    @if (!string.IsNullOrEmpty(Title))
+    {
+        <MudText Typo="Typo.h6" Align="Align.Center">@Title</MudText>
+    }
+    @if (!string.IsNullOrEmpty(Description))
+    {
+        <MudText Typo="Typo.body2" Align="Align.Center" Class="mud-text-secondary mt-1" Style="max-width: 480px;">@Description</MudText>
+    }
+    @if (Action is not null)
+    {
+        <div class="mt-4">
+            @Action
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public string? Icon { get; set; } = Icons.Material.Outlined.Inbox;
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public RenderFragment? Action { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Style { get; set; }
+}

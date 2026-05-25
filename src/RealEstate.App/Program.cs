@@ -10,6 +10,9 @@ builder.Services.AddRazorComponents()
 // Add MudBlazor services
 builder.Services.AddMudServices();
 
+// Sdílené UI services
+builder.Services.AddSingleton<RealEstate.App.Services.SourceLogoProvider>();
+
 // Add HttpClient for API communication
 builder.Services.AddHttpClient("RealEstateApi", client =>
 {

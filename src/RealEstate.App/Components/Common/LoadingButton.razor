@@ -1,0 +1,51 @@
+@using MudBlazor
+
+@*
+    LoadingButton – sjednocení patternu "spinner + label + ikona" v jednom prvku.
+    Nahrazuje 20+ kopií inline kombinace MudButton/MudProgressCircular v ListingDetail.
+*@
+
+<MudButton Variant="@Variant"
+           Color="@Color"
+           Size="@Size"
+           Disabled="@(Disabled || Loading)"
+           OnClick="@HandleClickAsync"
+           StartIcon="@(Loading ? null : StartIcon)"
+           FullWidth="@FullWidth"
+           Class="@Class"
+           Style="@Style">
+    @if (Loading)
+    {
+        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+    }
+    @if (!string.IsNullOrEmpty(LoadingText) && Loading)
+    {
+        @LoadingText
+    }
+    else
+    {
+        @Text
+    }
+</MudButton>
+
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = string.Empty;
+    [Parameter] public string? LoadingText { get; set; }
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public Variant Variant { get; set; } = Variant.Filled;
+    [Parameter] public Color Color { get; set; } = Color.Primary;
+    [Parameter] public Size Size { get; set; } = Size.Medium;
+    [Parameter] public string? StartIcon { get; set; }
+    [Parameter] public bool FullWidth { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Style { get; set; }
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    private async Task HandleClickAsync()
+    {
+        if (Loading || Disabled) return;
+        if (OnClick.HasDelegate)
+            await OnClick.InvokeAsync();
+    }
+}

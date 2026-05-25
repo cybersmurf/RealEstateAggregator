@@ -1,0 +1,48 @@
+@using MudBlazor
+
+@*
+    SectionCard – wrapper okolo MudPaper s konzistentním headerem (ikona + titulek + akce).
+    Použít pro každou sekci v ListingDetail (KN, historie cen, fotky, AI, …) a v dalších stránkách.
+*@
+
+<MudPaper Class="@($"section-card pa-4 {Class}")" Elevation="@Elevation" Style="@Style">
+    @if (!string.IsNullOrEmpty(Title) || HeaderActions is not null)
+    {
+        <div class="d-flex align-center justify-space-between mb-3">
+            <div class="d-flex align-center" style="gap: 8px;">
+                @if (!string.IsNullOrEmpty(Icon))
+                {
+                    <MudIcon Icon="@Icon" Color="@IconColor" Size="Size.Medium" aria-hidden="true" />
+                }
+                @if (!string.IsNullOrEmpty(Title))
+                {
+                    <MudText Typo="@TitleTypo">@Title</MudText>
+                }
+                @if (!string.IsNullOrEmpty(Subtitle))
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary ms-2">@Subtitle</MudText>
+                }
+            </div>
+            @if (HeaderActions is not null)
+            {
+                <div class="d-flex align-center" style="gap: 8px;">
+                    @HeaderActions
+                </div>
+            }
+        </div>
+    }
+    @ChildContent
+</MudPaper>
+
+@code {
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public Color IconColor { get; set; } = Color.Primary;
+    [Parameter] public Typo TitleTypo { get; set; } = Typo.h6;
+    [Parameter] public int Elevation { get; set; } = 1;
+    [Parameter] public RenderFragment? HeaderActions { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Style { get; set; }
+}
