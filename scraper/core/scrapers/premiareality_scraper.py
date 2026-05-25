@@ -250,15 +250,21 @@ class PremiaRealityScraper:
         seen_photos: set = set()
         for img in soup.select(".carousel-detail img, .preview img, img[src*='importestate'], img[src*='estate']"):
             parent_a = img.find_parent("a", href=True)
+            photo_url = ""
             if parent_a:
                 photo_href = parent_a.get("href", "")
-                photo_url = urljoin(BASE_URL, photo_href) if photo_href else ""
-            else:
+                candidate = urljoin(BASE_URL, photo_href) if photo_href else ""
+                # Přeskoč .html hrefs (odkazují na stránku inzerátu, ne na fotku)
+                if candidate.endswith(".html") or not re.search(r'\.(jpe?g|png|webp|gif)(\?|$)', candidate, re.IGNORECASE):
+                    candidate = ""
+                if candidate:
+                    photo_url = self._fix_thumbs_url(candidate)
+            if not photo_url:
                 src = img.get("src") or img.get("data-src", "")
-                photo_url = urljoin(BASE_URL, src) if src else ""
+                if src:
+                    photo_url = self._fix_thumbs_url(urljoin(BASE_URL, src))
 
             if photo_url and photo_url not in seen_photos:
-                # thumbs_1300_NNN/ je největší dostupná varianta – NEODSTRAŇOVAT
                 seen_photos.add(photo_url)
                 photo_urls.append(photo_url)
 
@@ -267,7 +273,7 @@ class PremiaRealityScraper:
             for img in soup.find_all("img"):
                 src = str(img.get("src", "") or img.get("data-src", ""))
                 if "importestate" in src or "estate" in src:
-                    photo_url = urljoin(BASE_URL, src)
+                    photo_url = self._fix_thumbs_url(urljoin(BASE_URL, src))
                     if photo_url not in seen_photos:
                         seen_photos.add(photo_url)
                         photo_urls.append(photo_url)
@@ -275,6 +281,30 @@ class PremiaRealityScraper:
         result["photos"] = photo_urls[:50]
 
         return result
+
+    @staticmethod
+    def _fix_thumbs_url(url: str) -> str:
+        """
+        Opraví URL fotek PREMIAREALITY, které chybně chybí thumbs_NNN_NNN/ podadresář.
+
+        Vstup:  /files/importestate/{id}/1920x1920wm..._thumb1300x866.jpg
+        Výstup: /files/importestate/{id}/thumbs_1300_866/1920x1920wm..._thumb1300x866.jpg
+
+        Pokud URL již thumbs_ dir obsahuje nebo neodpovídá vzoru, vrátí beze změny.
+        """
+        if "/thumbs_" in url:
+            return url  # Už v pořádku
+        m = re.search(
+            r'(/files/importestate/\d+/)([^/]+_thumb(\d+)x(\d+)\.[a-zA-Z]+)$',
+            url,
+        )
+        if m:
+            prefix = m.group(1)
+            filename = m.group(2)
+            w, h = m.group(3), m.group(4)
+            base = url[: m.start()]
+            return f"{base}{prefix}thumbs_{w}_{h}/{filename}"
+        return url
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         try:
