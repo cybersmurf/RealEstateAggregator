@@ -19,101 +19,165 @@ from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper as Znojmore
 
 
 # ---------------------------------------------------------------------------
-# ProdejmetoScraper – statické / instance metody
+# ProdejmetoScraper – nový Next.js scraper (Server Action API)
 # ---------------------------------------------------------------------------
 
-class TestProdejmetoParsePrice:
-    def test_cena_s_mezerami(self):
-        assert ProdejmetoScraper._parse_price("3 500 000 Kč") == 3500000
-
-    def test_cena_bez_mezery(self):
-        assert ProdejmetoScraper._parse_price("1250000") == 1250000
-
-    def test_cena_dohodou_vraci_none(self):
-        assert ProdejmetoScraper._parse_price("cena dohodou") is None
-
-    def test_prazdny_string_vraci_none(self):
-        assert ProdejmetoScraper._parse_price("") is None
-
-    def test_jenom_cifry_mezery_kc(self):
-        assert ProdejmetoScraper._parse_price("  2 000 000  Kč  ") == 2000000
+SAMPLE_RSC_RESPONSE = (
+    '0:{"a":"$@1","f":"","b":"test"}\n'
+    '2:Ta,Popis bytu\n'
+    '3:T17,Popis pozemku na prodej\n'
+    '1:[{"id":"uuid-1","listingType":"SALE","status":"ACTIVE","slug":"prodej-bytu","title":"Byt 2+kk","description":"$2","price":3500000,"area":55,"landArea":0,"localityCity":"Znojmo","localityRegion":"Jihomoravsk\u00fd kraj","images":["https://example.com/photo1.jpg"],"sourcePayload":{"estate":{"advert_type":1}}},'
+    '{"id":"uuid-2","listingType":"RENT","status":"ACTIVE","slug":"pronajem-domu","title":"Pron\u00e1jem domu","description":"$3","price":15000,"area":120,"landArea":300,"localityCity":"Brno","localityRegion":"Jihomoravsk\u00fd kraj","images":[],"sourcePayload":{"estate":{"advert_type":2}}},'
+    '{"id":"uuid-3","listingType":"SALE","status":"SOLD","slug":"prodany-byt","title":"Prodan\u00fd byt","description":"","price":2000000,"area":40,"landArea":0,"localityCity":"Praha","localityRegion":"Hlavn\u00ed m\u011bsto Praha","images":[],"sourcePayload":{}}]'
+).encode("utf-8")
 
 
-class TestProdejmetoParseArea:
-    def test_m2_s_mezerou(self):
-        assert ProdejmetoScraper._parse_area("161 m²") == 161
+class TestProdejmetoRscParsing:
+    """Tests for _parse_rsc_response: extract listings from RSC stream."""
 
-    def test_m2_bez_mezery(self):
-        assert ProdejmetoScraper._parse_area("750m2 pozemek") == 750
-
-    def test_bez_cisel_vraci_none(self):
-        assert ProdejmetoScraper._parse_area("bez plochy") is None
-
-    def test_prazdny_string_vraci_none(self):
-        assert ProdejmetoScraper._parse_area("") is None
-
-    def test_prvni_cislo(self):
-        """Vrátí první číslo (plocha zastavěná), ne druhé (pozemek)."""
-        assert ProdejmetoScraper._parse_area("161 m² / 750 m²") == 161
-
-
-class TestProdejmetoNormalizeOfferType:
     def setup_method(self):
         self.scraper = ProdejmetoScraper.__new__(ProdejmetoScraper)
 
-    def test_prodej(self):
-        assert self.scraper._normalize_offer_type("Prodej") == "Prodej"
+    def test_vraci_vsechny_zaznamy(self):
+        listings = self.scraper._parse_rsc_response(SAMPLE_RSC_RESPONSE)
+        assert len(listings) == 3
 
-    def test_pronajem_lowercase(self):
-        # Metoda hledá "pronaj" bez diakritiky; "pronájem" (s diakritikou) neprochází
-        assert self.scraper._normalize_offer_type("pronájem") == "Prodej"
+    def test_prvni_zaznam_ma_spravna_data(self):
+        listings = self.scraper._parse_rsc_response(SAMPLE_RSC_RESPONSE)
+        first = listings[0]
+        assert first["id"] == "uuid-1"
+        assert first["title"] == "Byt 2+kk"
+        assert first["price"] == 3500000
+        assert first["localityCity"] == "Znojmo"
 
-    def test_pronajem_bez_diakritiky(self):
-        # "pronajem" (bez diakritiky) obsahuje "pronaj" → Pronájem
-        assert self.scraper._normalize_offer_type("pronajem") == "Pronájem"
+    def test_popis_referenci_je_resolved(self):
+        listings = self.scraper._parse_rsc_response(SAMPLE_RSC_RESPONSE)
+        assert listings[0]["description"] == "Popis bytu"
+        assert listings[1]["description"] == "Popis pozemku na prodej"
 
-    def test_prazdny_string_defaultuje_na_prodej(self):
-        assert self.scraper._normalize_offer_type("") == "Prodej"
+    def test_prazdna_data_vraci_prazdny_seznam(self):
+        listings = self.scraper._parse_rsc_response(b"0:{}\n")
+        assert listings == []
 
-    def test_pronaj_klicove_slovo(self):
-        assert self.scraper._normalize_offer_type("pronajmu") == "Pronájem"
-
-    def test_capitalize_prodej(self):
-        assert self.scraper._normalize_offer_type("PRODEJ") == "Prodej"
+    def test_images_v_prvnim_zaznamu(self):
+        listings = self.scraper._parse_rsc_response(SAMPLE_RSC_RESPONSE)
+        assert listings[0]["images"] == ["https://example.com/photo1.jpg"]
 
 
-class TestProdejmetoInferPropertyType:
+class TestProdejmetoMapListing:
+    """Tests for _map_listing: field mapping and SOLD filtering."""
+
     def setup_method(self):
-        self.scraper = ProdejmetoScraper.__new__(ProdejmetoScraper)
+        self.scraper = ProdejmetoScraper()
 
-    def test_byt(self):
-        assert self.scraper._infer_property_type("Prodej bytu 2+kk") == "Byt"
+    def _make_raw(self, **overrides):
+        base = {
+            "id": "test-uuid",
+            "listingType": "SALE",
+            "status": "ACTIVE",
+            "slug": "prodej-bytu",
+            "title": "Byt 2+kk Znojmo",
+            "description": "Popis nemovitosti",
+            "price": 3500000,
+            "area": 55,
+            "landArea": 0,
+            "localityCity": "Znojmo",
+            "localityRegion": "Jihomoravský kraj",
+            "images": ["https://cdn.example.com/photo.jpg"],
+            "sourcePayload": {"estate": {"advert_type": 1}},
+        }
+        base.update(overrides)
+        return base
 
-    def test_dum(self):
-        assert self.scraper._infer_property_type("Rodinný dům", "prodej") == "Dům"
+    def test_sold_status_vraci_none(self):
+        raw = self._make_raw(status="SOLD")
+        assert self.scraper._map_listing(raw) is None
 
-    def test_pozemek(self):
-        assert self.scraper._infer_property_type("Stavební pozemek") == "Pozemek"
+    def test_aktivni_listing_ma_spravne_source_code(self):
+        result = self.scraper._map_listing(self._make_raw())
+        assert result["source_code"] == "PRODEJMETO"
 
-    def test_komercni(self):
-        assert self.scraper._infer_property_type("Komerční prostory") == "Komerční"
+    def test_external_id_je_uuid(self):
+        result = self.scraper._map_listing(self._make_raw())
+        assert result["external_id"] == "test-uuid"
 
-    def test_chata(self):
-        assert self.scraper._infer_property_type("Rekreační chata") == "Chata"
+    def test_url_pouziva_novy_format(self):
+        result = self.scraper._map_listing(self._make_raw())
+        assert result["url"] == "https://www.prodejme.to/nemovitosti/prodej-bytu"
 
-    def test_chalupa(self):
-        # "Chalupa s pozemkem" obsahuje "pozem" → Pozemek vyhraje (je dříve v podmínkách)
-        assert self.scraper._infer_property_type("Chalupa s pozemkem") == "Pozemek"
+    def test_offer_type_sale(self):
+        result = self.scraper._map_listing(self._make_raw(listingType="SALE"))
+        assert result["offer_type"] == "Prodej"
 
-    def test_chalupa_samotna(self):
-        # Samotná "chalupa" (bez zmínky o pozemku) → Chata
-        assert self.scraper._infer_property_type("Chalupa") == "Chata"
+    def test_offer_type_rent(self):
+        result = self.scraper._map_listing(self._make_raw(listingType="RENT"))
+        assert result["offer_type"] == "Pronájem"
 
-    def test_ostatni_jako_fallback(self):
-        assert self.scraper._infer_property_type("Jiné") == "Ostatní"
+    def test_property_type_byt(self):
+        result = self.scraper._map_listing(self._make_raw())  # advert_type=1
+        assert result["property_type"] == "Byt"
 
-    def test_none_kandidat_preskocen(self):
-        assert self.scraper._infer_property_type(None, "bytová jednotka") == "Byt"
+    def test_property_type_dum(self):
+        raw = self._make_raw(sourcePayload={"estate": {"advert_type": 2}})
+        result = self.scraper._map_listing(raw)
+        assert result["property_type"] == "Dům"
+
+    def test_property_type_pozemek(self):
+        raw = self._make_raw(sourcePayload={"estate": {"advert_type": 3}})
+        result = self.scraper._map_listing(raw)
+        assert result["property_type"] == "Pozemek"
+
+    def test_property_type_ostatni_fallback(self):
+        raw = self._make_raw(sourcePayload={})
+        result = self.scraper._map_listing(raw)
+        assert result["property_type"] == "Ostatní"
+
+    def test_location_text_kombinuje_mesto_a_region(self):
+        result = self.scraper._map_listing(self._make_raw())
+        assert result["location_text"] == "Znojmo, Jihomoravský kraj"
+
+    def test_location_text_jen_mesto(self):
+        raw = self._make_raw(localityRegion="")
+        result = self.scraper._map_listing(raw)
+        assert result["location_text"] == "Znojmo"
+
+    def test_price_kladna_hodnota(self):
+        result = self.scraper._map_listing(self._make_raw(price=5000000))
+        assert result["price"] == 5000000
+
+    def test_price_nula_vraci_none(self):
+        result = self.scraper._map_listing(self._make_raw(price=0))
+        assert result["price"] is None
+
+    def test_photos_omezeno_na_20(self):
+        raw = self._make_raw(images=[f"https://cdn.example.com/{i}.jpg" for i in range(30)])
+        result = self.scraper._map_listing(raw)
+        assert len(result["photos"]) == 20
+
+    def test_area_land_nula_vraci_none(self):
+        result = self.scraper._map_listing(self._make_raw(landArea=0))
+        assert result["area_land"] is None
+
+    def test_prazdny_slug_vraci_none(self):
+        raw = self._make_raw(slug="")
+        assert self.scraper._map_listing(raw) is None
+
+
+class TestProdejmetoAdvertTypeMap:
+    """Tests for ADVERT_TYPE_MAP constant."""
+
+    def test_vsechny_typy_mapovany(self):
+        from core.scrapers.prodejmeto_scraper import ADVERT_TYPE_MAP
+        assert ADVERT_TYPE_MAP[1] == "Byt"
+        assert ADVERT_TYPE_MAP[2] == "Dům"
+        assert ADVERT_TYPE_MAP[3] == "Pozemek"
+        assert ADVERT_TYPE_MAP[4] == "Komerční"
+        assert ADVERT_TYPE_MAP[5] == "Ostatní"
+
+    def test_listing_type_map_sale_rent(self):
+        from core.scrapers.prodejmeto_scraper import LISTING_TYPE_MAP
+        assert LISTING_TYPE_MAP["SALE"] == "Prodej"
+        assert LISTING_TYPE_MAP["RENT"] == "Pronájem"
 
 
 # ---------------------------------------------------------------------------

@@ -1,26 +1,25 @@
 """
-Prodejme.to scraper (prodejme.to/nabidky).
+Prodejme.to scraper – Next.js rewrite (since ~2026-05).
 
 Site characteristics:
-- Listing page renders via AJAX endpoint POST /nabidky/ajax/
-  with params: page=N&sold=0
-  response: { count: 55, html: '<div class="project-item">...' }
-- Each page returns ~9 items; paginate until we collect all
-- Detail URL: /nabidky/{slug}
-- Photos: /upload/{id}/{hash}_{file}.jpg (NE /media/estate/upload/ !)
-  URL musí mít enkodóvanou filename (%20 apod.)
+- Website migrated from PHP/AJAX to Next.js (React Server Components, Vercel).
+- All listings are returned in a single Next.js Server Action call.
+  POST /nemovitosti  with header  Next-Action: {action_id}
+  Body: [{}]  (empty args → return all listings)
+  Response: RSC stream format; the JSON array of listings is found by
+  locating the unique "1:[" marker in the stream.
+- Action ID is discovered dynamically from the JS chunk that references
+  createServerReference("ID", ..., "useProperties").
+- Detail URL: /nemovitosti/{slug}
+- Photos: Supabase CDN  https://hqrcqgyjunwvdafvzfbr.supabase.co/storage/...
+- No pagination needed – single call returns all ~239 listings.
 """
-import asyncio
+import json
 import logging
-import math
 import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import urljoin, quote
 
 import httpx
-from bs4 import BeautifulSoup
-
-from ..http_utils import http_retry
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
@@ -28,8 +27,12 @@ from ..database import get_db_manager
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.prodejme.to"
-LISTING_URL = f"{BASE_URL}/nabidky/"
-AJAX_URL = f"{BASE_URL}/nabidky/ajax/"
+LISTINGS_PAGE_URL = f"{BASE_URL}/nemovitosti"
+
+# Fallback action ID – updated automatically when _discover_action_id() runs.
+# Format: SHA256-like hex string produced by Next.js at build time.
+_KNOWN_ACTION_ID = "007dad02ed5484c9c6ac9d6c6e9be2fb1c70995253"
+_SERVER_ACTION_NAME = "useProperties"
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -37,358 +40,312 @@ DEFAULT_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/122.0.0.0 Safari/537.36"
     ),
-    "Accept-Language": "cs-CZ,cs;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Referer": LISTING_URL,
-    "X-Requested-With": "XMLHttpRequest",
+    "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
+    "Accept": "*/*",
 }
 
-SKIP_STATUSES = {"Prodano", "Prodáno", "Pronajato"}
-STATUS_LABELS = {
-    "Novinka",
-    "Prodej",
-    "Pronájem",
-    "Pronajem",
-    "Rezervováno",
-    "Rezervovano",
-    "Prodáno",
-    "Prodano",
-    "Pronajato",
+# advert_type → property_type mapping (from prodejme.to's JS frontend)
+ADVERT_TYPE_MAP: Dict[int, str] = {
+    1: "Byt",
+    2: "Dům",
+    3: "Pozemek",
+    4: "Komerční",
+    5: "Ostatní",
+}
+
+LISTING_TYPE_MAP: Dict[str, str] = {
+    "SALE": "Prodej",
+    "RENT": "Pronájem",
 }
 
 
 class ProdejmeToScraper:
-    """Scraper for Prodejme.to listings."""
+    """Scraper for Prodejme.to (Next.js site, Server Action API)."""
 
     SOURCE_CODE = "PRODEJMETO"
-    PAGE_SIZE = 9  # items per AJAX page
 
-    def __init__(self, include_sold: bool = False):
-        self.include_sold = include_sold
+    def __init__(self) -> None:
         self.scraped_count = 0
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
-        return await self.scrape(include_sold=full_rescan)
+        return await self.scrape()
 
-    async def scrape(self, include_sold: bool = False) -> int:
-        logger.info("Starting Prodejme.to scraper (include_sold=%s)", include_sold)
+    async def scrape(self) -> int:
+        logger.info("Starting Prodejme.to scraper (Next.js Server Action)")
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
-                timeout=30,
+                timeout=60,
                 follow_redirects=True,
                 headers=DEFAULT_HEADERS,
             ) as client:
                 self._http_client = client
 
-                with timer("Fetch all listing pages via AJAX"):
-                    items = await self._fetch_all_pages(include_sold=include_sold)
+                action_id = await self._discover_action_id()
+                logger.info("Using Server Action ID: %s", action_id)
 
-                logger.info("Found %s listings to process", len(items))
+                with timer("Fetch all listings via Server Action"):
+                    raw_listings = await self._fetch_all_listings(action_id)
 
-                for item in items:
+                logger.info("Fetched %s listings from Server Action", len(raw_listings))
+
+                for raw in raw_listings:
                     try:
-                        detail_html = await self._fetch_get(item["detail_url"])
-                        normalized = self._parse_detail(detail_html, item)
-                        await self._save_listing(normalized)
+                        listing = self._map_listing(raw)
+                        if listing is None:
+                            continue
+                        await self._save_listing(listing)
                         self.scraped_count += 1
                         metrics.increment_scraped()
-                        await asyncio.sleep(0.5)
                     except Exception as exc:
-                        logger.error("Error processing %s: %s", item.get("detail_url"), exc)
+                        logger.error(
+                            "Error processing listing %s: %s",
+                            raw.get("id", "?"),
+                            exc,
+                        )
                         metrics.increment_failed()
 
                 self._http_client = None
 
-        logger.info("Prodejme.to scraper finished. Scraped %s listings", self.scraped_count)
+        logger.info("Prodejme.to scraper finished. Saved %s listings", self.scraped_count)
         return self.scraped_count
 
-    async def _fetch_all_pages(self, include_sold: bool = False) -> List[Dict[str, Any]]:
-        """Fetch all listing pages from the AJAX endpoint and return merged list."""
-        all_items: List[Dict[str, Any]] = []
-        seen_slugs: set = set()
+    # ------------------------------------------------------------------
+    # Action ID discovery
+    # ------------------------------------------------------------------
 
-        # Fetch page 1 to get total count
-        first_response = await self._fetch_ajax_page(1, include_sold)
-        total_count = first_response.get("count", 0)
-        total_pages = max(1, math.ceil(total_count / self.PAGE_SIZE))
-        logger.info("Prodejme.to: total=%s listings on %s pages", total_count, total_pages)
+    async def _discover_action_id(self) -> str:
+        """
+        Dynamically discover the Next.js Server Action ID by downloading
+        the /nemovitosti page and then the JS chunk that contains the
+        createServerReference call for "useProperties".
 
-        for page_num in range(1, total_pages + 1):
-            if page_num == 1:
-                response = first_response
-            else:
-                response = await self._fetch_ajax_page(page_num, include_sold)
-                await asyncio.sleep(0.3)
+        Falls back to _KNOWN_ACTION_ID if discovery fails.
+        """
+        global _KNOWN_ACTION_ID
+        try:
+            assert self._http_client is not None
+            # 1. Fetch the page HTML to get JS chunk URLs
+            resp = await self._http_client.get(LISTINGS_PAGE_URL)
+            resp.raise_for_status()
+            html = resp.text
 
-            items = self._parse_ajax_html(response.get("html", ""), include_sold, seen_slugs)
-            all_items.extend(items)
-            logger.debug("Page %s: %s items (cumulative: %s)", page_num, len(items), len(all_items))
-
-        return all_items
-
-    @http_retry
-    async def _fetch_ajax_page(self, page: int, include_sold: bool = False) -> Dict[str, Any]:
-        """POST to /nabidky/ajax/ and return parsed JSON response."""
-        if self._http_client is None:
-            raise RuntimeError("HTTP client not initialized")
-
-        sold_param = "1" if include_sold else "0"
-        response = await self._http_client.post(
-            AJAX_URL,
-            data={"page": page, "sold": sold_param},
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        response.raise_for_status()
-        return response.json()
-
-    @http_retry
-    async def _fetch_get(self, url: str) -> str:
-        """GET request for detail pages."""
-        if self._http_client is None:
-            raise RuntimeError("HTTP client not initialized")
-        response = await self._http_client.get(url)
-        response.raise_for_status()
-        return response.text
-
-    def _parse_ajax_html(
-        self,
-        html: str,
-        include_sold: bool,
-        seen_slugs: set,
-    ) -> List[Dict[str, Any]]:
-        """Parse project-item cards from AJAX HTML fragment."""
-        soup = BeautifulSoup(html, "html.parser")
-        results: List[Dict[str, Any]] = []
-
-        for card in soup.find_all("div", class_="project-item"):
-            # Extract href / slug from title link
-            title_tag = card.select_one("h3.title a, h2.title a")
-            if not title_tag:
-                continue
-            href = title_tag.get("href", "")
-            slug = href.rstrip("/").split("/")[-1]
-            if not slug or slug in seen_slugs:
-                continue
-
-            # Badges: Novinka, Prodej, Pronájem, Prodáno, …
-            badges = [
-                b.get_text(strip=True)
-                for b in card.select("div.badge, span.badge")
-            ]
-
-            is_sold = any(b in SKIP_STATUSES for b in badges)
-            if is_sold and not include_sold:
-                continue
-
-            offer_type = (
-                "Pronájem" if any("pronaj" in b.lower() or b == "Pronajem" for b in badges)
-                else "Prodej"
+            # 2. Find all _next/static/chunks/*.js URLs
+            chunk_urls = re.findall(
+                r'"(/_next/static/chunks/[a-f0-9]+\.js[^"]*)"', html
             )
+            if not chunk_urls:
+                logger.warning("No JS chunks found in /nemovitosti HTML, using fallback action ID")
+                return _KNOWN_ACTION_ID
 
-            title = title_tag.get_text(" ", strip=True)[:200]
+            # 3. Scan chunks for createServerReference("...", ..., "useProperties")
+            for chunk_path in chunk_urls[:30]:  # limit to first 30 chunks
+                chunk_url = BASE_URL + chunk_path.split("?")[0]
+                try:
+                    chunk_resp = await self._http_client.get(chunk_url, timeout=15)
+                    if chunk_resp.status_code != 200:
+                        continue
+                    chunk_text = chunk_resp.text
+                    m = re.search(
+                        r'createServerReference\)\("([0-9a-f]{30,60})"[^)]*"'
+                        + re.escape(_SERVER_ACTION_NAME)
+                        + r'"',
+                        chunk_text,
+                    )
+                    if m:
+                        discovered = m.group(1)
+                        logger.info("Discovered Server Action ID: %s", discovered)
+                        _KNOWN_ACTION_ID = discovered
+                        return discovered
+                except Exception as chunk_exc:
+                    logger.debug("Error fetching chunk %s: %s", chunk_url, chunk_exc)
 
-            # Price from <span> inside project-content
-            price_span = card.select_one("div.project-content span")
-            price_text = price_span.get_text(strip=True) if price_span else ""
+            logger.warning(
+                "Could not discover Server Action ID from JS chunks, using known ID: %s",
+                _KNOWN_ACTION_ID,
+            )
+        except Exception as exc:
+            logger.warning("Action ID discovery failed (%s), using known ID: %s", exc, _KNOWN_ACTION_ID)
 
-            # Thumbnail
-            img = card.select_one("div.project-thumb img")
-            thumbnail = img.get("src", "") if img else ""
+        return _KNOWN_ACTION_ID
 
-            seen_slugs.add(slug)
-            results.append({
-                "source_code": self.SOURCE_CODE,
-                "external_id": slug,
-                "detail_url": urljoin(BASE_URL, href),
-                "title": title,
-                "price_text": price_text,
-                "offer_type": offer_type,
-                "is_sold": is_sold,
-                "badges": badges,
-                "thumbnail": thumbnail,
-            })
+    # ------------------------------------------------------------------
+    # Fetch listings via Server Action
+    # ------------------------------------------------------------------
 
-        return results
-
-    def _parse_detail(self, html: str, list_item: Dict[str, Any]) -> Dict[str, Any]:
-        soup = BeautifulSoup(html, "html.parser")
-
-        result: Dict[str, Any] = {
-            "source_code": self.SOURCE_CODE,
-            "external_id": list_item["external_id"],
-            "url": list_item["detail_url"],
-            "offer_type": self._normalize_offer_type(list_item.get("offer_type", "Prodej")),
-        }
-
-        # Prodejme.to používá h2 jako hlavní nadpis na detail stránce
-        h1 = soup.find("h1") or soup.find("h2")
-        result["title"] = h1.get_text(" ", strip=True)[:200] if h1 else list_item.get("title", "")
-
-        params = self._parse_params(soup)
-
-        result["offer_type"] = self._normalize_offer_type(
-            params.get("Typ nabidky", result["offer_type"])
+    async def _fetch_all_listings(self, action_id: str) -> List[Dict[str, Any]]:
+        """
+        Call the Next.js Server Action and parse the RSC stream response.
+        Returns the raw list of listing dicts from prodejme.to's DB.
+        """
+        assert self._http_client is not None
+        response = await self._http_client.post(
+            LISTINGS_PAGE_URL,
+            headers={
+                "Next-Action": action_id,
+                "Content-Type": "application/json",
+            },
+            content=b"[{}]",
+            timeout=60,
         )
+        response.raise_for_status()
+        return self._parse_rsc_response(response.content)
 
-        result["property_type"] = self._infer_property_type(
-            params.get("Typ"),
-            params.get("Druh objektu"),
-            params.get("Typ objektu"),
-            result["title"],
-        )
+    def _parse_rsc_response(self, content: bytes) -> List[Dict[str, Any]]:
+        """
+        Parse the React Server Components (RSC) stream response.
 
-        result["price"] = self._parse_price(params.get("Cena", list_item.get("price_text", "")))
-        result["area_built_up"] = self._parse_area(
-            params.get("Uzitna plocha") or params.get("Velikost") or ""
-        )
-        result["area_land"] = self._parse_area(params.get("Velikost pozemku") or "")
+        The stream contains:
+          - Record 0: metadata JSON
+          - Records 2+: text chunks (descriptions) in format {id}:T{hexlen},{bytes}
+          - Record 1: the main result – a JSON array of listing dicts,
+            where "description" fields are references like "$2" pointing
+            to the text chunks above.
 
-        locality = params.get("Lokalita") or params.get("Lokalita obec") or ""
-        region = params.get("Lokalita kraj") or ""
-        # Kombinuj obec + kraj, aby prošly geografickým filtrem
-        # (např. "Suchohrdly, Jihomoravský kraj" projde filtrem "jihomoravsk")
-        if locality and region:
-            result["location_text"] = f"{locality}, {region}"
-        elif locality:
-            result["location_text"] = locality
+        Strategy: locate the unique b'1:[{' marker and parse the JSON array
+        from that position. Then build a text reference map from RSC text
+        records to resolve '$N' description references.
+        """
+        # 1. Locate the JSON array (record "1")
+        marker = b"1:["
+        pos = content.find(marker)
+        if pos < 0:
+            logger.error("Could not find '1:[' in RSC response (size=%d)", len(content))
+            return []
+
+        json_bytes = content[pos + 2:]  # skip "1:"
+        try:
+            listings = json.loads(json_bytes)
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to parse listings JSON: %s", exc)
+            return []
+
+        if not isinstance(listings, list):
+            logger.error("Expected JSON array, got %s", type(listings))
+            return []
+
+        # 2. Build text reference map: {hex_id_str -> description_text}
+        # RSC text records: {hex_id}:T{hexlen},{text}
+        text_map: Dict[str, str] = {}
+        text_pattern = re.compile(rb"([0-9a-f]+):T([0-9a-f]+),")
+        search_limit = min(pos, len(content))  # only look before the JSON array
+        for m in text_pattern.finditer(content, 0, search_limit):
+            record_id = m.group(1).decode()
+            text_len = int(m.group(2), 16)
+            text_start = m.end()
+            text_end = text_start + text_len
+            if text_end <= len(content):
+                text_map[record_id] = content[text_start:text_end].decode("utf-8", errors="replace")
+
+        # 3. Resolve "$N" references in each listing's description field
+        for listing in listings:
+            desc = listing.get("description")
+            if isinstance(desc, str) and desc.startswith("$"):
+                ref_id = desc[1:]
+                if ref_id in text_map:
+                    listing["description"] = text_map[ref_id]
+                else:
+                    listing["description"] = ""
+
+        logger.debug("Parsed %d listings from RSC (text refs: %d)", len(listings), len(text_map))
+        return listings
+
+    # ------------------------------------------------------------------
+    # Field mapping
+    # ------------------------------------------------------------------
+
+    def _map_listing(self, raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Map a raw prodejme.to listing dict to our DB schema dict."""
+        listing_id = raw.get("id", "")
+        status = raw.get("status", "") or raw.get("statust", "")
+
+        # Skip sold listings (we don't store them)
+        if status == "SOLD":
+            return None
+
+        slug = raw.get("slug", "")
+        if not slug or not listing_id:
+            return None
+
+        listing_type = raw.get("listingType", "SALE")
+        offer_type = LISTING_TYPE_MAP.get(listing_type, "Prodej")
+
+        # Property type from sourcePayload.estate.advert_type (most reliable)
+        advert_type: Optional[int] = None
+        source_payload = raw.get("sourcePayload") or {}
+        estate = source_payload.get("estate") or {}
+        raw_advert_type = estate.get("advert_type")
+        if raw_advert_type is not None:
+            try:
+                advert_type = int(raw_advert_type)
+            except (TypeError, ValueError):
+                pass
+        property_type = ADVERT_TYPE_MAP.get(advert_type or 0, "Ostatní")
+
+        # Location: combine city + region for geo filter compatibility
+        city = raw.get("localityCity") or ""
+        region = raw.get("localityRegion") or ""
+        if city and region:
+            location_text = f"{city}, {region}"
+        elif city:
+            location_text = city
         elif region:
-            result["location_text"] = region
+            location_text = region
         else:
-            result["location_text"] = ""
+            location_text = estate.get("locality_address", "")
 
-        result["description"] = self._extract_description(soup)
-        result["photos"] = self._extract_photos(soup)
+        # Price
+        price: Optional[int] = None
+        raw_price = raw.get("price")
+        if raw_price is not None:
+            try:
+                price = int(raw_price) if int(raw_price) > 0 else None
+            except (TypeError, ValueError):
+                pass
 
-        return result
+        # Area
+        area_built_up: Optional[int] = None
+        raw_area = raw.get("area")
+        if raw_area:
+            try:
+                area_built_up = int(raw_area) if int(raw_area) > 0 else None
+            except (TypeError, ValueError):
+                pass
 
-    def _parse_params(self, soup: BeautifulSoup) -> Dict[str, str]:
-        params: Dict[str, str] = {}
+        area_land: Optional[int] = None
+        raw_land = raw.get("landArea")
+        if raw_land:
+            try:
+                area_land = int(raw_land) if int(raw_land) > 0 else None
+            except (TypeError, ValueError):
+                pass
 
-        for ul in soup.find_all("ul"):
-            for li in ul.find_all("li"):
-                text = li.get_text(" ", strip=True)
-                if ":" in text:
-                    label, value = [part.strip() for part in text.split(":", 1)]
-                    if label and value:
-                        params[self._normalize_label(label)] = value
+        # Description
+        description = (raw.get("description") or "")[:5000]
 
-                spans = li.find_all("span")
-                if len(spans) >= 2:
-                    label = spans[0].get_text(" ", strip=True)
-                    value = spans[1].get_text(" ", strip=True)
-                    if label and value:
-                        params[self._normalize_label(label)] = value
+        # Photos (Supabase CDN URLs, already absolute)
+        images = raw.get("images") or []
+        photos = [url for url in images if isinstance(url, str) and url.startswith("http")][:20]
 
-        for li in soup.select(".param, .params li"):
-            text = li.get_text(" ", strip=True)
-            if ":" in text:
-                label, value = [part.strip() for part in text.split(":", 1)]
-                if label and value:
-                    params[self._normalize_label(label)] = value
-
-        return params
-
-    def _normalize_label(self, label: str) -> str:
-        cleaned = label.strip().lower().replace(":", "")
-        replacements = {
-            "cena": "Cena",
-            "lokalita": "Lokalita",
-            "lokalita obec": "Lokalita obec",
-            "lokalita kraj": "Lokalita kraj",
-            "typ nabidky": "Typ nabidky",
-            "typ nabídky": "Typ nabidky",
-            "uzitna plocha": "Uzitna plocha",
-            "užitná plocha": "Uzitna plocha",
-            "velikost": "Velikost",
-            "velikost pozemku": "Velikost pozemku",
-            "typ": "Typ",
-            "druh objektu": "Druh objektu",
-            "typ objektu": "Typ objektu",
+        return {
+            "source_code": self.SOURCE_CODE,
+            "external_id": listing_id,  # prodejme.to UUID (stable DB primary key)
+            "url": f"{BASE_URL}/nemovitosti/{slug}",
+            "title": (raw.get("title") or "")[:200],
+            "description": description,
+            "price": price,
+            "offer_type": offer_type,
+            "property_type": property_type,
+            "area_built_up": area_built_up,
+            "area_land": area_land,
+            "location_text": location_text,
+            "photos": photos,
         }
-        return replacements.get(cleaned, label.strip())
 
-    def _normalize_offer_type(self, value: str) -> str:
-        if not value:
-            return "Prodej"
-        lowered = value.lower()
-        if "pronaj" in lowered:
-            return "Pronájem"
-        return "Prodej"
-
-    def _infer_property_type(self, *candidates: Optional[str]) -> str:
-        text = " ".join([c for c in candidates if c])
-        lowered = text.lower()
-        if "byt" in lowered:
-            return "Byt"
-        if "pozem" in lowered:
-            return "Pozemek"
-        if "chata" in lowered or "chalup" in lowered:
-            return "Chata"
-        if "komerc" in lowered or "komer" in lowered or "kancel" in lowered:
-            return "Komerční"
-        if "dum" in lowered or "dům" in lowered or "rodin" in lowered:
-            return "Dům"
-        return "Ostatní"
-
-    def _extract_description(self, soup: BeautifulSoup) -> str:
-        paragraphs = []
-        for p in soup.find_all("p"):
-            text = p.get_text(" ", strip=True)
-            if len(text) > 40:
-                paragraphs.append(text)
-            if len(paragraphs) >= 5:
-                break
-        return "\n\n".join(paragraphs)[:5000]
-
-    def _extract_photos(self, soup: BeautifulSoup) -> List[str]:
-        urls: List[str] = []
-        for link in soup.select("a[href*='/upload/']"):
-            href = link.get("href")
-            if href:
-                url = self._fix_upload_url(href)
-                if url not in urls:
-                    urls.append(url)
-        for img in soup.select("img[src*='/upload/']"):
-            src = img.get("src")
-            if src:
-                url = self._fix_upload_url(src)
-                if url not in urls:
-                    urls.append(url)
-        return urls[:50]
-
-    @staticmethod
-    def _fix_upload_url(path: str) -> str:
-        """Opraví a enkodódíuje URL fotek z prodejme.to.
-        V HTML je cesta /upload/{id}/{hash}_{soubor.jpg} (relativní)
-        nebo absol. URL https://...prodejme.to/upload/... .
-        Počítečky jako \u0159, \ meçe apod. musí být URL-enkodódovany."""
-        if path.startswith("http"):
-            # Absolutní URL – může být búď chybně /media/estate/upload/ nebo správně /upload/
-            # Oprav chybnou variantu a enkodóduj filename
-            path = path.replace("/media/estate/upload/", "/upload/")
-        else:
-            # Relativní cesta
-            if path.startswith("/media/estate/upload/"):
-                path = path[len("/media/estate"):]
-            if not path.startswith("/upload/"):
-                path = "/upload/" + path.lstrip("/")
-            path = urljoin(BASE_URL, path)
-        # URL-enkodóduj filename (zachová /, :, @)
-        # Rozdel na prefix a filename, enkoduj jen filename
-        prefix_end = path.rindex("/") + 1
-        return path[:prefix_end] + quote(path[prefix_end:], safe="")
-
-    @staticmethod
-    def _parse_price(text: str) -> Optional[int]:
-        digits = "".join(c for c in text if c.isdigit())
-        return int(digits) if digits else None
-
-    @staticmethod
-    def _parse_area(text: str) -> Optional[int]:
-        match = re.search(r"(\d+)", text)
-        return int(match.group(1)) if match else None
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         db = get_db_manager()
