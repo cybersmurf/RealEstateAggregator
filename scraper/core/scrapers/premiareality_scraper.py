@@ -258,8 +258,7 @@ class PremiaRealityScraper:
                 photo_url = urljoin(BASE_URL, src) if src else ""
 
             if photo_url and photo_url not in seen_photos:
-                # Preferuj verzii bez thumbs suffix – nahraď thumbs cestou na originál
-                photo_url = re.sub(r"/thumbs_\d+_\d+/", "/", photo_url)
+                # thumbs_1300_NNN/ je největší dostupná varianta – NEODSTRAŇOVAT
                 seen_photos.add(photo_url)
                 photo_urls.append(photo_url)
 
