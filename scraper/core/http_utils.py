@@ -15,6 +15,7 @@ import logging
 import httpx
 from tenacity import (
     retry,
+    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -23,19 +24,21 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Retry jen na přechodné chyby: 429/5xx a síťové problémy. Ne na 4xx (404, 403…)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError))
+
+
 # ─── Retry decorator ──────────────────────────────────────────────────────────
 # Opakuje request při přechodných HTTP chybách (429 Too Many Requests, 503 Service Unavailable)
 # nebo síťových chybách (ConnectError, TimeoutException).
 # Max 3 pokusy, čeká exponenciálně 2 → 4 → 8 vteřin.
+# 4xx chyby (404, 403…) se NEOPAKUJÍ.
 http_retry = retry(
-    retry=retry_if_exception_type(
-        (
-            httpx.HTTPStatusError,   # 429, 503, 5xx
-            httpx.ConnectError,      # síťová chyba
-            httpx.TimeoutException,  # timeout
-            httpx.RemoteProtocolError,
-        )
-    ),
+    retry=retry_if_exception(_is_retryable),
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     before_sleep=before_sleep_log(logger, logging.WARNING),
