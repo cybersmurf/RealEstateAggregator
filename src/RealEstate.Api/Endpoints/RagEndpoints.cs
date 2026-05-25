@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using RealEstate.Api.Contracts.Rag;
 using RealEstate.Api.Services;
 using RealEstate.Infrastructure;
@@ -31,24 +32,28 @@ public static class RagEndpoints
         // ── POST: RAG dotaz nad konkrétním inzerátem ──────────────────────────
         group.MapPost("/ask", AskListing)
             .WithName("AskListing")
-            .WithSummary("RAG dotaz nad analýzami konkrétního inzerátu");
+            .WithSummary("RAG dotaz nad analýzami konkrétního inzerátu")
+            .RequireRateLimiting("rag-ask");
 
         // ── POST: RAG dotaz přes všechny inzeráty ──────────────────────────────
         app.MapPost("/api/rag/ask", AskGeneral)
             .WithTags("RAG / Analyses")
             .WithName("AskGeneral")
-            .WithSummary("RAG dotaz přes všechny uložené analýzy");
+            .WithSummary("RAG dotaz přes všechny uložené analýzy")
+            .RequireRateLimiting("rag-ask");
 
         // ── POST: embed popis jednoho inzerátu ────────────────────────────────
         group.MapPost("/embed-description", EmbedDescription)
             .WithName("EmbedListingDescription")
-            .WithSummary("Embeduje popis inzerátu jako 'auto' analýzu (idempotentní)");
+            .WithSummary("Embeduje popis inzerátu jako 'auto' analýzu (idempotentní)")
+            .RequireRateLimiting("rag-embed");
 
         // ── POST: bulk embed popisů inzerátů ──────────────────────────────────
         app.MapPost("/api/rag/embed-descriptions", BulkEmbedDescriptions)
             .WithTags("RAG / Analyses")
             .WithName("BulkEmbedDescriptions")
-            .WithSummary("Batch embed popisů inzerátů bez 'auto' analýzy");
+            .WithSummary("Batch embed popisů inzerátů bez 'auto' analýzy")
+            .RequireRateLimiting("rag-embed");
 
         // ── GET: embedding status ──────────────────────────────────────────────
         app.MapGet("/api/rag/status", GetRagStatus)

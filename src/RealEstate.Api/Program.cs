@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using System.Threading.RateLimiting;
 using RealEstate.Api;
 using RealEstate.Api.Endpoints;
 using RealEstate.Infrastructure;
@@ -104,6 +106,44 @@ builder.Services.AddRealEstateDb(builder.Configuration);
 builder.Services.AddRealEstateServices(builder.Configuration);
 builder.Services.AddStorageService(builder.Configuration);
 
+// ─── Health Checks ───────────────────────────────────────────────────────────
+// /health/db (Postgres), /health/ollama, /health/scraper
+builder.Services.AddHealthChecks()
+    .AddNpgSql(connectionString, name: "postgres", tags: new[] { "db" })
+    .AddUrlGroup(
+        new Uri((builder.Configuration["Ollama:BaseUrl"] ?? "http://host.docker.internal:11434").TrimEnd('/') + "/api/tags"),
+        name: "ollama",
+        tags: new[] { "ai" },
+        timeout: TimeSpan.FromSeconds(3))
+    .AddUrlGroup(
+        new Uri(scraperApiBaseUrl.TrimEnd('/') + "/v1/health"),
+        name: "scraper",
+        tags: new[] { "scraper" },
+        timeout: TimeSpan.FromSeconds(3));
+
+// ─── Rate Limiting ───────────────────────────────────────────────────────────
+// Chrání drahé AI endpointy (RAG ask, embed) před zneužitím.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // RAG ask: 20 req/min per IP
+    options.AddFixedWindowLimiter("rag-ask", o =>
+    {
+        o.PermitLimit = 20;
+        o.Window = TimeSpan.FromMinutes(1);
+        o.QueueLimit = 0;
+    });
+
+    // RAG embed: 5 req/min per IP (drahá operace)
+    options.AddFixedWindowLimiter("rag-embed", o =>
+    {
+        o.PermitLimit = 5;
+        o.Window = TimeSpan.FromMinutes(1);
+        o.QueueLimit = 0;
+    });
+});
+
 
 var app = builder.Build();
 
@@ -159,11 +199,28 @@ app.UseStatusCodePages();
 // HTTP request logging – metoda, cesta, status, čas obsluhy
 app.UseSerilogRequestLogging();
 
+// Rate limiter musí být před endpointy
+app.UseRateLimiter();
+
 // ─── Endpoints ────────────────────────────────────────────────────────────────
 // Health check – veřejně přístupný (používá Docker healthcheck a monitoring)
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
     .WithName("Health")
     .AllowAnonymous();
+
+// Detailní health checks (per komponenta)
+app.MapHealthChecks("/health/db", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = r => r.Tags.Contains("db"),
+});
+app.MapHealthChecks("/health/ollama", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = r => r.Tags.Contains("ai"),
+});
+app.MapHealthChecks("/health/scraper", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = r => r.Tags.Contains("scraper"),
+});
 
 app.MapListingEndpoints();
 app.MapSourceEndpoints();
