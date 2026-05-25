@@ -4,6 +4,26 @@ description: "Use when deploying changes to the production server (192.168.11.2 
 
 # Server Deployment Workflow
 
+## 🚨 MANDATORY: Before Every Deploy — Check Untracked Files
+
+**VŽDY před deployem spusť:**
+```bash
+git status --short src/
+```
+
+Pokud vidíš `??` (untracked) nebo `M` (modified) soubory → **nejdřív commit a push, pak teprve deploy**.
+
+Nové `.cs` soubory které nejsou v gitu = Docker na serveru je nevidí = build selže nebo se stará verze tiše nasadí.
+
+```bash
+# Commitnout VŠE nové/změněné před deployem
+git add src/ && git commit -m "..." && git push
+```
+
+**Přeskočení tohoto kroku = lovení duchů. Ghost debugging. Stará verze v prod.**
+
+---
+
 ## Server Info
 - **LAN IP**: `192.168.11.2`
 - **Public**: `realstate.sudata.eu` (HTTPS via reverse proxy)
