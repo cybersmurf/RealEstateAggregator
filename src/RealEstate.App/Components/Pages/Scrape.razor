@@ -127,6 +127,44 @@
         </MudButton>
     </MudPaper>
 
+    <!-- Čištění mrtvých inzerátů -->
+    <MudPaper Elevation="2" Class="pa-4">
+        <MudText Typo="Typo.h6" Class="mb-1">3. Vyčistit mrtvé inzeráty</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            Zkontroluje HTTP HEAD na zdrojové URL každého aktivního inzerátu, který nebyl viděn
+            déle než <strong>@_deadDaysOld dní</strong>. Inzeráty vracející 404/410 budou deaktivovány.
+        </MudText>
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
+            <MudNumericField T="int" @bind-Value="_deadDaysOld" Label="Starší než (dní)"
+                             Min="1" Max="365" Variant="Variant.Outlined" Style="width:160px" />
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Warning"
+                       StartIcon="@Icons.Material.Filled.DeleteSweep"
+                       Disabled="@(_cleaning || _scraping || _aiRunning)"
+                       OnClick="DeactivateDeadAsync">
+                @if (_cleaning)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    <span>Kontroluji…</span>
+                }
+                else
+                {
+                    <span>Vyčistit mrtvé</span>
+                }
+            </MudButton>
+        </MudStack>
+
+        @if (_cleanResult is not null)
+        {
+            <MudAlert Severity="@(_cleanResult.Deactivated > 0 ? Severity.Warning : Severity.Success)"
+                      Variant="Variant.Outlined">
+                Zkontrolováno: <strong>@_cleanResult.Checked</strong> inzerátů &nbsp;|&nbsp;
+                Deaktivováno: <strong>@_cleanResult.Deactivated</strong>
+            </MudAlert>
+        }
+    </MudPaper>
+
     <!-- Výsledek posledního scrape jobu -->
     @if (_lastResult != null)
     {
@@ -179,13 +217,16 @@
 @code {
     private bool _scraping;
     private bool _aiRunning;
+    private bool _cleaning;
     private bool _loadingSources = true;
     private bool _fullRescan;
     private bool _autoRunAi = true;
+    private int _deadDaysOld = 7;
     private string _aiStatus = "";
     private List<SourceDto> _availableSources = new();
     private IReadOnlyCollection<string> _selectedSourceCodes = new List<string>();
     private ScrapeTriggerResultDto? _lastResult;
+    private DeactivateDeadResultDto? _cleanResult;
     private OllamaStatsDto? _stats;
     private CancellationTokenSource _cts = new();
 
@@ -317,8 +358,43 @@
 
     public void Dispose() => _cts.Cancel();
 
+    private async Task DeactivateDeadAsync()
+    {
+        _cleaning = true;
+        _cleanResult = null;
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync(
+                $"/api/listings/deactivate-dead?daysOld={_deadDaysOld}",
+                null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _cleanResult = await response.Content
+                    .ReadFromJsonAsync<DeactivateDeadResultDto>(cancellationToken: _cts.Token);
+                Snackbar.Add(
+                    $"Hotovo: zkontrolováno {_cleanResult?.Checked}, deaktivováno {_cleanResult?.Deactivated}",
+                    _cleanResult?.Deactivated > 0 ? Severity.Warning : Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Chyba při čištění mrtvých inzerátů.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cleaning = false;
+            StateHasChanged();
+        }
+    }
+
     private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
     private record ScrapeTriggerResultDto(Guid JobId, string Status, string? Message);
     private record OllamaStatsDto(int TotalListings, int WithNormalizedData, int WithSmartTags, int WithPriceSignal);
     private record BulkJobResultDto(int Processed, int Succeeded, int Failed, int RemainingUnprocessed);
+    private record DeactivateDeadResultDto(int Checked, int Deactivated);
 }

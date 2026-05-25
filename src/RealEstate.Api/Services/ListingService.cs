@@ -629,4 +629,92 @@ public class ListingService : IListingService
             Groups = groups
         };
     }
+
+    public async Task<List<PriceHistoryDto>?> GetPriceHistoryAsync(Guid listingId, CancellationToken cancellationToken)
+    {
+        // Ověříme existenci inzerátu
+        var exists = await _dbContext.Listings
+            .AsNoTracking()
+            .AnyAsync(l => l.Id == listingId, cancellationToken);
+
+        if (!exists)
+            return null;
+
+        var rows = await _dbContext.Database
+            .SqlQueryRaw<PriceHistoryRow>(
+                """
+                SELECT price, recorded_at, source
+                FROM re_realestate.listing_price_history
+                WHERE listing_id = {0}
+                ORDER BY recorded_at ASC
+                """,
+                listingId)
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(r => new PriceHistoryDto(r.price, r.recorded_at, r.source))
+            .ToList();
+    }
+
+    public async Task<DeactivateDeadResult> DeactivateDeadListingsAsync(int daysOld, CancellationToken cancellationToken)
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-daysOld);
+
+        var candidates = await _dbContext.Listings
+            .Where(l => l.IsActive && l.LastSeenAt < cutoff && l.Url != null && l.Url != string.Empty)
+            .Select(l => new { l.Id, l.Url })
+            .ToListAsync(cancellationToken);
+
+        if (candidates.Count == 0)
+            return new DeactivateDeadResult(0, 0);
+
+        using var httpClient = new HttpClient();
+        httpClient.Timeout = TimeSpan.FromSeconds(10);
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "Mozilla/5.0 (compatible; RealEstateBot/1.0)");
+
+        var semaphore = new SemaphoreSlim(10);
+        var toDeactivate = new System.Collections.Concurrent.ConcurrentBag<Guid>();
+
+        await Parallel.ForEachAsync(candidates, cancellationToken, async (item, ct) =>
+        {
+            await semaphore.WaitAsync(ct);
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Head, item.Url);
+                using var resp = await httpClient.SendAsync(req,
+                    HttpCompletionOption.ResponseHeadersRead, ct);
+
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound ||
+                    resp.StatusCode == System.Net.HttpStatusCode.Gone)
+                {
+                    toDeactivate.Add(item.Id);
+                }
+            }
+            catch
+            {
+                // Timeout / network error – nechme aktivní, zkusíme příště
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        if (toDeactivate.Count > 0)
+        {
+            var ids = toDeactivate.ToList();
+            await _dbContext.Listings
+                .Where(l => ids.Contains(l.Id))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(l => l.IsActive, false)
+                    .SetProperty(l => l.LastSeenAt, DateTime.UtcNow),
+                    cancellationToken);
+        }
+
+        return new DeactivateDeadResult(candidates.Count, toDeactivate.Count);
+    }
+
+    // Internal projection type for raw SQL query
+    private sealed record PriceHistoryRow(decimal? price, DateTimeOffset recorded_at, string source);
 }
