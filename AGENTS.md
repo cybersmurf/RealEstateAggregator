@@ -59,7 +59,7 @@ src/RealEstate.Export/         # Export content builders (Markdown, Word)
 src/RealEstate.Background/     # Background jobs (AnalysisJob)
 tests/RealEstate.Tests/        # xUnit tests (79 C# tests)
 scraper/                       # Python FastAPI scraping service (14 zdrojů)
-mcp/server.py                  # FastMCP 3.x MCP server (14 tools)
+mcp/server.py                  # FastMCP 3.x MCP server (15 tools)
 ```
 
 ### Request Flow
@@ -140,6 +140,15 @@ Každý scraper je v `scraper/core/scrapers/<code>_scraper.py`. Runner: `scraper
 - `GET /api/photos/stats` – statistiky stažených fotek
 - `POST /api/photos/bulk-classify-inspection` – Vision klasifikace
 
+### User Photos (prohlídky)
+- `POST /api/{listingId}/my-photos` – nahrát fotky z prohlídky (multipart)
+- `GET /api/{listingId}/my-photos` – seznam fotek z prohlídky
+- `DELETE /api/{listingId}/my-photos/{photoId}` – smazat foto
+
+### Local Analysis
+- `POST /api/listings/{id}/analyze-local` – spustit lokální AI analýzu (Ollama, volitelný `?model=`)
+- `GET /api/listings/{id}/analyze-local/docx` – stáhnout analýzu jako DOCX (pandoc)
+
 ### Export (Google Drive / OneDrive)
 - `POST /api/listings/{id}/export/drive`
 - `POST /api/listings/{id}/export/onedrive`
@@ -147,7 +156,7 @@ Každý scraper je v `scraper/core/scrapers/<code>_scraper.py`. Runner: `scraper
 
 ---
 
-## MCP Tools (14 nástrojů)
+## MCP Tools (15 nástrojů)
 
 MCP server (`mcp/server.py`) používá FastMCP 3.x a poskytuje přístup k API z Claude Desktop.
 
@@ -167,6 +176,7 @@ MCP server (`mcp/server.py`) používá FastMCP 3.x a poskytuje přístup k API 
 | `list_sources` | Přehled aktivních zdrojů |
 | `get_rag_status` | Stav RAG (embeddingy, provider) |
 | `embed_description` | Embed popisu inzerátu |
+| `bulk_embed_descriptions` | Batch embedding všech popisů inzerátů |
 
 ---
 
@@ -396,4 +406,4 @@ make rebuild-api   # na serveru
 
 ---
 
-*Aktualizováno: 25. května 2026 | Sessions 1–28+ | 14 scraperů | 79 C# testů + 97 Python testů*
+*Aktualizováno: 25. května 2026 | Sessions 1–28+ | 14 scraperů | 15 MCP tools | 79 C# testů + 97 Python testů*
