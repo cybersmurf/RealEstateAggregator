@@ -233,10 +233,15 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
                     total_scraped += result
                     logger.info(f"Job {job_id}: {source_name} scraped {result} listings")
                     # Po úspěšném full_rescan deaktivuj inzeráty které scraper neviděl
-                    if request.full_rescan:
+                    # ⚠️ OCHRANA: deaktivuj POUZE pokud scraper vrátil alespoň 1 inzerát.
+                    # Pokud vrátí 0 (síťová chyba, timeout), NESMÍME deaktivovat stávající
+                    # inzeráty – způsobilo by to falešnou masovou deaktivaci celé DB.
+                    if request.full_rescan and result > 0:
                         deactivated = await db_manager.deactivate_unseen_listings(source_name, scrape_started_at)
                         if deactivated > 0:
                             logger.info(f"Job {job_id}: {source_name} deactivated {deactivated} expired listings")
+                    elif request.full_rescan and result == 0:
+                        logger.warning(f"Job {job_id}: {source_name} returned 0 listings during full_rescan – skipping deactivation to prevent false mass-deactivation")
 
             logger.info(f"Job {job_id}: All scrapers completed. Total listings: {total_scraped}")
             
