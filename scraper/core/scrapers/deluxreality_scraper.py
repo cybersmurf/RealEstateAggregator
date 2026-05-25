@@ -17,7 +17,10 @@ from ..http_utils import http_retry
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://deluxreality.cz"
-LISTINGS_URL = f"{BASE_URL}/nemovitosti/"
+LISTING_PAGES = [
+    f"{BASE_URL}/nemovitosti/?typ=prodej",
+    f"{BASE_URL}/nemovitosti/?typ=pronajem",
+]
 
 HEADERS = {
     "User-Agent": (
@@ -101,22 +104,34 @@ class DeluxRealityScraper:
         return resp.text
 
     async def _get_listing_urls(self, client: httpx.AsyncClient) -> List[str]:
-        """Scrape the main listings page and return unique detail URLs."""
-        html = await self._fetch(client, LISTINGS_URL)
-        soup = BeautifulSoup(html, "html.parser")
-
+        """Scrape prodej+pronajem filter pages (with pagination) and return unique detail URLs."""
         urls = []
         seen = set()
-        for a in soup.select("a[href*='/nemovitost/']"):
-            href = a.get("href", "").strip()
-            if not href:
-                continue
-            full_url = urljoin(BASE_URL, href)
-            # Skip anchor-only / query-string variants
-            if full_url in seen or full_url.endswith("/nemovitosti/"):
-                continue
-            seen.add(full_url)
-            urls.append(full_url)
+
+        for filter_url in LISTING_PAGES:
+            page = 1
+            while page <= 10:  # safety cap
+                url = f"{filter_url}&paged={page}" if page > 1 else filter_url
+                html = await self._fetch(client, url)
+                soup = BeautifulSoup(html, "html.parser")
+
+                new_urls = []
+                for a in soup.select("a[href*='/nemovitosti/']"):
+                    href = a.get("href", "").strip()
+                    if not href:
+                        continue
+                    # Skip nav/filter links, pagination, feeds
+                    if re.search(r'/nemovitosti/\?|/nemovitosti/$|/feed/|/nemovitosti/page/', href):
+                        continue
+                    full_url = urljoin(BASE_URL, href)
+                    if full_url not in seen:
+                        seen.add(full_url)
+                        new_urls.append(full_url)
+
+                if not new_urls:
+                    break  # no more pages for this filter
+                urls.extend(new_urls)
+                page += 1
 
         return urls
 
@@ -127,8 +142,8 @@ class DeluxRealityScraper:
         html = await self._fetch(client, url)
         soup = BeautifulSoup(html, "html.parser")
 
-        # External ID = URL slug after /nemovitost/
-        slug_match = re.search(r"/nemovitost/([^/]+)/?$", url)
+        # External ID = URL slug after /nemovitosti/
+        slug_match = re.search(r"/nemovitosti/([^/]+)/?$", url)
         external_id = slug_match.group(1) if slug_match else url
 
         # Title
@@ -253,20 +268,37 @@ class DeluxRealityScraper:
         return "\n\n".join(paragraphs[:6]) if paragraphs else ""
 
     def _extract_photos(self, soup: BeautifulSoup, base_url: str) -> List[str]:
-        """Extract full-size photo URLs from empty <a> links to wp-content/uploads."""
+        """Extract full-size photo URLs from .dx-ps-gallery imgs (srcset largest width)."""
         photos = []
         seen = set()
-        # Pattern: <a href="https://deluxreality.cz/2019/wp-content/uploads/...jpg">
-        for a in soup.select("a[href*='wp-content/uploads']"):
-            href = a.get("href", "").strip()
-            if not href:
+        for img in soup.select(".dx-ps-gallery img"):
+            full_url = None
+            # Prefer srcset: parse and take the largest width entry
+            srcset = img.get("srcset", "")
+            if srcset:
+                best_w = 0
+                for entry in srcset.split(","):
+                    parts = entry.strip().rsplit(" ", 1)
+                    if len(parts) == 2:
+                        try:
+                            w = int(parts[1].rstrip("w"))
+                            if w > best_w:
+                                best_w = w
+                                full_url = parts[0].strip()
+                        except ValueError:
+                            pass
+            # Fallback: strip WordPress size suffix from src (e.g. -300x169)
+            if not full_url:
+                src = img.get("src", "")
+                if src:
+                    full_url = re.sub(r"-\d+x\d+(\.\w+)$", r"\1", src)
+            if not full_url:
                 continue
-            if not re.search(r"\.(jpg|jpeg|png|webp)$", href, re.I):
-                continue
-            # Skip thumbnails (already have full-size from empty <a> links)
-            if href not in seen:
-                seen.add(href)
-                photos.append(href)
-            if len(photos) >= 50:
+            if not full_url.startswith("http"):
+                full_url = urljoin(BASE_URL, full_url)
+            if full_url not in seen:
+                seen.add(full_url)
+                photos.append(full_url)
+            if len(photos) >= 20:
                 break
         return photos
