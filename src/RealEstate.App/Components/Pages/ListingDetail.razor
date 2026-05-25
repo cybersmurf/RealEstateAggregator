@@ -337,10 +337,9 @@
             </MudPaper>
 
             <!-- Description -->
-            <MudPaper Class="pa-4">
-                <MudText Typo="Typo.h6" Class="mb-3">Popis</MudText>
+            <SectionCard Title="Popis" Icon="@Icons.Material.Filled.Description">
                 <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">@_listing.Description</MudText>
-            </MudPaper>
+            </SectionCard>
 
             <!-- Ollama AI insights: Smart Tags + Price Signal + Normalized Data -->
             @if (!string.IsNullOrEmpty(_listing.SmartTags)
@@ -721,8 +720,7 @@
             </MudPaper>
 
             <!-- User State -->
-            <MudPaper Class="pa-4">
-                <MudText Typo="Typo.h6" Class="mb-3">Můj stav</MudText>
+            <SectionCard Title="Můj stav" Icon="@Icons.Material.Filled.PersonPin" IconColor="Color.Tertiary">
                 <MudStack Spacing="2">
                     <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary">
                         <MudButton OnClick="@(() => UpdateUserStatus("New"))" 
@@ -765,7 +763,7 @@
                         </MudText>
                     }
                 </MudStack>
-            </MudPaper>
+            </SectionCard>
 
             <!-- Actions -->
             <MudStack Spacing="2">
