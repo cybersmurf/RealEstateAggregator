@@ -12,6 +12,7 @@ from datetime import datetime
 
 from api.schemas import ScrapeTriggerRequest
 from core.database import get_db_manager
+from core import notifications
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,15 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
                         logger.warning(f"Job {job_id}: {source_name} returned 0 listings during full_rescan – skipping deactivation to prevent false mass-deactivation")
 
             logger.info(f"Job {job_id}: All scrapers completed. Total listings: {total_scraped}")
-            
+
+            # Slack notifikace – pošle jen pokud něco selhalo nebo vrátilo 0
+            job_results = {name: res for (name, _), res in zip(tasks, results)}
+            await notifications.notify_job_summary(
+                job_id=str(job_id),
+                results=job_results,
+                full_rescan=request.full_rescan,
+            )
+
             # Update status na Succeeded
             await db_manager.update_scrape_job(
                 job_id=job_id,

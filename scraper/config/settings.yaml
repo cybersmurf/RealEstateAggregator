@@ -51,6 +51,12 @@ scheduler:
   cron_schedule: "0 8,20 * * *"  # Každý den v 8:00 a 20:00
   timezone: "Europe/Prague"
 
+# Notifikace – Slack Incoming Webhook
+# Přepíš env proměnnou SLACK_WEBHOOK_URL (bezpečnější než plaintext v YAML)
+notifications:
+  slack_webhook_url: ""          # nebo nastav přes env SLACK_WEBHOOK_URL
+  stale_threshold_days: 3        # po kolika dnech bez aktualizace je zdroj „mrtvý"
+
 # Logging configuration
 logging:
   level: INFO

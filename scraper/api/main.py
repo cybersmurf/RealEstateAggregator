@@ -20,6 +20,7 @@ from core.runner import run_scrape_job
 from core.database import init_db_manager, get_db_manager
 from core.geocoding import bulk_geocode, geocode_address
 from core.ruian_service import lookup_ruian_address, bulk_ruian_lookup
+from core import notifications
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,10 @@ async def lifespan(app: FastAPI):
             print(f"✓ Scheduler spuštěn | denní={daily_cron} | týdenní={weekly_cron}")
         else:
             logger.info("Scheduler je vypnut (scheduler.enabled=false v settings.yaml)")
+
+        # ── Notifikace ─────────────────────────────────────────────────────
+        notif_cfg = config.get("notifications", {})
+        notifications.configure(notif_cfg.get("slack_webhook_url") or "")
 
     except Exception as exc:
         logger.error(f"❌ Startup failed: {exc}")
@@ -503,4 +508,72 @@ async def update_job_cron(job_id: str, cron: str):
         "job_id": job_id,
         "cron": cron,
         "next_run": updated_job.next_run_time.isoformat() if updated_job.next_run_time else None,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCRAPER HEALTH – monitoring mrtvých / zastaralých zdrojů
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/v1/health/scrapers")
+async def scraper_health(stale_days: int = 3):
+    """
+    Vrátí zdraví všech aktivních zdrojů.
+    Zdroje bez aktualizace déle než `stale_days` dní jsou označeny jako stale/dead.
+
+    Args:
+        stale_days: Počet dní bez aktualizace = problém (default 3)
+    """
+    db_manager = get_db_manager()
+    async with db_manager.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                s.code,
+                s.name,
+                COUNT(*) FILTER (WHERE l.is_active = true)  AS active_count,
+                COUNT(*) FILTER (WHERE l.is_active = false) AS inactive_count,
+                MAX(l.last_seen_at)                          AS last_seen_at,
+                EXTRACT(EPOCH FROM (NOW() - MAX(l.last_seen_at))) / 86400 AS days_stale
+            FROM re_realestate.sources s
+            LEFT JOIN re_realestate.listings l ON l.source_id = s.id
+            WHERE s.is_active = true
+            GROUP BY s.code, s.name
+            ORDER BY days_stale DESC NULLS FIRST
+            """,
+        )
+
+    sources = []
+    stale_sources = []
+    for r in rows:
+        days = float(r["days_stale"]) if r["days_stale"] is not None else None
+        entry = {
+            "code": r["code"],
+            "name": r["name"],
+            "active_count": r["active_count"],
+            "inactive_count": r["inactive_count"],
+            "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+            "days_stale": round(days, 1) if days is not None else None,
+            "status": (
+                "dead" if days is None or (days >= stale_days and r["active_count"] == 0)
+                else "stale" if days >= stale_days
+                else "ok"
+            ),
+        }
+        sources.append(entry)
+        if entry["status"] in ("dead", "stale"):
+            stale_sources.append(entry)
+
+    # Odešli Slack notifikaci pokud jsou stale zdroje
+    if stale_sources:
+        await notifications.notify_stale_sources(stale_sources)
+
+    ok_count = sum(1 for s in sources if s["status"] == "ok")
+    return {
+        "overall": "ok" if not stale_sources else "degraded",
+        "total_sources": len(sources),
+        "ok": ok_count,
+        "stale_or_dead": len(stale_sources),
+        "stale_threshold_days": stale_days,
+        "sources": sources,
     }
