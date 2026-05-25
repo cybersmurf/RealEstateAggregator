@@ -531,12 +531,16 @@ class SrealityScraper:
 
         return normalized
 
+    # SReality CDN vyžaduje tento transformační parametr pro přímý přístup k obrázkům.
+    # Bez něj CDN vrací 401 Unauthorized.
+    _CDN_FL_SUFFIX = "?fl=res,749,562,3|shr,,20|jpg,90"
+
     def _extract_photos(self, detail: Dict[str, Any]) -> List[str]:
         """
         Extrahuje URL fotek z detail API response (v1 API).
 
         v1 API: advert_images je list objektů s polem 'url' (//domain/path).
-        Přidáme 'https:' prefix.
+        Přidáme 'https:' prefix a ?fl= suffix potřebný pro přímý přístup k CDN.
         """
         photos: List[str] = []
 
@@ -550,6 +554,9 @@ class SrealityScraper:
             if url:
                 if url.startswith("//"):
                     url = "https:" + url
+                # Přidej ?fl= suffix pokud URL ještě nemá query string
+                if "?" not in url:
+                    url += self._CDN_FL_SUFFIX
                 photos.append(url)
                 if len(photos) >= 50:
                     break
