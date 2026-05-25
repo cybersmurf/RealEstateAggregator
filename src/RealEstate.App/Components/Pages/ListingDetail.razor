@@ -81,29 +81,29 @@
             <!-- AI Klasifikace fotek -->
             @if (_listing.Photos.Any())
             {
-                <MudPaper Class="pa-4">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-3" Wrap="Wrap.Wrap">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Wrap="Wrap.Wrap">
-                            <MudText Typo="Typo.h6">📸 AI klasifikace fotek</MudText>
-                            <MudChip T="string" Size="Size.Small"
-                                     Color="@(PhotoClassifiedCount == _listing.Photos.Count ? Color.Success : Color.Default)">
-                                @PhotoClassifiedCount/@_listing.Photos.Count klasifikováno
+                <SectionCard Title="AI klasifikace fotek" Icon="@Icons.Material.Filled.PhotoCamera" IconColor="Color.Secondary">
+                    <HeaderActions>
+                        <MudChip T="string" Size="Size.Small"
+                                 Color="@(PhotoClassifiedCount == _listing.Photos.Count ? Color.Success : Color.Default)">
+                            @PhotoClassifiedCount/@_listing.Photos.Count
+                        </MudChip>
+                        @if (PhotoDamageCount > 0)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error"
+                                     Icon="@Icons.Material.Filled.Warning">
+                                @PhotoDamageCount poškození
                             </MudChip>
-                            @if (PhotoDamageCount > 0)
-                            {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Error"
-                                         Icon="@Icons.Material.Filled.Warning">
-                                    @PhotoDamageCount poškození
-                                </MudChip>
-                            }
-                            @if (PhotoFeedbackWrongCount > 0)
-                            {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Warning"
-                                         Icon="@Icons.Material.Filled.ThumbDown">
-                                    @PhotoFeedbackWrongCount špatně
-                                </MudChip>
-                            }
-                        </MudStack>
+                        }
+                        @if (PhotoFeedbackWrongCount > 0)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                                     Icon="@Icons.Material.Filled.ThumbDown">
+                                @PhotoFeedbackWrongCount špatně
+                            </MudChip>
+                        }
+                    </HeaderActions>
+                    <ChildContent>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-3" Wrap="Wrap.Wrap">
                         @if (PhotoClassifiedCount < _listing.Photos.Count)
                         {
                             <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary"
@@ -242,7 +242,8 @@
                             </MudItem>
                         }
                     </MudGrid>
-                </MudPaper>
+                    </ChildContent>
+                </SectionCard>
             }
 
             <!-- Details -->
@@ -345,11 +346,7 @@
                 || !string.IsNullOrEmpty(_listing.PriceSignal)
                 || !string.IsNullOrEmpty(_listing.AiNormalizedData))
             {
-                <MudPaper Class="pa-4">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
-                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Secondary" />
-                        <MudText Typo="Typo.h6">AI analýza</MudText>
-                    </MudStack>
+                <SectionCard Title="AI analýza" Icon="@Icons.Material.Filled.AutoAwesome" IconColor="Color.Secondary">
 
                     @if (!string.IsNullOrEmpty(_listing.PriceSignal))
                     {
@@ -423,7 +420,7 @@
                             @(_aiTextLoading ? "…" : string.IsNullOrEmpty(_listing.AiNormalizedData) ? "Normalizovat popis" : "Přenormalizovat")
                         </MudButton>
                     </MudStack>
-                </MudPaper>
+                </SectionCard>
             }
             @if (string.IsNullOrEmpty(_listing.SmartTags)
                 && string.IsNullOrEmpty(_listing.PriceSignal)
@@ -453,10 +450,8 @@
             <PriceHistorySection History="@_priceHistory" />
 
             <!-- Katastr nemovitosti -->
-            <MudPaper Class="pa-4">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
-                    <MudIcon Icon="@Icons.Material.Filled.AccountBalance" Color="Color.Info" />
-                    <MudText Typo="Typo.h6">Katastr nemovitosti</MudText>
+            <SectionCard Title="Katastr nemovitosti" Icon="@Icons.Material.Filled.AccountBalance" IconColor="Color.Info">
+                <HeaderActions>
                     @if (_cadastreData?.FetchStatus == "found")
                     {
                         <MudChip T="string" Color="Color.Success" Size="Size.Small"
@@ -464,8 +459,8 @@
                             RUIAN @_cadastreData.RuianKod
                         </MudChip>
                     }
-                </MudStack>
-
+                </HeaderActions>
+                <ChildContent>
                 <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
                     Adresa pro vyhledavani: <strong>@_listing.LocationText</strong>
                 </MudText>
@@ -716,7 +711,8 @@
                         </MudButton>
                     }
                 </MudStack>
-            </MudPaper>
+                </ChildContent>
+            </SectionCard>
 
             <!-- User State -->
             <SectionCard Title="Můj stav" Icon="@Icons.Material.Filled.PersonPin" IconColor="Color.Tertiary">
@@ -988,8 +984,7 @@
             </MudStack>
 
             <!-- RAG Chat -->
-            <MudPaper Class="pa-4">
-                <MudText Typo="Typo.h6" Class="mb-1">🤖 AI Chat</MudText>
+            <SectionCard Title="AI Chat" Icon="@Icons.Material.Filled.SmartToy" IconColor="Color.Secondary">
                 <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3">
                     Ptej se na základě uložených analýz. Klikni „Embedovat popis" pro
                     inicializaci (stačí jednou – popis inzerátu se uloží jako znalostní záznam).
@@ -1092,16 +1087,12 @@
                         }
                     }
                 </MudStack>
-            </MudPaper>
+            </SectionCard>
 
             <!-- Uložené analýzy -->
             @if (_savedAnalyses.Count > 0)
             {
-                <MudPaper Class="pa-4">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
-                        <MudIcon Icon="@Icons.Material.Filled.LibraryBooks" Color="Color.Primary" />
-                        <MudText Typo="Typo.h6">Uložené analýzy (@_savedAnalyses.Count)</MudText>
-                    </MudStack>
+                <SectionCard Title="@($"Uložené analýzy ({_savedAnalyses.Count})")" Icon="@Icons.Material.Filled.LibraryBooks">
                     <MudExpansionPanels MultiExpansion="true">
                         @foreach (var a in _savedAnalyses.Where(x => x.Source != "auto").OrderByDescending(x => x.CreatedAt))
                         {
@@ -1144,7 +1135,7 @@
                             </MudExpansionPanel>
                         }
                     </MudExpansionPanels>
-                </MudPaper>
+                </SectionCard>
             }
         </MudStack>
     }
