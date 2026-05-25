@@ -34,7 +34,7 @@
   <!-- Content files needed at publish/runtime -->
   <ItemGroup>
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('appsettings.Development.json')" />
     <Content Include="Templates\ai_instrukce_existing.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Templates\ai_instrukce_newbuild.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
