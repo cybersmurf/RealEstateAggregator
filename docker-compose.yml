@@ -114,6 +114,7 @@ services:
       - PYTHONUNBUFFERED=1
       - DOCKER=1                  # ← vypne uvicorn --reload (způsobuje hang na macOS Docker)
       - UPLOADS_BASE_PATH=/app/uploads  # Sdílený volume s API pro inline photo download
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
     ports:
       - "127.0.0.1:8001:8001"
     depends_on:
