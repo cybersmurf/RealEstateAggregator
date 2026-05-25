@@ -51,6 +51,13 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(opts 
 // V produkci nastavit: API_KEY=<tajný klíč>
 var apiKey = Environment.GetEnvironmentVariable("API_KEY") ?? "dev-key-change-me";
 
+// V produkci nesmí běžet s defaultním dev klíčem.
+if (builder.Environment.IsProduction() && apiKey == "dev-key-change-me")
+{
+    throw new InvalidOperationException(
+        "API_KEY environment variable must be set in production. Default 'dev-key-change-me' is not allowed.");
+}
+
 // Override connection string and scraper API base URL from environment variables
 var dbHost = Environment.GetEnvironmentVariable("DB_HOST") ?? "localhost";
 var dbPort = Environment.GetEnvironmentVariable("DB_PORT") ?? "5432";
@@ -73,6 +80,10 @@ if (!string.IsNullOrEmpty(scraperApiBaseUrl))
 builder.Services
     .AddEndpointsApiExplorer()
     .AddSwaggerGen();
+
+// ─── Problem Details ─────────────────────────────────────────────────────────
+// Standardní RFC 7807 error response místo prázdných 500ek.
+builder.Services.AddProblemDetails();
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 builder.Services.AddCors(options =>
@@ -141,6 +152,10 @@ app.UseStaticFiles();
 
 app.UseCors();
 
+// Global exception handler – vrací ProblemDetails JSON místo HTML stack trace
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+
 // HTTP request logging – metoda, cesta, status, čas obsluhy
 app.UseSerilogRequestLogging();
 
@@ -155,7 +170,6 @@ app.MapSourceEndpoints();
 app.MapAnalysisEndpoints();
 app.MapExportEndpoints();
 app.MapDriveAuthEndpoints();
-app.MapOneDriveAuthEndpoints();
 app.MapRagEndpoints();
 app.MapSpatialEndpoints();
 app.MapCadastreEndpoints();

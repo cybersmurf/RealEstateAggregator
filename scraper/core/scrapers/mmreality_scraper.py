@@ -230,24 +230,25 @@ class MmRealityScraper:
                     }
                 )
         else:
-            offers_list = soup.select_one("#offers-list")
-            if not offers_list:
-                logger.warning("Element #offers-list not found on page")
+            # Fallback: website no longer uses #offers-list – scrape anchor tags with data-card-id
+            cards = soup.select("a[data-card-id]")
+            if not cards:
+                logger.warning("No property cards (a[data-card-id]) found on page")
                 return [], False
 
-            for card in offers_list.select("a[href]"):
+            for card in cards:
                 href = card.get("href", "")
-                if not re.match(r"^/nemovitosti/\d+/?$", href):
-                    continue
+                external_id = card.get("data-card-id", "").strip()
+                if not external_id.isdigit():
+                    match = re.search(r"/nemovitosti/(\d+)", href)
+                    if match:
+                        external_id = match.group(1)
+                    else:
+                        continue
 
-                match = re.search(r"/nemovitosti/(\d+)", href)
-                if not match:
-                    continue
+                detail_url = urljoin(self.BASE_URL, f"/nemovitosti/{external_id}/")
 
-                external_id = match.group(1)
-                detail_url = urljoin(self.BASE_URL, href)
-
-                title_el = card.find(["h4", "h3", "h6"])
+                title_el = card.find(["h4", "h3", "h6", "h2"])
                 title = title_el.get_text(strip=True) if title_el else ""
 
                 price_text = ""

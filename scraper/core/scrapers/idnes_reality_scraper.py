@@ -219,6 +219,8 @@ class IdnesRealityScraper:
                 price_elem = soup.select_one(sel)
                 if price_elem:
                     price_text = price_elem.get_text(strip=True)
+                    # IDNES wraps digits with ZWJ (\u200d) and NBSP (\u00a0) – strip them first
+                    price_text = price_text.replace("\u200d", "").replace("\u00a0", " ")
                     # Match a plausible Czech price: 4-9 digits optionally separated by spaces/dots
                     # e.g. "1 500 000 Kč" or "2.500.000 Kč" or "950000 Kč"
                     price_match = re.search(r"\b(\d[\d\s.]{2,10}\d)\s*(Kč|CZK)", price_text)

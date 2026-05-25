@@ -63,7 +63,6 @@
   <ItemGroup>
     <ProjectReference Include="..\RealEstate.Domain\RealEstate.Domain.csproj" />
     <ProjectReference Include="..\RealEstate.Infrastructure\RealEstate.Infrastructure.csproj" />
-    <ProjectReference Include="..\RealEstate.Background\RealEstate.Background.csproj" />
   </ItemGroup>
 
 </Project>

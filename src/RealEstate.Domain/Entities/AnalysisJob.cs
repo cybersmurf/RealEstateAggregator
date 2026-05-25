@@ -9,7 +9,7 @@ public class AnalysisJob
     public Guid UserId { get; set; }
 
     public AnalysisStatus Status { get; set; } = AnalysisStatus.Pending;
-    public string? StorageProvider { get; set; }  // GoogleDrive, OneDrive, Local
+    public string? StorageProvider { get; set; }  // GoogleDrive, Local
     public string? StoragePath { get; set; }
     public string? StorageUrl { get; set; }
     

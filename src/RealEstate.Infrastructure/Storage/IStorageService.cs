@@ -2,7 +2,7 @@ namespace RealEstate.Infrastructure.Storage;
 
 /// <summary>
 /// Interface for cloud/local storage operations.
-/// Implementations: LocalStorageService, GoogleDriveStorageService, OneDriveStorageService
+/// Implementations: LocalStorageService, GoogleDriveStorageService
 /// </summary>
 public interface IStorageService
 {

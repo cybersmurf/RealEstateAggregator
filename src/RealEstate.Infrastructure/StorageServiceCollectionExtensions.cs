@@ -11,7 +11,7 @@ public static class StorageServiceCollectionExtensions
 {
     /// <summary>
     /// Register IStorageService based on configuration.
-    /// Provider can be: "Local", "GoogleDrive", "OneDrive"
+    /// Provider can be: "Local", "GoogleDrive"
     /// </summary>
     public static IServiceCollection AddStorageService(
         this IServiceCollection services,
@@ -24,10 +24,6 @@ public static class StorageServiceCollectionExtensions
             case "googledrive":
                 // TODO: Implement GoogleDriveStorageService
                 throw new NotImplementedException("Google Drive storage not yet implemented. Use 'Local' for now.");
-
-            case "onedrive":
-                // TODO: Implement OneDriveStorageService
-                throw new NotImplementedException("OneDrive storage not yet implemented. Use 'Local' for now.");
 
             case "local":
             default:

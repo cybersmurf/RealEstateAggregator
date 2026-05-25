@@ -161,8 +161,9 @@ public static class DbInitializer
             -- Export folder IDs – ukládáme po exportu, idempotentní export + upload bez session state
             ALTER TABLE re_realestate.listings ADD COLUMN IF NOT EXISTS drive_folder_id text;
             ALTER TABLE re_realestate.listings ADD COLUMN IF NOT EXISTS drive_inspection_folder_id text;
-            ALTER TABLE re_realestate.listings ADD COLUMN IF NOT EXISTS onedrive_folder_id text;
-            ALTER TABLE re_realestate.listings ADD COLUMN IF NOT EXISTS onedrive_inspection_folder_id text;
+            -- Legacy OneDrive sloupce odstraněny migrací scripts/migrate_drop_onedrive.sql
+            ALTER TABLE re_realestate.listings DROP COLUMN IF EXISTS onedrive_folder_id;
+            ALTER TABLE re_realestate.listings DROP COLUMN IF EXISTS onedrive_inspection_folder_id;
 
             -- RAG: listing_analyses tabulka s pgvector embeddingy
             -- Dimenze 768 = nomic-embed-text (Ollama). Pro OpenAI text-embedding-3-small použij 1536.

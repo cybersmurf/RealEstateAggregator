@@ -143,20 +143,25 @@ class LexamoScraper:
         id_match = re.search(r"-(\d+)/?$", url)
         external_id = id_match.group(1) if id_match else url
 
-        # Title – find heading containing "Prodej" or "Pronájem"
+        # Title – find first substantial heading that is not a price and not a location stub
         title = ""
         for tag in soup.find_all(re.compile(r"^h[1-4]$")):
             txt = tag.get_text(strip=True)
-            if re.search(r"prodej|pronájem|pronajem", txt, re.I) and len(txt) > 5:
-                title = txt
-                break
+            # Skip price headings (contain Kč) and very short texts
+            if "Kč" in txt or len(txt) < 15:
+                continue
+            # Skip headings that are pure numbers or start with a digit (e.g. area values)
+            if re.match(r"^\d", txt):
+                continue
+            title = txt
+            break
 
         if not title:
             logger.warning(f"[{self.SOURCE_CODE}] No title at {url}")
             return None
 
-        # Offer type
-        offer_type = self._detect_offer_type(title)
+        # Offer type – detect from URL slug first, then from title
+        offer_type = self._detect_offer_type(title, url)
 
         # Property type
         property_type = self._detect_property_type(title, url)
@@ -195,10 +200,11 @@ class LexamoScraper:
     # Field extractors
     # ------------------------------------------------------------------
 
-    def _detect_offer_type(self, title: str) -> str:
-        lower = title.lower()
+    def _detect_offer_type(self, title: str, url: str = "") -> str:
+        # Check URL first (most reliable for LEXAMO)
+        combined = (url + " " + title).lower()
         for keyword, otype in OFFER_TYPE_MAP.items():
-            if keyword in lower:
+            if keyword in combined:
                 return otype
         return "Sale"
 

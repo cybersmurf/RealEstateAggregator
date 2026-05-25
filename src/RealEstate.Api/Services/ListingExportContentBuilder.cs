@@ -6,12 +6,12 @@ namespace RealEstate.Api.Services;
 
 /// <summary>Přímý odkaz na nahraný soubor (fotku) v cloudovém úložišti.</summary>
 /// <param name="Name">Název souboru (foto_01.jpg…)</param>
-/// <param name="DirectUrl">Přímá URL v OneDrive (CDN, bez JS přesměrování)</param>
+/// <param name="DirectUrl">Přímá URL v cloudovém úložišti (CDN, bez JS přesměrování)</param>
 /// <param name="OriginalSourceUrl">Původní URL ze scraperu – funguje pro AI nástroje (Perplexity, Claude…)</param>
 public record PhotoLink(string Name, string DirectUrl, string OriginalSourceUrl = "");
 
 /// <summary>
-/// Sdílené content buildery pro export inzerátu – používají GoogleDriveExportService i OneDriveExportService.
+/// Sdílené content buildery pro export inzerátu – používají GoogleDriveExportService.
 /// </summary>
 public static class ListingExportContentBuilder
 {

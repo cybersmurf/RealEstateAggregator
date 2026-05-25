@@ -55,8 +55,6 @@ public class Listing
     // a upload fotek z prohlídky fungoval i po refreshi stránky
     public string? DriveFolderId { get; set; }
     public string? DriveInspectionFolderId { get; set; }
-    public string? OneDriveFolderId { get; set; }
-    public string? OneDriveInspectionFolderId { get; set; }
     
     // ── Ollama text features ────────────────────────────────────────────────────
     /// <summary>JSON pole 5 klíčových tagů z popisu: ["sklep","zahrada","novostavba", ...]</summary>

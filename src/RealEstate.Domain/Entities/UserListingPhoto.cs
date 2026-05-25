@@ -2,7 +2,7 @@ namespace RealEstate.Domain.Entities;
 
 /// <summary>
 /// User's own photos uploaded from property visits.
-/// Stored in cloud storage (Google Drive/OneDrive) or locally.
+/// Stored in cloud storage (Google Drive) or locally.
 /// </summary>
 public class UserListingPhoto
 {
@@ -19,7 +19,6 @@ public class UserListingPhoto
     /// <summary>
     /// Storage provider URL/ID
     /// - Google Drive: file ID (e.g., "1a2b3c4d5e")
-    /// - OneDrive: item ID
     /// - Local: relative path (e.g., "uploads/listings/xxx/photo.jpg")
     /// </summary>
     public string StoredUrl { get; set; } = null!;

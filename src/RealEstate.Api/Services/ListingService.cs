@@ -164,7 +164,6 @@ public class ListingService : IListingService
             DriveInspectionFolderUrl = entity.DriveInspectionFolderId is not null
                 ? $"https://drive.google.com/drive/folders/{entity.DriveInspectionFolderId}"
                 : null,
-            HasOneDriveExport = entity.OneDriveFolderId is not null,
             SmartTags = entity.SmartTags,
             AiNormalizedData = entity.AiNormalizedData,
             PriceSignal = entity.PriceSignal,

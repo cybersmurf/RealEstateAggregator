@@ -39,10 +39,9 @@ public sealed class ListingDetailDto
 
     public ListingUserStateDto UserState { get; set; } = new();
 
-    // Google Drive / OneDrive export info
+    // Google Drive export info
     public string? DriveFolderUrl { get; set; }
     public string? DriveInspectionFolderUrl { get; set; }
-    public bool HasOneDriveExport { get; set; }
 
     // Ollama text features
     /// <summary>JSON pole 5 klíčových tagů: ["sklep","zahrada","garáž"]</summary>

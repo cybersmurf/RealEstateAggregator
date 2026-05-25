@@ -20,16 +20,12 @@ public static class ExportEndpoints
             .WithName("ExportListingToDrive")
             .WithTags("Export");
 
-        group.MapPost("/{id:guid}/export-onedrive", ExportToOneDrive)
-            .WithName("ExportListingToOneDrive")
-            .WithTags("Export");
-
-        // Vrátí AI instrukce jako plain text – bez OneDrive, ready-to-paste do Claude/Perplexity
+        // Vrátí AI instrukce jako plain text – ready-to-paste do Claude/Perplexity
         group.MapGet("/{id:guid}/ai-brief", GetAiBrief)
             .WithName("GetAiBrief")
             .WithTags("Export");
 
-        // Uloží analýzu (plain text) do OneDrive složky jako ANALYZA_datum.md
+        // Uloží analýzu (plain text) do Google Drive složky jako ANALYZA_datum.md
         group.MapPost("/{id:guid}/save-analysis", SaveAnalysis)
             .WithName("SaveAnalysis")
             .WithTags("Export");
@@ -39,7 +35,7 @@ public static class ExportEndpoints
             .WithName("GetExportState")
             .WithTags("Export");
 
-        // Nahraje fotky z prohlídky do podsložky Moje_fotky_z_prohlidky (Drive nebo OneDrive)
+        // Nahraje fotky z prohlídky do podsložky Moje_fotky_z_prohlidky na Google Drive
         // + uloží lokální kopii do uploads/listings/{id}/inspection/ pro MCP/AI analýzu
         group.MapPost("/{id:guid}/upload-inspection-photos", UploadInspectionPhotos)
             .WithName("UploadInspectionPhotos")
@@ -92,14 +88,11 @@ public static class ExportEndpoints
 
     private static async Task<IResult> SaveAnalysis(
         Guid id,
-        [FromQuery] string folderId,
-        [FromServices] IOneDriveExportService oneDriveService,
+        [FromQuery] string? title,
+        [FromServices] IGoogleDriveExportService driveService,
         HttpRequest req,
         CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(folderId))
-            return Results.BadRequest(new { error = "Parametr folderId je povinný." });
-
         string content;
         using (var reader = new System.IO.StreamReader(req.Body))
             content = await reader.ReadToEndAsync(ct);
@@ -109,8 +102,8 @@ public static class ExportEndpoints
 
         try
         {
-            await oneDriveService.SaveAnalysisAsync(folderId, content, ct);
-            return Results.Ok(new { status = "saved", message = "Analýza uložena do OneDrive složky." });
+            var fileUrl = await driveService.SaveAnalysisAsync(id, content, title ?? "analyza", ct);
+            return Results.Ok(new { status = "saved", url = fileUrl, message = "Analýza uložena do Google Drive složky." });
         }
         catch (Exception ex)
         {
@@ -209,29 +202,6 @@ public static class ExportEndpoints
         }
     }
 
-    private static async Task<IResult> ExportToOneDrive(
-        Guid id,
-        [FromServices] IOneDriveExportService exportService,
-        CancellationToken ct)
-    {
-        try
-        {
-            var result = await exportService.ExportListingAsync(id, ct);
-            return Results.Ok(result);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return Results.NotFound(new { error = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return Results.Problem(
-                title: "Chyba při exportu na OneDrive",
-                detail: ex.Message,
-                statusCode: StatusCodes.Status500InternalServerError);
-        }
-    }
-
     private static async Task<IResult> GetExportState(
         Guid id,
         [FromServices] RealEstateDbContext db,
@@ -243,9 +213,7 @@ public static class ExportEndpoints
             {
                 l.Id,
                 l.DriveFolderId,
-                l.DriveInspectionFolderId,
-                l.OneDriveFolderId,
-                l.OneDriveInspectionFolderId
+                l.DriveInspectionFolderId
             })
             .FirstOrDefaultAsync(l => l.Id == id, ct);
 
@@ -257,17 +225,13 @@ public static class ExportEndpoints
             driveFolderUrl      = listing.DriveFolderId is not null
                 ? $"https://drive.google.com/drive/folders/{listing.DriveFolderId}"
                 : null,
-            driveInspectionFolderId    = listing.DriveInspectionFolderId,
-            oneDriveFolderId           = listing.OneDriveFolderId,
-            oneDriveInspectionFolderId = listing.OneDriveInspectionFolderId
+            driveInspectionFolderId = listing.DriveInspectionFolderId
         });
     }
 
     private static async Task<IResult> UploadInspectionPhotos(
         Guid id,
-        [FromQuery] string provider,
         [FromServices] IGoogleDriveExportService driveService,
-        [FromServices] IOneDriveExportService oneDriveService,
         [FromServices] RealEstateDbContext db,
         [FromServices] IWebHostEnvironment env,
         HttpRequest req,
@@ -276,18 +240,15 @@ public static class ExportEndpoints
         // Folder ID bereme z DB – není potřeba session state
         var listing = await db.Listings
             .AsNoTracking()
-            .Select(l => new { l.Id, l.DriveInspectionFolderId, l.OneDriveInspectionFolderId })
+            .Select(l => new { l.Id, l.DriveInspectionFolderId })
             .FirstOrDefaultAsync(l => l.Id == id, ct);
 
         if (listing is null) return Results.NotFound(new { error = "Inzerát nenalezen." });
 
-        var isOneDrive = provider?.Equals("onedrive", StringComparison.OrdinalIgnoreCase) == true;
-        var inspectionFolderId = isOneDrive
-            ? listing.OneDriveInspectionFolderId
-            : listing.DriveInspectionFolderId;
+        var inspectionFolderId = listing.DriveInspectionFolderId;
 
         if (string.IsNullOrWhiteSpace(inspectionFolderId))
-            return Results.BadRequest(new { error = $"Inzerát nebyl exportován na {(isOneDrive ? "OneDrive" : "Google Drive")}. Nejprve proveďte export." });
+            return Results.BadRequest(new { error = "Inzerát nebyl exportován na Google Drive. Nejprve proveďte export." });
 
         if (!req.HasFormContentType)
             return Results.BadRequest(new { error = "Požadavek musí být multipart/form-data." });
@@ -309,10 +270,7 @@ public static class ExportEndpoints
 
         try
         {
-            if (isOneDrive)
-                await oneDriveService.UploadInspectionPhotosAsync(inspectionFolderId, files, ct);
-            else
-                await driveService.UploadInspectionPhotosAsync(inspectionFolderId, files, ct);
+            await driveService.UploadInspectionPhotosAsync(inspectionFolderId, files, ct);
 
             // ── Lokální kopie pro MCP/AI analýzu ──────────────────────────────
             var inspDir = Path.Combine(env.WebRootPath, "uploads", "listings", id.ToString(), "inspection");

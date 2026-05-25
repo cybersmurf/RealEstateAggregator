@@ -304,6 +304,13 @@ class ZnojmoRealityScraper:
         if desc:
             return desc.get_text(" ", strip=True)[:5000]
 
+        # ZNOJMOREALITY: description is in div.col-sm-12 whose text starts with "Popis"
+        for div in soup.select("div.col-sm-12"):
+            text = div.get_text(" ", strip=True)
+            if text.startswith("Popis") and len(text) > 30:
+                # Strip the "Popis" label prefix
+                return text[5:].strip()[:5000]
+
         for table in soup.find_all("table"):
             next_el = table.find_next_sibling()
             if next_el:

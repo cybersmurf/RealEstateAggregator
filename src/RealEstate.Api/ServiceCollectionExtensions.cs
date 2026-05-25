@@ -53,23 +53,6 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
         });
 
-        // OneDrive export
-        services.AddScoped<IOneDriveExportService, OneDriveExportService>();
-        services.AddHttpClient("OneDriveGraph", client =>
-        {
-            client.Timeout = TimeSpan.FromMinutes(5);
-        });
-        services.AddHttpClient("OneDriveToken", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(30);
-        });
-        services.AddHttpClient("OneDrivePhotoDownload", client =>
-        {
-            client.DefaultRequestHeaders.Add("User-Agent",
-                "Mozilla/5.0 (compatible; RealEstateAggregator/1.0)");
-            client.Timeout = TimeSpan.FromSeconds(30);
-        });
-
         // � Photo download service
         services.AddScoped<IPhotoDownloadService, PhotoDownloadService>();
         // 🔍 Photo classification service (Mistral Vision)
