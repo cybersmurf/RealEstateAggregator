@@ -116,7 +116,7 @@ builder.Services.AddHealthChecks()
         tags: new[] { "ai" },
         timeout: TimeSpan.FromSeconds(3))
     .AddUrlGroup(
-        new Uri(scraperApiBaseUrl.TrimEnd('/') + "/v1/health"),
+        new Uri(scraperApiBaseUrl.TrimEnd('/') + "/"),
         name: "scraper",
         tags: new[] { "scraper" },
         timeout: TimeSpan.FromSeconds(3));
