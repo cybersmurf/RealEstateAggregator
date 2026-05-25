@@ -1,10 +1,12 @@
 """
-Sreality.cz scraper - direct JSON REST API.
+Sreality.cz scraper - direct JSON REST API (v1).
 
-API endpoint: https://www.sreality.cz/api/cs/v2/estates
-- No authentication required
-- Paginated JSON
-- Detail: https://www.sreality.cz/api/cs/v2/estates/{hash_id}
+API endpoint: https://www.sreality.cz/api/v1/estates/search
+- Requires browser-like User-Agent + Referer headers (otherwise 401)
+- Paginated JSON (limit=100, offset=N)
+- Detail: https://www.sreality.cz/api/v1/estates/{hash_id}  (response wrapped in 'result' key)
+
+Migrováno z v2 → v1 (květen 2026): SReality přešlo na Next.js, stará /api/cs/v2/ vrací 404.
 """
 import asyncio
 import logging
@@ -50,7 +52,7 @@ REGION_NAMES = {
     23: "Karlovarský kraj",
 }
 
-BASE_API = "https://www.sreality.cz/api/cs/v2"
+BASE_API = "https://www.sreality.cz/api/v1"
 BASE_WEB = "https://www.sreality.cz"
 
 # Mapování locality_district_id → název okresu (pro geo filtr)
@@ -73,6 +75,8 @@ DEFAULT_HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "cs-CZ,cs;q=0.9",
     "Referer": "https://www.sreality.cz/",
+    # v1 API vyžaduje Origin nebo Referer, jinak vrátí 401
+    "Origin": "https://www.sreality.cz",
 }
 
 
@@ -140,12 +144,12 @@ class SrealityScraper:
                             logger.error("API returned None for page %s, stopping", page)
                             break
 
-                        estates = data.get("_embedded", {}).get("estates", [])
+                        estates = data.get("results", [])
                         if not estates:
                             logger.info("No estates on page %s, stopping", page)
                             break
 
-                        result_size = data.get("result_size", 0)
+                        result_size = data.get("pagination", {}).get("total", 0)
                         logger.info(
                             "Page %s: got %s estates (total available: %s)",
                             page,
@@ -186,9 +190,13 @@ class SrealityScraper:
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")
 
+        # v1 API používá limit + offset (0-based), ne per_page + page
+        limit = self.per_page
+        offset = (page - 1) * limit
+
         params: Dict[str, Any] = {
-            "per_page": self.per_page,
-            "page": page,
+            "limit": limit,
+            "offset": offset,
         }
         if self.category_main_cb is not None:
             params["category_main_cb"] = self.category_main_cb
@@ -199,7 +207,7 @@ class SrealityScraper:
         if self.locality_district_id is not None:
             params["locality_district_id"] = self.locality_district_id
 
-        url = f"{BASE_API}/estates"
+        url = f"{BASE_API}/estates/search"
         logger.debug("GET %s params=%s", url, params)
 
         response = await self._http_client.get(url, params=params)
@@ -217,7 +225,9 @@ class SrealityScraper:
             response = await self._http_client.get(url)
             response.raise_for_status()
             await asyncio.sleep(0.3)
-            return response.json()
+            data = response.json()
+            # v1 API: všechna data zabalá do klíče 'result'
+            return data.get("result", data)
         except httpx.HTTPStatusError as exc:
             logger.warning("Detail fetch failed for %s: %s", hash_id, exc)
             return None
@@ -399,173 +409,144 @@ class SrealityScraper:
     def _normalize_list_item(self, estate: Dict[str, Any]) -> Dict[str, Any]:
         hash_id = estate.get("hash_id")
 
-        seo = estate.get("seo", {})
-        detail_url = self._build_detail_url(hash_id, seo)
-
-        price_czk = estate.get("price_czk") or {}
-        price_raw = price_czk.get("value_raw")
-        price = price_raw if (price_raw and price_raw > 1) else None
-
-        gps = estate.get("gps") or {}
-
-        links = estate.get("_links") or {}
-        images = links.get("images") or []
-        photos = [img.get("href") for img in images if img.get("href")]
-
-        cat_main = seo.get("category_main_cb", self.category_main_cb or 2)
-        cat_type = seo.get("category_type_cb", self.category_type_cb)
+        # v1 API: category codes jsou nested objekty {name, value}
+        cat_main = (estate.get("category_main_cb") or {}).get("value", self.category_main_cb or 2)
+        cat_sub = (estate.get("category_sub_cb") or {}).get("value")
+        cat_type = (estate.get("category_type_cb") or {}).get("value", self.category_type_cb)
         property_type = CATEGORY_MAIN_MAP.get(cat_main, "Ostatni")
         offer_type = CATEGORY_TYPE_MAP.get(cat_type, "Prodej")
 
-        # 🔥 Nastav district ze známého locality_district_id (pro geo filtr v database.py)
-        # Sreality API vrací pro malé obce jen "Ulice, Obec" bez okresu → district
-        # zajistí průchod geo filtrem (target_districts: ["Znojmo", ...])
-        district: Optional[str] = None
-        if self.locality_district_id:
+        # v1 API: locality je objekt (ne string)
+        locality_obj = estate.get("locality") or {}
+        city = locality_obj.get("city", "")
+        district = locality_obj.get("district")
+        # Fallback na DISTRICT_ID_TO_NAME pokud API district nevrátí
+        if not district and self.locality_district_id:
             district = DISTRICT_ID_TO_NAME.get(self.locality_district_id)
+        location_parts = [p for p in [city, district] if p]
+        location_text = ", ".join(location_parts) if location_parts else (estate.get("advert_name") or "")[:100]
+
+        # GPS z locality objektu
+        gps_lat = locality_obj.get("gps_lat")
+        gps_lon = locality_obj.get("gps_lon")
+
+        # v1 API: price_czk je přímý float (ne nested dict)
+        price_raw = estate.get("price_czk")
+        price = float(price_raw) if (price_raw and float(price_raw) > 1) else None
+
+        # v1 API: advert_images je list plain URL stringů (//domain/path)
+        photos = []
+        for img in estate.get("advert_images") or []:
+            if isinstance(img, str) and img:
+                photos.append(("https:" + img) if img.startswith("//") else img)
+            elif isinstance(img, dict):
+                url = img.get("url") or img.get("href", "")
+                if url:
+                    photos.append(("https:" + url) if url.startswith("//") else url)
+
+        # Sestavení URL – v1 nemá seo field, použijeme city_seo_name z locality
+        seo_locality = locality_obj.get("city_seo_name", "")
+        seo = {
+            "category_main_cb": cat_main,
+            "category_sub_cb": cat_sub,
+            "category_type_cb": cat_type,
+            "locality": seo_locality,
+        }
+        detail_url = self._build_detail_url(hash_id, seo)
 
         return {
             "source_code": self.SOURCE_CODE,
             "external_id": str(hash_id),
             "url": detail_url,
-            "title": (estate.get("name") or "")[:200],
-            "location_text": estate.get("locality", ""),
+            "title": (estate.get("advert_name") or "")[:200],
+            "location_text": location_text,
             "district": district,
             "price": price,
             "property_type": property_type,
             "offer_type": offer_type,
-            "latitude": gps.get("lat"),
-            "longitude": gps.get("lon"),
+            "latitude": gps_lat,
+            "longitude": gps_lon,
             "photos": photos[:50],
         }
 
     def _merge_detail(self, normalized: Dict[str, Any], detail: Dict[str, Any]) -> Dict[str, Any]:
-        # 🔥 Cena z detail API je aktuálnější než z list API – vždy ji přebij
-        detail_price_czk = detail.get("price_czk") or {}
-        detail_price = detail_price_czk.get("value_raw")
-        if detail_price and detail_price > 1:
-            normalized["price"] = detail_price
+        # v1 API: price_czk je přímý float (ne nested dict)
+        detail_price = detail.get("price_czk")
+        if detail_price and float(detail_price) > 1:
+            normalized["price"] = float(detail_price)
 
-        # 🔥 Počet shlédnutí inzerátu (SReality specific)
-        seen_count = detail.get("_embedded", {}).get("stats", {}).get("views")
-        if seen_count is None:
-            seen_count = detail.get("view_count") or detail.get("seen_count")
+        # v1 API: stats je přímý int (počet zhlédnutí), ne nested _embedded.stats.views
+        seen_count = detail.get("stats")
         if isinstance(seen_count, int):
             normalized["view_count"] = seen_count
 
-        # 🔥 Datum vložení inzerátu na SReality
-        date_created = (
-            detail.get("date_of_creation")
-            or detail.get("created_at")
-            or detail.get("date_start")
-        )
+        # v1 API: datum vložení je v "since" jako "YYYY-MM-DD" string
+        date_created = detail.get("since") or detail.get("date_of_creation")
         if date_created and not normalized.get("date_created_source"):
-            from datetime import timezone
-            import re as _re
-            if isinstance(date_created, (int, float)):
-                # Unix timestamp
-                normalized["date_created_source"] = datetime.fromtimestamp(
-                    date_created, tz=timezone.utc
-                ).isoformat()
-            elif isinstance(date_created, str) and _re.search(r"\d{4}", date_created):
-                normalized["date_created_source"] = date_created
+            normalized["date_created_source"] = str(date_created)
 
-        # 🔥 SReality API vrací 'text' jako dict {'name': 'Popis', 'value': '...'} nebo string
-        description_raw = detail.get("text") or detail.get("description")
-        if description_raw:
-            if isinstance(description_raw, dict):
-                description = description_raw.get("value", "")
-            elif isinstance(description_raw, str):
-                description = description_raw
-            else:
-                description = ""
-            if description:
-                normalized["description"] = description[:5000]
+        # v1 API: popis je v "advert_description" (ne text.value)
+        description = detail.get("advert_description")
+        if description and isinstance(description, str):
+            normalized["description"] = description[:5000]
 
-        # 🔥 FALLBACK: Pokud detail vrátí lepší fotky, používej je. Jinak zachovej z listu
+        # Fotky z detailu (lepší kvalita)
         detail_photos = self._extract_photos(detail)
         if detail_photos:
             normalized["photos"] = detail_photos[:50]
-        # Pokud detail nemá fotky, ponecháme fotky z listu (už jsou v normalized["photos"])
 
-        params = self._extract_params(detail)
-        if params:
-            normalized["area_built_up"] = self._parse_area(params.get("Užitná plocha"))
-            normalized["area_land"] = self._parse_area(params.get("Plocha pozemku"))
-            # Extrahovat dispozici ("1+1", "2+kk", atd.)
-            disposition = params.get("Dispozice")
-            if disposition:
-                normalized["disposition"] = str(disposition).strip()
-            # 🔥 Stavba → construction_type (přímé API pole je přesnější než regex fallback)
-            stavba = params.get("Stavba")
-            if stavba:
-                normalized["construction_type"] = stavba.strip()
-            # 🔥 Stav objektu → condition (přímé API pole je přesnější než regex fallback)
-            stav = params.get("Stav objektu")
-            if stav:
-                normalized["condition"] = stav.strip()
+        # v1 API: plocha je přímý field estate_area (items[] je prázdné)
+        estate_area = detail.get("estate_area")
+        if estate_area:
+            # U pozemků → area_land, u domů/bytů → area_built_up
+            cat_main = (detail.get("category_main_cb") or {}).get("value", self.category_main_cb or 2)
+            if cat_main == 3:  # Pozemek
+                normalized["area_land"] = int(estate_area)
+            else:
+                normalized["area_built_up"] = int(estate_area)
 
-        detail_seo = detail.get("seo") or {}
-        if detail_seo:
-            hash_id = detail.get("hash_id") or normalized.get("external_id")
-            if hash_id:
-                normalized["url"] = self._build_detail_url(hash_id, detail_seo)
+        # URL: v1 API nemá seo field, sestavíme z locality a category
+        cat_main = (detail.get("category_main_cb") or {}).get("value", self.category_main_cb or 2)
+        cat_sub = (detail.get("category_sub_cb") or {}).get("value")
+        cat_type = (detail.get("category_type_cb") or {}).get("value", self.category_type_cb)
+        hash_id = detail.get("hash_id") or normalized.get("external_id")
+        locality_obj = detail.get("locality") or {}
+        seo_locality = locality_obj.get("city_seo_name", "")
+        seo = {
+            "category_main_cb": cat_main,
+            "category_sub_cb": cat_sub,
+            "category_type_cb": cat_type,
+            "locality": seo_locality,
+        }
+        if hash_id:
+            normalized["url"] = self._build_detail_url(hash_id, seo)
 
         return normalized
 
     def _extract_photos(self, detail: Dict[str, Any]) -> List[str]:
         """
-        Extrahuje URL fotek z detail API response.
-        
-        SReality detail API může vracet fotky v různých formátech:
-        1. _embedded.images[] – preferované (nejlepší kvalita)
-        2. _links.images[] – fallback z list API
-        
-        Každý formát má svou strukturu.
+        Extrahuje URL fotek z detail API response (v1 API).
+
+        v1 API: advert_images je list objektů s polem 'url' (//domain/path).
+        Přidáme 'https:' prefix.
         """
         photos: List[str] = []
 
-        # Formát 1: Detail API s vnořenou _embedded.images strukturou
-        # Struktura: _embedded.images[x]._links.view.href (749x562, bez vodoznaku)
-        embedded = detail.get("_embedded") or {}
-        for img in embedded.get("images") or []:
-            img_links = img.get("_links") or {}
-            # Preferujeme 'view' (749×562, bez vodoznaku), pak 'self', pak 'gallery'
-            href = (
-                (img_links.get("view") or {}).get("href")
-                or (img_links.get("self") or {}).get("href")
-                or (img_links.get("gallery") or {}).get("href")
-            )
-            if href and "{width}" not in href:
-                photos.append(href)
-                if len(photos) >= 50:  # Limit 50 fotek
+        for img in detail.get("advert_images") or []:
+            if isinstance(img, dict):
+                url = img.get("url") or img.get("href", "")
+            elif isinstance(img, str):
+                url = img
+            else:
+                continue
+            if url:
+                if url.startswith("//"):
+                    url = "https:" + url
+                photos.append(url)
+                if len(photos) >= 50:
                     break
 
-        # Formát 2: Fallback na _links.images ze list API (přímé href)
-        # Struktura: _links.images[x].href
-        if not photos:
-            links = detail.get("_links") or {}
-            for img in links.get("images") or []:
-                href = img.get("href")
-                if href and "{width}" not in href:
-                    photos.append(href)
-                    if len(photos) >= 50:
-                        break
-
         return list(dict.fromkeys(photos))  # Deduplikace
-
-    def _extract_params(self, detail: Dict[str, Any]) -> Dict[str, str]:
-        params: Dict[str, str] = {}
-
-        for item in detail.get("items") or []:
-            name = item.get("name")
-            value = item.get("value")
-            if not name or value is None:
-                continue
-            normalized = self._normalize_param_name(str(name))
-            params[normalized] = str(value)
-
-        return params
 
     @staticmethod
     def _normalize_param_name(name: str) -> str:
