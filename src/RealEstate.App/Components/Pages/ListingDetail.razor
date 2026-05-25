@@ -54,7 +54,7 @@
             <!-- Photo Carousel -->
             @if (_listing.Photos.Any())
             {
-                <MudPaper Class="pa-4">
+                <SectionCard Title="Fotografie" Icon="@Icons.Material.Filled.PhotoLibrary" IconColor="Color.Info">
                     <MudCarousel TData="object" Style="height:400px;" ShowArrows="true" ShowBullets="true" EnableSwipeGesture="true" AutoCycle="false">
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {
@@ -71,7 +71,7 @@
                             </MudCarouselItem>
                         }
                     </MudCarousel>
-                </MudPaper>
+                </SectionCard>
             }
             else
             {
@@ -246,8 +246,7 @@
             }
 
             <!-- Details -->
-            <MudPaper Class="pa-4">
-                <MudText Typo="Typo.h6" Class="mb-3">Detaily</MudText>
+            <SectionCard Title="Detaily" Icon="@Icons.Material.Filled.Info">
                 <MudSimpleTable Striped="true" Dense="true">
                     <tbody>
                         <tr>
@@ -334,7 +333,7 @@
                         </tr>
                     </tbody>
                 </MudSimpleTable>
-            </MudPaper>
+            </SectionCard>
 
             <!-- Description -->
             <SectionCard Title="Popis" Icon="@Icons.Material.Filled.Description">
