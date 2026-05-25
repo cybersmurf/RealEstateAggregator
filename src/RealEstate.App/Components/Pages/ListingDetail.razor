@@ -452,49 +452,7 @@
             }
 
             <!-- Historie cen -->
-            @if (_priceHistory is not null && _priceHistory.Count > 0)
-            {
-                <MudPaper Class="pa-4">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
-                        <MudIcon Icon="@Icons.Material.Filled.ShowChart" Color="Color.Success" />
-                        <MudText Typo="Typo.h6">Historie cen</MudText>
-                        <MudChip T="string" Size="Size.Small"
-                                 Color="@GetPriceTrendColor()"
-                                 Icon="@GetPriceTrendIcon()">
-                            @GetPriceTrendLabel()
-                        </MudChip>
-                    </MudStack>
-                    <MudSimpleTable Dense="true" Hover="true" Striped="true">
-                        <thead>
-                            <tr>
-                                <th>Datum</th>
-                                <th style="text-align:right">Cena (Kč)</th>
-                                <th style="text-align:right">Změna</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @for (int i = _priceHistory.Count - 1; i >= 0; i--)
-                            {
-                                var entry = _priceHistory[i];
-                                var prev = i > 0 ? _priceHistory[i - 1] : null;
-                                decimal? diff = (entry.Price.HasValue && prev?.Price.HasValue == true)
-                                    ? entry.Price - prev.Price : null;
-                                string diffText = diff.HasValue
-                                    ? (diff.Value > 0 ? $"+{diff.Value:N0}" : $"{diff.Value:N0}")
-                                    : "—";
-                                string diffColor = diff.HasValue
-                                    ? (diff.Value < 0 ? "color:var(--mud-palette-success)" : diff.Value > 0 ? "color:var(--mud-palette-error)" : "")
-                                    : "";
-                                <tr>
-                                    <td>@entry.RecordedAt.ToLocalTime().ToString("d. M. yyyy")</td>
-                                    <td style="text-align:right;font-weight:600">@(entry.Price?.ToString("N0") ?? "—")</td>
-                                    <td style="text-align:right;@diffColor">@diffText</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </MudSimpleTable>
-                </MudPaper>
-            }
+            <PriceHistorySection History="@_priceHistory" />
 
             <!-- Katastr nemovitosti -->
             <MudPaper Class="pa-4">
@@ -1388,45 +1346,6 @@
 
     // ── Historie cen ──────────────────────────────────────────────────────
     private List<PriceHistoryDto>? _priceHistory;
-
-    private Color GetPriceTrendColor()
-    {
-        if (_priceHistory is null || _priceHistory.Count < 2) return Color.Default;
-        var first = _priceHistory[0].Price;
-        var last  = _priceHistory[^1].Price;
-        if (first is null || last is null) return Color.Default;
-        return last < first ? Color.Success : last > first ? Color.Error : Color.Default;
-    }
-
-    private string GetPriceTrendIcon()
-    {
-        if (_priceHistory is null || _priceHistory.Count < 2) return Icons.Material.Filled.TrendingFlat;
-        var first = _priceHistory[0].Price;
-        var last  = _priceHistory[^1].Price;
-        if (first is null || last is null) return Icons.Material.Filled.TrendingFlat;
-        return last < first ? Icons.Material.Filled.TrendingDown
-             : last > first ? Icons.Material.Filled.TrendingUp
-             : Icons.Material.Filled.TrendingFlat;
-    }
-
-    private string GetPriceTrendLabel()
-    {
-        if (_priceHistory is null || _priceHistory.Count < 2) return "stabilní";
-        var first = _priceHistory[0].Price;
-        var last  = _priceHistory[^1].Price;
-        if (first is null || last is null) return "—";
-        if (last < first)
-        {
-            var drop = first.Value - last.Value;
-            return $"Pokles o {drop:N0} Kč";
-        }
-        if (last > first)
-        {
-            var rise = last.Value - first.Value;
-            return $"Nárůst o {rise:N0} Kč";
-        }
-        return "Stabilní cena";
-    }
 
     // Computed – nelze @{var=} uvnitř @if v Razor, proto computed properties v @code
     private int PhotoClassifiedCount      => _listing?.Photos.Count(p => p.IsClassified) ?? 0;

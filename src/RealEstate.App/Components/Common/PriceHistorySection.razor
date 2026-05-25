@@ -1,0 +1,104 @@
+@using RealEstate.Api.Contracts.Listings
+@using MudBlazor
+
+@*
+    PriceHistorySection – zobrazuje tabulku historie cen + trend chip.
+    Extrahováno z ListingDetail.razor (Fáze 3b).
+*@
+
+@if (History is { Count: > 0 })
+{
+    <SectionCard Title="Historie cen"
+                 Icon="@Icons.Material.Filled.ShowChart"
+                 IconColor="Color.Success"
+                 Class="mb-3">
+        <HeaderActions>
+            <MudChip T="string" Size="Size.Small"
+                     Color="@TrendColor"
+                     Icon="@TrendIcon">
+                @TrendLabel
+            </MudChip>
+        </HeaderActions>
+        <ChildContent>
+            <MudSimpleTable Dense="true" Hover="true" Striped="true">
+                <thead>
+                    <tr>
+                        <th>Datum</th>
+                        <th style="text-align:right">Cena (Kč)</th>
+                        <th style="text-align:right">Změna</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int i = History!.Count - 1; i >= 0; i--)
+                    {
+                        var entry = History[i];
+                        var prev = i > 0 ? History[i - 1] : null;
+                        decimal? diff = (entry.Price.HasValue && prev?.Price.HasValue == true)
+                            ? entry.Price - prev.Price : null;
+                        string diffText = diff.HasValue
+                            ? (diff.Value > 0 ? $"+{diff.Value:N0}" : $"{diff.Value:N0}")
+                            : "—";
+                        string diffColor = diff.HasValue
+                            ? (diff.Value < 0 ? "color:var(--mud-palette-success)"
+                               : diff.Value > 0 ? "color:var(--mud-palette-error)" : "")
+                            : "";
+                        <tr>
+                            <td>@entry.RecordedAt.ToLocalTime().ToString("d. M. yyyy")</td>
+                            <td style="text-align:right;font-weight:600">@(entry.Price?.ToString("N0") ?? "—")</td>
+                            <td style="text-align:right;@diffColor">@diffText</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </ChildContent>
+    </SectionCard>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PriceHistoryDto>? History { get; set; }
+
+    private Color TrendColor => ComputeTrend() switch
+    {
+        > 0 => Color.Error,
+        < 0 => Color.Success,
+        _   => Color.Default
+    };
+
+    private string TrendIcon => ComputeTrend() switch
+    {
+        > 0 => Icons.Material.Filled.TrendingUp,
+        < 0 => Icons.Material.Filled.TrendingDown,
+        _   => Icons.Material.Filled.TrendingFlat
+    };
+
+    private string TrendLabel
+    {
+        get
+        {
+            var t = ComputeTrend();
+            if (t == 0) return "Beze změny";
+            var pct = ComputeTrendPercent();
+            var sign = t > 0 ? "+" : "";
+            return $"{sign}{pct:F1} %";
+        }
+    }
+
+    private decimal ComputeTrend()
+    {
+        if (History is null || History.Count < 2) return 0;
+        var first = History[0].Price;
+        var last  = History[^1].Price;
+        if (first is null || last is null) return 0;
+        return last.Value - first.Value;
+    }
+
+    private decimal ComputeTrendPercent()
+    {
+        if (History is null || History.Count < 2) return 0;
+        var first = History[0].Price;
+        var last  = History[^1].Price;
+        if (first is null || last is null || first == 0) return 0;
+        return (last.Value - first.Value) / first.Value * 100m;
+    }
+}
