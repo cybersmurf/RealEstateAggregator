@@ -88,6 +88,14 @@
 }
 
 /* ===== Listing card "seen" indikátor ===================================== */
+.listing-card {
+  position: relative;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.listing-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--re-shadow-md);
+}
 .listing-card[data-seen="true"] {
   opacity: 0.75;
 }
@@ -107,6 +115,10 @@
   font-size: 14px;
   z-index: 2;
 }
+.listing-card[data-status="liked"]    { border-left: 4px solid var(--re-status-liked); }
+.listing-card[data-status="tovisit"]  { border-left: 4px solid var(--re-status-tovisit); }
+.listing-card[data-status="visited"]  { border-left: 4px solid var(--re-status-visited); }
+.listing-card[data-status="disliked"] { border-left: 4px solid var(--re-status-disliked); }
 
 /* ===== Focus ring (a11y, WCAG 2.4.7) ====================================== */
 button:focus-visible,

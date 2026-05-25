@@ -307,6 +307,9 @@
             {
                 <MudItem xs="12" sm="6" md="4" lg="3">
                     <MudCard @onclick="@(async () => await NavigateToDetailAsync(item.Id))"  
+                             Class="listing-card"
+                             data-seen="@((item.UserStatus == "Visited").ToString().ToLowerInvariant())"
+                             data-status="@(item.UserStatus?.ToLowerInvariant() ?? "new")"
                              Style="cursor:pointer; height:100%;"
                              Elevation="2">
                         @if (!string.IsNullOrWhiteSpace(item.ThumbnailUrl))
