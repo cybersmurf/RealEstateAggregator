@@ -112,7 +112,12 @@ class DeluxRealityScraper:
             page = 1
             while page <= 10:  # safety cap
                 url = f"{filter_url}&paged={page}" if page > 1 else filter_url
-                html = await self._fetch(client, url)
+                try:
+                    html = await self._fetch(client, url)
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 404:
+                        break  # no more pages
+                    raise
                 soup = BeautifulSoup(html, "html.parser")
 
                 new_urls = []
