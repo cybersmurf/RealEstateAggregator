@@ -18,7 +18,8 @@ public record PhotoDownloadResultDto(
     int Succeeded,
     int Failed,
     int RemainingWithoutStored,
-    double AvgMsPerPhoto);
+    double AvgMsPerPhoto,
+    int Purged = 0);
 
 public record PhotoDownloadStatsDto(
     int Total,

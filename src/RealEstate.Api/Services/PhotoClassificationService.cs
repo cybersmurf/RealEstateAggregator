@@ -149,7 +149,19 @@ public sealed class PhotoClassificationService(
                     dlClient.Timeout = TimeSpan.FromSeconds(30);
                     try
                     {
-                        imageBytes = await dlClient.GetByteArrayAsync(photo.OriginalUrl, ct);
+                        using var dlResponse = await dlClient.GetAsync(photo.OriginalUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+                        if (dlResponse.StatusCode is System.Net.HttpStatusCode.NotFound
+                                                  or System.Net.HttpStatusCode.Gone)
+                        {
+                            logger.LogInformation(
+                                "Deleting dead photo record {Order} for listing {ListingId} (classification, HTTP {Status})",
+                                photo.Order, photo.ListingId, (int)dlResponse.StatusCode);
+                            db.ListingPhotos.Remove(photo);
+                            await db.SaveChangesAsync(ct);
+                            failed++;
+                            continue;
+                        }
+                        imageBytes = await dlResponse.Content.ReadAsByteArrayAsync(ct);
                     }
                     catch (Exception ex)
                     {

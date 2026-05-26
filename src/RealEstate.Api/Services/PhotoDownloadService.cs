@@ -53,7 +53,7 @@ public sealed class PhotoDownloadService(
             return new PhotoDownloadResultDto(0, 0, 0, remaining0, 0);
         }
 
-        int succeeded = 0, failed = 0;
+        int succeeded = 0, failed = 0, purged = 0;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         using var httpClient = httpClientFactory.CreateClient("PhotoDownload");
@@ -76,6 +76,19 @@ public sealed class PhotoDownloadService(
                     logger.LogWarning(
                         "Photo download HTTP {Status} for listing {ListingId} photo {Order}: {Url}",
                         (int)response.StatusCode, photo.ListingId, photo.Order, photo.OriginalUrl);
+
+                    // Permanentní chyba (404 Not Found, 410 Gone) → foto záznam je mrtvý, smaž ho.
+                    // Dočasné chyby (5xx, 429, 403) → ponech záznam, zkusíme příště.
+                    if (response.StatusCode is System.Net.HttpStatusCode.NotFound
+                                             or System.Net.HttpStatusCode.Gone)
+                    {
+                        db.ListingPhotos.Remove(photo);
+                        logger.LogInformation(
+                            "Deleted dead photo record {Order} for listing {ListingId} (HTTP {Status})",
+                            photo.Order, photo.ListingId, (int)response.StatusCode);
+                        purged++;
+                    }
+
                     failed++;
                     continue;
                 }
@@ -115,7 +128,7 @@ public sealed class PhotoDownloadService(
         }
 
         // ── Save all updates in one shot ────────────────────────────────────
-        if (succeeded > 0)
+        if (succeeded > 0 || purged > 0)
             await db.SaveChangesAsync(ct);
 
         stopwatch.Stop();
@@ -124,10 +137,10 @@ public sealed class PhotoDownloadService(
         var remaining = await query.CountAsync(ct);
 
         logger.LogInformation(
-            "Photo batch: {Processed} processed, {Succeeded} succeeded, {Failed} failed. Remaining: {Remaining}",
-            photos.Count, succeeded, failed, remaining);
+            "Photo batch: {Processed} processed, {Succeeded} succeeded, {Failed} failed, {Purged} purged. Remaining: {Remaining}",
+            photos.Count, succeeded, failed, purged, remaining);
 
-        return new PhotoDownloadResultDto(photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0));
+        return new PhotoDownloadResultDto(photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0), purged);
     }
 
     public async Task<PhotoDownloadStatsDto> GetStatsAsync(CancellationToken ct)
