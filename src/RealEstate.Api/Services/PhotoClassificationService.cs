@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Infrastructure;
+using RealEstate.Infrastructure.Storage;
 
 namespace RealEstate.Api.Services;
 
@@ -15,6 +16,7 @@ namespace RealEstate.Api.Services;
 public sealed class PhotoClassificationService(
     RealEstateDbContext db,
     IWebHostEnvironment env,
+    IStorageService storageService,
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
     ILogger<PhotoClassificationService> logger) : IPhotoClassificationService
@@ -145,6 +147,8 @@ public sealed class PhotoClassificationService(
                 }
                 else if (photo.OriginalUrl != null)
                 {
+                    // Fotka ještě není stažená lokálně → stáhneme ji a uložíme.
+                    // Po úspěšném uložení nastavíme StoredUrl a příště se čte z disku.
                     using var dlClient = httpClientFactory.CreateClient();
                     dlClient.Timeout = TimeSpan.FromSeconds(30);
                     try
@@ -161,12 +165,36 @@ public sealed class PhotoClassificationService(
                             failed++;
                             continue;
                         }
-                        imageBytes = await dlResponse.Content.ReadAsByteArrayAsync(ct);
+
+                        var contentType = dlResponse.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                        var ext = contentType switch
+                        {
+                            "image/png"  => ".png",
+                            "image/webp" => ".webp",
+                            "image/gif"  => ".gif",
+                            _            => ".jpg",
+                        };
+
+                        // Uložíme přes IStorageService a nastavíme StoredUrl
+                        await using var downloadStream = await dlResponse.Content.ReadAsStreamAsync(ct);
+                        var folder = $"listings/{photo.ListingId}/photos";
+                        var fileName = $"{photo.Order}{ext}";
+                        var relativePath = await storageService.UploadFileAsync(downloadStream, fileName, folder, ct);
+                        photo.StoredUrl = $"/{relativePath.TrimStart('/')}";
+                        await db.SaveChangesAsync(ct);
+
+                        logger.LogDebug(
+                            "Classification: stored photo {Order} for listing {ListingId} → {Url}",
+                            photo.Order, photo.ListingId, photo.StoredUrl);
+
+                        // Načteme z disku pro klasifikaci
+                        var localPath = ResolveLocalPath(photo.StoredUrl);
+                        imageBytes = await File.ReadAllBytesAsync(localPath, ct);
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(
-                            "Failed to fetch original_url for listing {ListingId} photo {Order}: {Ex}",
+                            "Failed to fetch/store original_url for listing {ListingId} photo {Order}: {Ex}",
                             photo.ListingId, photo.Order, ex.Message);
                         failed++;
                         continue;
@@ -668,7 +696,31 @@ public sealed class PhotoClassificationService(
                 {
                     using var dlClient = httpClientFactory.CreateClient();
                     dlClient.Timeout = TimeSpan.FromSeconds(30);
-                    try { imageBytes = await dlClient.GetByteArrayAsync(photo.OriginalUrl, ct); }
+                    try
+                    {
+                        using var dlResponse = await dlClient.GetAsync(photo.OriginalUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+                        if (dlResponse.StatusCode is System.Net.HttpStatusCode.NotFound
+                                                  or System.Net.HttpStatusCode.Gone)
+                        {
+                            logger.LogInformation(
+                                "Deleting dead photo record {Order} for listing {ListingId} (alt-text, HTTP {Status})",
+                                photo.Order, photo.ListingId, (int)dlResponse.StatusCode);
+                            db.ListingPhotos.Remove(photo);
+                            await db.SaveChangesAsync(ct);
+                            failed++;
+                            continue;
+                        }
+
+                        var ct2 = dlResponse.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                        var ext2 = ct2 switch { "image/png" => ".png", "image/webp" => ".webp", _ => ".jpg" };
+                        await using var dlStream = await dlResponse.Content.ReadAsStreamAsync(ct);
+                        var rel = await storageService.UploadFileAsync(dlStream, $"{photo.Order}{ext2}", $"listings/{photo.ListingId}/photos", ct);
+                        photo.StoredUrl = $"/{rel.TrimStart('/')}";
+                        await db.SaveChangesAsync(ct);
+
+                        var lp = ResolveLocalPath(photo.StoredUrl);
+                        imageBytes = await File.ReadAllBytesAsync(lp, ct);
+                    }
                     catch { failed++; continue; }
                 }
                 else { failed++; continue; }
