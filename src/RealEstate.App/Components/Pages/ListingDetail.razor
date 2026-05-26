@@ -81,7 +81,7 @@
                     <MudCarousel TData="object" Style="height:400px;" ShowArrows="true" ShowBullets="true" EnableSwipeGesture="true" AutoCycle="false">
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {
-                            var photoSrc = PhotosBase.Resolve(photo.StoredUrl, photo.OriginalUrl);
+                            var photoSrc = PhotosBase.Resolve(photo.StoredUrl, photo.OriginalUrl, Navigation.BaseUri);
                             <MudCarouselItem>
                                 <div class="d-flex justify-center align-center" style="height:100%">
                                     <img src="@photoSrc" alt="Foto"
@@ -157,7 +157,7 @@
                         @{ int _photoIdx = 0; }
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {
-                            var pSrc = PhotosBase.Resolve(photo.StoredUrl, photo.OriginalUrl);
+                            var pSrc = PhotosBase.Resolve(photo.StoredUrl, photo.OriginalUrl, Navigation.BaseUri);
                             var fb   = _photoFeedbacks.GetValueOrDefault(photo.Id);
                             var borderStyle = photo.DamageDetected
                                 ? "border: 2px solid var(--mud-palette-error);"
@@ -1169,7 +1169,7 @@
 {
     var _lbPhotos = _listing.Photos.OrderBy(p => p.Order).ToList();
     var _lbPhoto  = _lbPhotos[Math.Clamp(_lbIdx, 0, _lbPhotos.Count - 1)];
-    var _lbSrc    = PhotosBase.Resolve(_lbPhoto.StoredUrl, _lbPhoto.OriginalUrl);
+    var _lbSrc    = PhotosBase.Resolve(_lbPhoto.StoredUrl, _lbPhoto.OriginalUrl, Navigation.BaseUri);
     var _lbTotal  = _lbPhotos.Count;
     <div style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.93);display:flex;align-items:center;justify-content:center;"
          @onclick="LightboxClose"

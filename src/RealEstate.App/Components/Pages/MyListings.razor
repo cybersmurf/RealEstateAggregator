@@ -135,7 +135,7 @@
                                          Elevation="1">
                                     @if (!string.IsNullOrWhiteSpace(item.ThumbnailUrl))
                                     {
-                                        <MudCardMedia Image="@PhotosBase.Resolve(item.ThumbnailUrl)" Height="160" />
+                                        <MudCardMedia Image="@PhotosBase.Resolve(item.ThumbnailUrl, null, Navigation.BaseUri)" Height="160" />
                                     }
                                     else
                                     {

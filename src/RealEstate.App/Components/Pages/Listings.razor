@@ -8,7 +8,6 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 @inject ProtectedLocalStorage LocalStorage
-@inject IConfiguration Configuration
 @inject SourceLogoProvider Logos
 
 <MudStack Spacing="3" Class="pa-4">
@@ -911,7 +910,6 @@
 
     private string BuildCsvExportUrl()
     {
-        var baseUrl = (Configuration["ApiPublicUrl"] ?? Http.BaseAddress?.ToString() ?? "http://localhost:5001").TrimEnd('/');
         var parts = new List<string>();
         if (!string.IsNullOrEmpty(_filter.SearchText))      parts.Add($"searchText={Uri.EscapeDataString(_filter.SearchText)}");
         if (!string.IsNullOrEmpty(_filter.PropertyType))    parts.Add($"propertyType={Uri.EscapeDataString(_filter.PropertyType)}");
@@ -930,7 +928,7 @@
         if (_filter.SortDescending)                         parts.Add("sortDescending=true");
 
         var qs = parts.Count > 0 ? "?" + string.Join("&", parts) : "";
-        return $"{baseUrl}/api/listings/export.csv{qs}";
+        return $"/api/listings/export.csv{qs}";
     }
 
     private async Task OnTableRowClicked(TableRowClickEventArgs<ListingSummaryDto> args)

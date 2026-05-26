@@ -56,24 +56,57 @@ app.MapRazorComponents<App>()
 
 app.Run();
 
-/// <summary>Veřejná base URL API pro sestavení absolutních URL fotek v prohlížeči.</summary>
+/// <summary>Veřejná base URL API pro sestavení URL fotek v prohlížeči.</summary>
 public sealed record PhotosBaseUrl(string Value)
 {
-    /// <summary>Převede stored_url (relativní /uploads/... nebo absolutní http://...) na plnou URL.</summary>
-    public string Resolve(string? storedUrl, string? fallbackOriginalUrl = null)
+    /// <summary>
+    /// Převede stored_url (relativní /uploads/... nebo absolutní http://...) na použitelnou URL.
+    /// Pokud je konfigurace ApiPublicUrl omylem localhost, použije se browser origin.
+    /// </summary>
+    public string Resolve(string? storedUrl, string? fallbackOriginalUrl = null, string? browserBaseUrl = null)
     {
         if (string.IsNullOrWhiteSpace(storedUrl))
             return fallbackOriginalUrl ?? string.Empty;
-        // Relativní cesta → prefix veřejnou URL API
+
+        var effectiveBase = GetEffectiveBaseUrl(browserBaseUrl);
+
+        // Relativní cesta /uploads/... -> absolutní URL přes bezpečnou base
         if (storedUrl.StartsWith('/'))
-            return Value.TrimEnd('/') + storedUrl;
-        // Absolutní URL (legacy záznamy s localhost:5001) → přepíš base
-        if (storedUrl.StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase) ||
-            storedUrl.StartsWith("http://127.0.0.1", StringComparison.OrdinalIgnoreCase))
+            return effectiveBase is null ? storedUrl : effectiveBase.TrimEnd('/') + storedUrl;
+
+        // Legacy absolutní localhost URL -> přepiš na bezpečnou base
+        if (Uri.TryCreate(storedUrl, UriKind.Absolute, out var storedUri) && IsLocalHost(storedUri.Host))
         {
-            var path = new Uri(storedUrl).PathAndQuery;
-            return Value.TrimEnd('/') + path;
+            return effectiveBase is null ? storedUrl : effectiveBase.TrimEnd('/') + storedUri.PathAndQuery;
         }
+
         return storedUrl;
     }
+
+    private string? GetEffectiveBaseUrl(string? browserBaseUrl)
+    {
+        var configured = Value?.Trim();
+        if (Uri.TryCreate(configured, UriKind.Absolute, out var configuredUri))
+        {
+            // Pokud konfigurace ukazuje na localhost, v produkčním browseru použij aktuální origin.
+            if (IsLocalHost(configuredUri.Host) &&
+                Uri.TryCreate(browserBaseUrl, UriKind.Absolute, out var browserUri) &&
+                !IsLocalHost(browserUri.Host))
+            {
+                return browserUri.GetLeftPart(UriPartial.Authority);
+            }
+
+            return configuredUri.GetLeftPart(UriPartial.Authority);
+        }
+
+        if (Uri.TryCreate(browserBaseUrl, UriKind.Absolute, out var fallbackBrowserUri))
+            return fallbackBrowserUri.GetLeftPart(UriPartial.Authority);
+
+        return null;
+    }
+
+    private static bool IsLocalHost(string host) =>
+        host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+        || host.Equals("::1", StringComparison.OrdinalIgnoreCase);
 }

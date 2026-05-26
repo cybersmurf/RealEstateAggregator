@@ -116,7 +116,7 @@
                                 @{ var _drPhoto = card.Listing.Photos.FirstOrDefault(); }
                                 @if (_drPhoto is not null)
                                 {
-                                    var _drSrc = PhotosBase.Resolve(_drPhoto.StoredUrl, _drPhoto.OriginalUrl);
+                                    var _drSrc = PhotosBase.Resolve(_drPhoto.StoredUrl, _drPhoto.OriginalUrl, Navigation.BaseUri);
                                     @if (!string.IsNullOrWhiteSpace(_drSrc))
                                     {
                                     <div style="flex:0 0 220px; min-width:160px; max-width:220px; overflow:hidden; cursor:pointer;"
