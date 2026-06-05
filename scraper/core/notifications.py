@@ -39,7 +39,7 @@ async def _send(payload: dict[str, Any]) -> bool:
             resp.raise_for_status()
         return True
     except Exception as exc:
-        logger.warning(f"Slack notifikace selhala: {exc}")
+        logger.warning("Slack notifikace selhala: %r", exc)
         return False
 
 

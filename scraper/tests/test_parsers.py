@@ -22,28 +22,45 @@ from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper as Znojmore
 # ProdejmetoScraper – nový Next.js scraper (Server Action API)
 # ---------------------------------------------------------------------------
 
-SAMPLE_RSC_RESPONSE = (
-    '0:{"a":"$@1","f":"","b":"test"}\n'
-    '2:Ta,Popis bytu\n'
-    '3:T17,Popis pozemku na prodej\n'
-    '1:[{"id":"uuid-1","listingType":"SALE","status":"ACTIVE","slug":"prodej-bytu","title":"Byt 2+kk","description":"$2","price":3500000,"area":55,"landArea":0,"localityCity":"Znojmo","localityRegion":"Jihomoravsk\u00fd kraj","images":["https://example.com/photo1.jpg"],"sourcePayload":{"estate":{"advert_type":1}}},'
-    '{"id":"uuid-2","listingType":"RENT","status":"ACTIVE","slug":"pronajem-domu","title":"Pron\u00e1jem domu","description":"$3","price":15000,"area":120,"landArea":300,"localityCity":"Brno","localityRegion":"Jihomoravsk\u00fd kraj","images":[],"sourcePayload":{"estate":{"advert_type":2}}},'
-    '{"id":"uuid-3","listingType":"SALE","status":"SOLD","slug":"prodany-byt","title":"Prodan\u00fd byt","description":"","price":2000000,"area":40,"landArea":0,"localityCity":"Praha","localityRegion":"Hlavn\u00ed m\u011bsto Praha","images":[],"sourcePayload":{}}]'
-).encode("utf-8")
-
-
 class TestProdejmetoRscParsing:
-    """Tests for _parse_rsc_response: extract listings from RSC stream."""
+    """Tests for _parse_rsc_html: extract listings from embedded RSC payload."""
 
     def setup_method(self):
-        self.scraper = ProdejmetoScraper.__new__(ProdejmetoScraper)
+        self.scraper = ProdejmetoScraper()
+
+    @staticmethod
+    def _make_rsc_html(listings: list[dict[str, Any]]) -> str:
+        payload = json.dumps({"initialProperties": listings}, ensure_ascii=False)[1:-1]
+        escaped = payload.replace("\\", "\\\\").replace('"', '\\"')
+        return f'<script>self.__next_f.push([1,"{escaped}"])</script>'
 
     def test_vraci_vsechny_zaznamy(self):
-        listings = self.scraper._parse_rsc_response(SAMPLE_RSC_RESPONSE)
+        listings_data = [
+            {"id": "uuid-1", "listingType": "SALE", "status": "ACTIVE", "slug": "prodej-bytu",
+             "title": "Byt 2+kk", "description": "Popis bytu", "price": 3500000, "area": 55,
+             "landArea": 0, "localityCity": "Znojmo", "localityRegion": "Jihomoravský kraj",
+             "images": ["https://example.com/photo1.jpg"], "sourcePayload": {"estate": {"advert_type": 1}}},
+            {"id": "uuid-2", "listingType": "RENT", "status": "ACTIVE", "slug": "pronajem-domu",
+             "title": "Pronájem domu", "description": "Popis domu", "price": 15000, "area": 120,
+             "landArea": 300, "localityCity": "Brno", "localityRegion": "Jihomoravský kraj",
+             "images": [], "sourcePayload": {"estate": {"advert_type": 2}}},
+            {"id": "uuid-3", "listingType": "SALE", "status": "SOLD", "slug": "prodany-byt",
+             "title": "Prodaný byt", "description": "", "price": 2000000, "area": 40,
+             "landArea": 0, "localityCity": "Praha", "localityRegion": "Hlavní město Praha",
+             "images": [], "sourcePayload": {}},
+        ]
+        html = self._make_rsc_html(listings_data)
+        listings = self.scraper._parse_rsc_html(html)
         assert len(listings) == 3
 
     def test_prvni_zaznam_ma_spravna_data(self):
-        listings = self.scraper._parse_rsc_response(SAMPLE_RSC_RESPONSE)
+        html = self._make_rsc_html([
+            {"id": "uuid-1", "listingType": "SALE", "status": "ACTIVE", "slug": "prodej-bytu",
+             "title": "Byt 2+kk", "description": "Popis", "price": 3500000, "area": 55,
+             "landArea": 0, "localityCity": "Znojmo", "localityRegion": "Jihomoravský kraj",
+             "images": [], "sourcePayload": {"estate": {"advert_type": 1}}},
+        ])
+        listings = self.scraper._parse_rsc_html(html)
         first = listings[0]
         assert first["id"] == "uuid-1"
         assert first["title"] == "Byt 2+kk"
@@ -51,16 +68,29 @@ class TestProdejmetoRscParsing:
         assert first["localityCity"] == "Znojmo"
 
     def test_popis_referenci_je_resolved(self):
-        listings = self.scraper._parse_rsc_response(SAMPLE_RSC_RESPONSE)
+        html = (
+            '<script>self.__next_f.push([1,"2:Ta,Popis bytu\\n'
+            '\\"initialProperties\\":[{\\"id\\":\\"uuid-1\\",\\"listingType\\":\\"SALE\\",'
+            '\\"status\\":\\"ACTIVE\\",\\"slug\\":\\"prodej-bytu\\",\\"title\\":\\"Byt\\",'
+            '\\"description\\":\\"$2\\",\\"price\\":1,\\"area\\":1,\\"landArea\\":0,'
+            '\\"localityCity\\":\\"Znojmo\\",\\"localityRegion\\":\\"\\",\\"images\\":[],'
+            '\\"sourcePayload\\":{}}]"])</script>'
+        )
+        listings = self.scraper._parse_rsc_html(html)
         assert listings[0]["description"] == "Popis bytu"
-        assert listings[1]["description"] == "Popis pozemku na prodej"
 
     def test_prazdna_data_vraci_prazdny_seznam(self):
-        listings = self.scraper._parse_rsc_response(b"0:{}\n")
+        listings = self.scraper._parse_rsc_html("<html>no rsc here</html>")
         assert listings == []
 
     def test_images_v_prvnim_zaznamu(self):
-        listings = self.scraper._parse_rsc_response(SAMPLE_RSC_RESPONSE)
+        html = self._make_rsc_html([
+            {"id": "uuid-1", "listingType": "SALE", "status": "ACTIVE", "slug": "x",
+             "title": "T", "description": "D", "price": 1, "area": 1, "landArea": 0,
+             "localityCity": "Z", "localityRegion": "", "images": ["https://example.com/photo1.jpg"],
+             "sourcePayload": {}},
+        ])
+        listings = self.scraper._parse_rsc_html(html)
         assert listings[0]["images"] == ["https://example.com/photo1.jpg"]
 
 
@@ -92,6 +122,40 @@ class TestProdejmetoMapListing:
     def test_sold_status_vraci_none(self):
         raw = self._make_raw(status="SOLD")
         assert self.scraper._map_listing(raw) is None
+
+    def test_reserved_status_vraci_none(self):
+        raw = self._make_raw(status="RESERVED")
+        assert self.scraper._map_listing(raw) is None
+
+    def test_parse_rsc_html_extracts_initial_properties(self):
+        html = TestProdejmetoRscParsing._make_rsc_html([
+            {
+                "id": "abc694fc-ae71-48b7-b07b-3b9f4c0aa569",
+                "listingType": "SALE",
+                "status": "ACTIVE",
+                "slug": "prodej-bytu",
+                "title": "Byt 2+kk",
+                "description": "Popis",
+                "price": 3500000,
+                "area": 55,
+                "landArea": 0,
+                "localityCity": "Znojmo",
+                "localityRegion": "Jihomoravský kraj",
+                "images": [],
+                "sourcePayload": {"estate": {"advert_type": 1}},
+            }
+        ])
+        listings = self.scraper._parse_rsc_html(html)
+        assert len(listings) == 1
+        assert listings[0]["slug"] == "prodej-bytu"
+
+    def test_property_type_z_property_type_label(self):
+        raw = self._make_raw(
+            sourcePayload={},
+            propertyType="Rodinný | Samostatný | Patrový",
+        )
+        result = self.scraper._map_listing(raw)
+        assert result["property_type"] == "Dům"
 
     def test_aktivni_listing_ma_spravne_source_code(self):
         result = self.scraper._map_listing(self._make_raw())

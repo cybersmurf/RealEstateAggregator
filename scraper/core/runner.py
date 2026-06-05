@@ -6,7 +6,7 @@ import asyncio
 import logging
 import yaml
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Awaitable
 from uuid import UUID
 from datetime import datetime
 
@@ -15,6 +15,9 @@ from core.database import get_db_manager
 from core import notifications
 
 logger = logging.getLogger(__name__)
+
+# Max runtime per scraper task – prevents one hung source from blocking the whole job.
+SCRAPER_TASK_TIMEOUT_SECONDS = 45 * 60
 
 
 def _load_scraper_config() -> Dict[str, Any]:
@@ -218,12 +221,25 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         # Čas před spuštěním scrapingu – slouží pro deaktivaci neviděných inzerátů
         scrape_started_at = datetime.utcnow()
 
-        # Spusť všechny scrapers paralelně
+        # Spusť všechny scrapers paralelně (každý s timeoutem)
         if tasks:
             source_names = [name for name, _ in tasks]
-            coroutines = [coro for _, coro in tasks]
-            
-            # asyncio.gather spistí všechny tasks paralelně
+
+            async def _run_with_timeout(name: str, coro: Awaitable[int]) -> int:
+                try:
+                    return await asyncio.wait_for(coro, timeout=SCRAPER_TASK_TIMEOUT_SECONDS)
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "Job %s: %s scraper timed out after %ss",
+                        job_id,
+                        name,
+                        SCRAPER_TASK_TIMEOUT_SECONDS,
+                    )
+                    raise
+
+            coroutines = [_run_with_timeout(name, coro) for name, coro in tasks]
+
+            # asyncio.gather spustí všechny tasks paralelně; chyba jednoho nezastaví ostatní
             results = await asyncio.gather(*coroutines, return_exceptions=True)
             
             total_scraped = 0

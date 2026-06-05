@@ -26,6 +26,19 @@ Server's `docker-compose.yml` has LOCAL (uncommitted) changes:
 
 **Always use `git stash && git pull && git stash pop`** – never `git pull` alone.
 
+## ⚠️ Docker outbound network (UFW / DOCKER-USER)
+
+If scrapers fail with `ConnectTimeout` from inside containers but `curl` from the host works,
+install the persistent systemd unit (survives reboot):
+
+```bash
+ssh petrsramek@192.168.11.2 'cd /srv/realestate && bash scripts/fix-docker-network.sh'
+```
+
+This updates `/etc/systemd/system/docker-iptables.service` to whitelist bridge subnets
+`172.18–172.20` (realestate compose network) and disables the broken legacy
+`docker-iptables-fix.service`.
+
 ## Deployment Steps
 
 ### Step 1: Commit & push locally

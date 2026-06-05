@@ -10,6 +10,7 @@ import yaml
 from pathlib import Path
 import os
 import logging
+import asyncio
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -35,23 +36,34 @@ def get_scheduler() -> AsyncIOScheduler:
 
 async def _scheduled_scrape_all(full_rescan: bool = False) -> None:
     """Naplánovaný scraping všech aktivních zdrojů."""
-    db_manager = get_db_manager()
+    try:
+        db_manager = get_db_manager()
 
-    async with db_manager.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT code FROM re_realestate.sources WHERE is_active = true ORDER BY code"
+        async with db_manager.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT code FROM re_realestate.sources WHERE is_active = true ORDER BY code"
+            )
+        source_codes = [r["code"] for r in rows]
+
+        if not source_codes:
+            logger.warning("[Scheduler] Žádné aktivní zdroje k scrapování")
+            return
+
+        job_id = uuid4()
+        request = ScrapeTriggerRequest(source_codes=source_codes, full_rescan=full_rescan)
+        await db_manager.create_scrape_job(job_id=job_id, source_codes=source_codes, full_rescan=full_rescan)
+        logger.info(
+            "[Scheduler] Spouštím naplánovaný scraping: %s zdrojů, job_id=%s, full_rescan=%s",
+            len(source_codes),
+            job_id,
+            full_rescan,
         )
-    source_codes = [r["code"] for r in rows]
-
-    if not source_codes:
-        logger.warning("[Scheduler] Žádné aktivní zdroje k scrapování")
-        return
-
-    job_id = uuid4()
-    request = ScrapeTriggerRequest(source_codes=source_codes, full_rescan=full_rescan)
-    await db_manager.create_scrape_job(job_id=job_id, source_codes=source_codes, full_rescan=full_rescan)
-    logger.info(f"[Scheduler] Spouštím naplánovaný scraping: {len(source_codes)} zdrojů, job_id={job_id}, full_rescan={full_rescan}")
-    await run_scrape_job(job_id, request)
+        await run_scrape_job(job_id, request)
+    except asyncio.CancelledError:
+        logger.warning("[Scheduler] Scraping job cancelled (app shutdown?)")
+        raise
+    except Exception as exc:
+        logger.exception("[Scheduler] Scraping job failed: %r", exc)
 
 
 @asynccontextmanager

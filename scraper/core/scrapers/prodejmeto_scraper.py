@@ -1,18 +1,13 @@
 """
-Prodejme.to scraper – Next.js rewrite (since ~2026-05).
+Prodejme.to scraper – Next.js RSC embedded data (since ~2026-06).
 
 Site characteristics:
-- Website migrated from PHP/AJAX to Next.js (React Server Components, Vercel).
-- All listings are returned in a single Next.js Server Action call.
-  POST /nemovitosti  with header  Next-Action: {action_id}
-  Body: [{}]  (empty args → return all listings)
-  Response: RSC stream format; the JSON array of listings is found by
-  locating the unique "1:[" marker in the stream.
-- Action ID is discovered dynamically from the JS chunk that references
-  createServerReference("ID", ..., "useProperties").
+- Listings are embedded in the initial HTML RSC payload under "initialProperties".
+- Parsing: extract self.__next_f.push([1,"..."]) chunks, unescape JS string,
+  JSON-decode the initialProperties array, resolve $N description references.
 - Detail URL: /nemovitosti/{slug}
-- Photos: Supabase CDN  https://hqrcqgyjunwvdafvzfbr.supabase.co/storage/...
-- No pagination needed – single call returns all ~239 listings.
+- Photos: Supabase CDN
+- No pagination – single GET returns all active listings.
 """
 import json
 import logging
@@ -28,11 +23,9 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.prodejme.to"
 LISTINGS_PAGE_URL = f"{BASE_URL}/nemovitosti"
-
-# Fallback action ID – updated automatically when _discover_action_id() runs.
-# Format: SHA256-like hex string produced by Next.js at build time.
-_KNOWN_ACTION_ID = "007dad02ed5484c9c6ac9d6c6e9be2fb1c70995253"
-_SERVER_ACTION_NAME = "useProperties"
+_RSC_PUSH_RE = re.compile(r'self\.__next_f\.push\(\[1,"((?:\\.|[^"])*)"\]\)')
+_RSC_TEXT_RE = re.compile(r"([0-9a-f]+):T([0-9a-f]+),")
+_PROPERTIES_MARKER = '"initialProperties":'
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -41,10 +34,9 @@ DEFAULT_HEADERS = {
         "Chrome/122.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
-    "Accept": "*/*",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# advert_type → property_type mapping (from prodejme.to's JS frontend)
 ADVERT_TYPE_MAP: Dict[int, str] = {
     1: "Byt",
     2: "Dům",
@@ -58,9 +50,12 @@ LISTING_TYPE_MAP: Dict[str, str] = {
     "RENT": "Pronájem",
 }
 
+# Skip non-active listings (SOLD/RESERVED still appear in initialProperties).
+_INACTIVE_STATUSES = frozenset({"SOLD", "RESERVED"})
+
 
 class ProdejmeToScraper:
-    """Scraper for Prodejme.to (Next.js site, Server Action API)."""
+    """Scraper for Prodejme.to (Next.js RSC embedded listings)."""
 
     SOURCE_CODE = "PRODEJMETO"
 
@@ -72,23 +67,23 @@ class ProdejmeToScraper:
         return await self.scrape()
 
     async def scrape(self) -> int:
-        logger.info("Starting Prodejme.to scraper (Next.js Server Action)")
+        logger.info("Starting Prodejme.to scraper (RSC embedded initialProperties)")
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
-                timeout=60,
+                timeout=90,
                 follow_redirects=True,
                 headers=DEFAULT_HEADERS,
             ) as client:
                 self._http_client = client
 
-                action_id = await self._discover_action_id()
-                logger.info("Using Server Action ID: %s", action_id)
+                with timer("Fetch /nemovitosti RSC payload"):
+                    html = await self._fetch_page(LISTINGS_PAGE_URL)
 
-                with timer("Fetch all listings via Server Action"):
-                    raw_listings = await self._fetch_all_listings(action_id)
+                with timer("Parse initialProperties from RSC"):
+                    raw_listings = self._parse_rsc_html(html)
 
-                logger.info("Fetched %s listings from Server Action", len(raw_listings))
+                logger.info("Parsed %s listings from RSC payload", len(raw_listings))
 
                 for raw in raw_listings:
                     try:
@@ -111,157 +106,78 @@ class ProdejmeToScraper:
         logger.info("Prodejme.to scraper finished. Saved %s listings", self.scraped_count)
         return self.scraped_count
 
-    # ------------------------------------------------------------------
-    # Action ID discovery
-    # ------------------------------------------------------------------
-
-    async def _discover_action_id(self) -> str:
-        """
-        Dynamically discover the Next.js Server Action ID by downloading
-        the /nemovitosti page and then the JS chunk that contains the
-        createServerReference call for "useProperties".
-
-        Falls back to _KNOWN_ACTION_ID if discovery fails.
-        """
-        global _KNOWN_ACTION_ID
-        try:
-            assert self._http_client is not None
-            # 1. Fetch the page HTML to get JS chunk URLs
-            resp = await self._http_client.get(LISTINGS_PAGE_URL)
-            resp.raise_for_status()
-            html = resp.text
-
-            # 2. Find all _next/static/chunks/*.js URLs
-            chunk_urls = re.findall(
-                r'"(/_next/static/chunks/[a-f0-9]+\.js[^"]*)"', html
-            )
-            if not chunk_urls:
-                logger.warning("No JS chunks found in /nemovitosti HTML, using fallback action ID")
-                return _KNOWN_ACTION_ID
-
-            # 3. Scan chunks for createServerReference("...", ..., "useProperties")
-            for chunk_path in chunk_urls[:30]:  # limit to first 30 chunks
-                chunk_url = BASE_URL + chunk_path.split("?")[0]
-                try:
-                    chunk_resp = await self._http_client.get(chunk_url, timeout=15)
-                    if chunk_resp.status_code != 200:
-                        continue
-                    chunk_text = chunk_resp.text
-                    m = re.search(
-                        r'createServerReference\)\("([0-9a-f]{30,60})"[^)]*"'
-                        + re.escape(_SERVER_ACTION_NAME)
-                        + r'"',
-                        chunk_text,
-                    )
-                    if m:
-                        discovered = m.group(1)
-                        logger.info("Discovered Server Action ID: %s", discovered)
-                        _KNOWN_ACTION_ID = discovered
-                        return discovered
-                except Exception as chunk_exc:
-                    logger.debug("Error fetching chunk %s: %s", chunk_url, chunk_exc)
-
-            logger.warning(
-                "Could not discover Server Action ID from JS chunks, using known ID: %s",
-                _KNOWN_ACTION_ID,
-            )
-        except Exception as exc:
-            logger.warning("Action ID discovery failed (%s), using known ID: %s", exc, _KNOWN_ACTION_ID)
-
-        return _KNOWN_ACTION_ID
-
-    # ------------------------------------------------------------------
-    # Fetch listings via Server Action
-    # ------------------------------------------------------------------
-
-    async def _fetch_all_listings(self, action_id: str) -> List[Dict[str, Any]]:
-        """
-        Call the Next.js Server Action and parse the RSC stream response.
-        Returns the raw list of listing dicts from prodejme.to's DB.
-        """
+    async def _fetch_page(self, url: str) -> str:
         assert self._http_client is not None
-        response = await self._http_client.post(
-            LISTINGS_PAGE_URL,
-            headers={
-                "Next-Action": action_id,
-                "Content-Type": "application/json",
-            },
-            content=b"[{}]",
-            timeout=60,
-        )
+        response = await self._http_client.get(url)
         response.raise_for_status()
-        return self._parse_rsc_response(response.content)
+        return response.text
 
-    def _parse_rsc_response(self, content: bytes) -> List[Dict[str, Any]]:
-        """
-        Parse the React Server Components (RSC) stream response.
+    @staticmethod
+    def _unescape_rsc_chunk(chunk: str) -> str:
+        """Decode JS string escapes from Next.js RSC push payload."""
+        return chunk.encode("latin1", "backslashreplace").decode("unicode_escape")
 
-        The stream contains:
-          - Record 0: metadata JSON
-          - Records 2+: text chunks (descriptions) in format {id}:T{hexlen},{bytes}
-          - Record 1: the main result – a JSON array of listing dicts,
-            where "description" fields are references like "$2" pointing
-            to the text chunks above.
-
-        Strategy: locate the unique b'1:[{' marker and parse the JSON array
-        from that position. Then build a text reference map from RSC text
-        records to resolve '$N' description references.
-        """
-        # 1. Locate the JSON array (record "1")
-        marker = b"1:["
-        pos = content.find(marker)
-        if pos < 0:
-            logger.error("Could not find '1:[' in RSC response (size=%d)", len(content))
+    def _parse_rsc_html(self, html: str) -> List[Dict[str, Any]]:
+        """Extract and parse the initialProperties array from RSC HTML."""
+        chunks = _RSC_PUSH_RE.findall(html)
+        if not chunks:
+            logger.error("No self.__next_f.push chunks found in /nemovitosti HTML")
             return []
 
-        json_bytes = content[pos + 2:]  # skip "1:"
+        combined = "".join(self._unescape_rsc_chunk(c) for c in chunks)
+        marker_pos = combined.find(_PROPERTIES_MARKER)
+        if marker_pos < 0:
+            logger.error("initialProperties marker not found in RSC payload")
+            return []
+
+        start = marker_pos + len(_PROPERTIES_MARKER)
+        while start < len(combined) and combined[start] in " \n":
+            start += 1
+
         try:
-            listings = json.loads(json_bytes)
+            listings, _ = json.JSONDecoder().raw_decode(combined, start)
         except json.JSONDecodeError as exc:
-            logger.error("Failed to parse listings JSON: %s", exc)
+            logger.error("Failed to parse initialProperties JSON: %s", exc)
             return []
 
         if not isinstance(listings, list):
-            logger.error("Expected JSON array, got %s", type(listings))
+            logger.error("initialProperties is not a list: %s", type(listings))
             return []
 
-        # 2. Build text reference map: {hex_id_str -> description_text}
-        # RSC text records: {hex_id}:T{hexlen},{text}
-        text_map: Dict[str, str] = {}
-        text_pattern = re.compile(rb"([0-9a-f]+):T([0-9a-f]+),")
-        search_limit = min(pos, len(content))  # only look before the JSON array
-        for m in text_pattern.finditer(content, 0, search_limit):
-            record_id = m.group(1).decode()
-            text_len = int(m.group(2), 16)
-            text_start = m.end()
-            text_end = text_start + text_len
-            if text_end <= len(content):
-                text_map[record_id] = content[text_start:text_end].decode("utf-8", errors="replace")
+        text_map = self._build_text_reference_map(combined, marker_pos)
+        self._resolve_description_references(listings, text_map)
+        return listings
 
-        # 3. Resolve "$N" references in each listing's description field
+    @staticmethod
+    def _build_text_reference_map(combined: str, marker_pos: int) -> Dict[str, str]:
+        """Build map of RSC text-chunk IDs to description strings."""
+        text_map: Dict[str, str] = {}
+        for match in _RSC_TEXT_RE.finditer(combined, 0, marker_pos):
+            record_id = match.group(1)
+            text_len = int(match.group(2), 16)
+            text_start = match.end()
+            text_end = text_start + text_len
+            if text_end <= len(combined):
+                text_map[record_id] = combined[text_start:text_end]
+        return text_map
+
+    @staticmethod
+    def _resolve_description_references(
+        listings: List[Dict[str, Any]],
+        text_map: Dict[str, str],
+    ) -> None:
         for listing in listings:
             desc = listing.get("description")
             if isinstance(desc, str) and desc.startswith("$"):
                 ref_id = desc[1:]
-                if ref_id in text_map:
-                    listing["description"] = text_map[ref_id]
-                else:
-                    listing["description"] = ""
-
-        logger.debug("Parsed %d listings from RSC (text refs: %d)", len(listings), len(text_map))
-        return listings
-
-    # ------------------------------------------------------------------
-    # Field mapping
-    # ------------------------------------------------------------------
+                listing["description"] = text_map.get(ref_id, "")
 
     def _map_listing(self, raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Map a raw prodejme.to listing dict to our DB schema dict."""
         listing_id = raw.get("id", "")
         status = raw.get("status", "") or raw.get("statust", "")
 
-        # Skip sold listings (we don't store them)
-        if status == "SOLD":
+        if status in _INACTIVE_STATUSES:
             return None
 
         slug = raw.get("slug", "")
@@ -270,20 +186,8 @@ class ProdejmeToScraper:
 
         listing_type = raw.get("listingType", "SALE")
         offer_type = LISTING_TYPE_MAP.get(listing_type, "Prodej")
+        property_type = self._infer_property_type(raw)
 
-        # Property type from sourcePayload.estate.advert_type (most reliable)
-        advert_type: Optional[int] = None
-        source_payload = raw.get("sourcePayload") or {}
-        estate = source_payload.get("estate") or {}
-        raw_advert_type = estate.get("advert_type")
-        if raw_advert_type is not None:
-            try:
-                advert_type = int(raw_advert_type)
-            except (TypeError, ValueError):
-                pass
-        property_type = ADVERT_TYPE_MAP.get(advert_type or 0, "Ostatní")
-
-        # Location: combine city + region for geo filter compatibility
         city = raw.get("localityCity") or ""
         region = raw.get("localityRegion") or ""
         if city and region:
@@ -293,9 +197,9 @@ class ProdejmeToScraper:
         elif region:
             location_text = region
         else:
+            estate = (raw.get("sourcePayload") or {}).get("estate") or {}
             location_text = estate.get("locality_address", "")
 
-        # Price
         price: Optional[int] = None
         raw_price = raw.get("price")
         if raw_price is not None:
@@ -304,7 +208,6 @@ class ProdejmeToScraper:
             except (TypeError, ValueError):
                 pass
 
-        # Area
         area_built_up: Optional[int] = None
         raw_area = raw.get("area")
         if raw_area:
@@ -321,16 +224,13 @@ class ProdejmeToScraper:
             except (TypeError, ValueError):
                 pass
 
-        # Description
         description = (raw.get("description") or "")[:5000]
-
-        # Photos (Supabase CDN URLs, already absolute)
         images = raw.get("images") or []
         photos = [url for url in images if isinstance(url, str) and url.startswith("http")][:20]
 
         return {
             "source_code": self.SOURCE_CODE,
-            "external_id": listing_id,  # prodejme.to UUID (stable DB primary key)
+            "external_id": listing_id,
             "url": f"{BASE_URL}/nemovitosti/{slug}",
             "title": (raw.get("title") or "")[:200],
             "description": description,
@@ -343,9 +243,38 @@ class ProdejmeToScraper:
             "photos": photos,
         }
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _infer_property_type(raw: Dict[str, Any]) -> str:
+        """Infer Czech property type from sourcePayload or propertyType label."""
+        source_payload = raw.get("sourcePayload") or {}
+        estate = source_payload.get("estate") or {}
+        raw_advert_type = estate.get("advert_type")
+        if raw_advert_type is not None:
+            try:
+                return ADVERT_TYPE_MAP.get(int(raw_advert_type), "Ostatní")
+            except (TypeError, ValueError):
+                pass
+
+        label = (raw.get("propertyType") or "").lower()
+        if not label:
+            return "Ostatní"
+
+        if any(k in label for k in ("rodinn", "vícegenerační", "vicegeneracni")):
+            return "Dům"
+        if any(k in label for k in ("+kk", "+1", "+2", "+3", "+4", "+5", "byt", "apartmán", "apartman")):
+            return "Byt"
+        if any(k in label for k in ("zahrada", "pozemek", "louka", "pole", "les")):
+            return "Pozemek"
+        if any(k in label for k in ("chata", "chalupa")):
+            return "Chata"
+        if any(k in label for k in ("garáž", "garaz")):
+            return "Ostatní"
+        if any(k in label for k in ("komerční", "kancelá", "kancela", "výroba", "sklad")):
+            return "Komerční"
+        if "bydlení" in label or "bydleni" in label:
+            return "Dům"
+
+        return "Ostatní"
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         db = get_db_manager()
