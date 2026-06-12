@@ -1,19 +1,16 @@
 using System.Text.Json;
-using Google.Apis.Auth.OAuth2;
 using Google.Apis.Auth.OAuth2.Flows;
-using Google.Apis.Auth.OAuth2.Web;
-using Google.Apis.Drive.v3;
+using RealEstate.Api.Services;
 
 namespace RealEstate.Api.Endpoints;
 
 /// <summary>
-/// Jednorázové OAuth nastavení pro Google Drive.
+/// OAuth nastavení pro Google Drive.
 ///
 /// Postup:
-/// 1. GET  /api/auth/drive/setup  → vrátí URL kam přejít v prohlížeči
-/// 2. Schválit přístup v Google → přesměruje na /api/auth/drive/callback?code=…
-/// 3. Token se uloží do secrets/google-drive-token.json
-/// 4. Export na Drive nyní funguje
+/// 1. GET  /api/auth/drive/setup?force=1&amp;redirect=1  → přesměruje na Google login
+/// 2. Schválit přístup → callback uloží secrets/google-drive-token.json
+/// 3. Export na Drive funguje
 /// </summary>
 public static class DriveAuthEndpoints
 {
@@ -23,38 +20,79 @@ public static class DriveAuthEndpoints
     {
         app.MapGet("/api/auth/drive/setup", SetupDriveAuth)
             .WithName("DriveAuthSetup")
-            .WithSummary("Vrátí URL pro jednorázové OAuth povolení Drive přístupu");
+            .WithSummary("Vrátí (nebo přesměruje na) URL pro OAuth povolení Drive přístupu");
 
         app.MapGet("/api/auth/drive/callback", HandleCallback)
             .WithName("DriveAuthCallback")
             .WithSummary("Zpracuje OAuth callback a uloží token");
 
+        app.MapGet("/api/auth/drive/status", GetDriveAuthStatus)
+            .WithName("DriveAuthStatus")
+            .WithSummary("Ověří platnost uloženého OAuth tokenu");
+
         return app;
     }
 
-    private static IResult SetupDriveAuth(IConfiguration configuration, HttpContext ctx)
+    private static async Task<IResult> SetupDriveAuth(
+        bool force,
+        bool redirect,
+        IConfiguration configuration,
+        HttpContext ctx,
+        CancellationToken ct)
     {
         var (clientId, clientSecret, tokenPath) = GetConfig(configuration);
-        if (System.IO.File.Exists(tokenPath))
+
+        if (!force && File.Exists(tokenPath) && await GoogleDriveAuthHelper.IsTokenValidAsync(tokenPath, ct))
         {
+            if (redirect)
+                return Results.Redirect("/");
+
             return Results.Ok(new
             {
-                status = "already_configured",
-                message = "Token již existuje. Export na Drive by měl fungovat.",
-                tokenPath
+                status = "ok",
+                message = "Google Drive token je platný. Export by měl fungovat.",
+                tokenPath,
+                reauthorizeUrl = GoogleDriveAuthHelper.ReauthorizePath
             });
         }
 
         var redirectUri = GetRedirectUri(ctx);
-        var flow = CreateFlow(clientId, clientSecret);
-        var authUrl = flow.CreateAuthorizationCodeRequest(redirectUri).Build().AbsoluteUri;
+        var authUrl = GoogleDriveAuthHelper.BuildAuthorizationUrl(clientId, clientSecret, redirectUri);
+
+        if (redirect)
+            return Results.Redirect(authUrl);
 
         return Results.Ok(new
         {
-            status = "authorization_required",
-            message = "Otevři tuto URL v prohlížeči a přihlas se svým Google účtem:",
+            status = force ? "reauthorization_required" : "authorization_required",
+            message = "Otevři authorizationUrl v prohlížeči a přihlas se Google účtem s Drive:",
             authorizationUrl = authUrl,
+            reauthorizeUrl = GoogleDriveAuthHelper.ReauthorizePath,
             note = "Po schválení tě Google vrátí zpět a token se uloží automaticky."
+        });
+    }
+
+    private static async Task<IResult> GetDriveAuthStatus(IConfiguration configuration, CancellationToken ct)
+    {
+        var (_, _, tokenPath) = GetConfig(configuration);
+        if (!File.Exists(tokenPath))
+        {
+            return Results.Ok(new
+            {
+                status = "missing",
+                message = "Google Drive token chybí. Spusťte OAuth setup.",
+                reauthorizeUrl = GoogleDriveAuthHelper.ReauthorizePath
+            });
+        }
+
+        var valid = await GoogleDriveAuthHelper.IsTokenValidAsync(tokenPath, ct);
+        return Results.Ok(new
+        {
+            status = valid ? "ok" : "expired",
+            message = valid
+                ? "Token je platný."
+                : "Token vypršel nebo byl zrušen. Je potřeba znovu autorizovat Google Drive.",
+            reauthorizeUrl = GoogleDriveAuthHelper.ReauthorizePath
         });
     }
 
@@ -81,8 +119,8 @@ public static class DriveAuthEndpoints
             if (string.IsNullOrEmpty(tokenResponse.RefreshToken))
                 return Results.BadRequest(new
                 {
-                    message = "Google nevrátil refresh_token. Zkus revokovat přístup na https://myaccount.google.com/permissions a opakovat setup.",
-                    accessToken = tokenResponse.AccessToken is not null ? "OK (krátkodobý)" : null
+                    message = "Google nevrátil refresh_token. Zkus revokovat přístup na https://myaccount.google.com/permissions a opakovat setup s ?force=1.",
+                    reauthorizeUrl = GoogleDriveAuthHelper.ReauthorizePath
                 });
 
             var tokenJson = JsonSerializer.Serialize(new
@@ -96,14 +134,18 @@ public static class DriveAuthEndpoints
 
             var dir = Path.GetDirectoryName(tokenPath)!;
             Directory.CreateDirectory(dir);
-            await System.IO.File.WriteAllTextAsync(tokenPath, tokenJson);
+            await File.WriteAllTextAsync(tokenPath, tokenJson);
 
-            return Results.Ok(new
-            {
-                status = "success",
-                message = "Token uložen! Export na Google Drive je připraven.",
-                tokenPath
-            });
+            return Results.Content(
+                """
+                <!DOCTYPE html><html lang="cs"><head><meta charset="utf-8"><title>Google Drive</title></head>
+                <body style="font-family:sans-serif;max-width:600px;margin:2rem auto;padding:1rem">
+                <h2>Google Drive připojen</h2>
+                <p>Token byl uložen. Můžeš zavřít tuto stránku a znovu zkusit export inzerátu.</p>
+                <p><a href="/">Zpět do aplikace</a></p>
+                </body></html>
+                """,
+                "text/html; charset=utf-8");
         }
         catch (Exception ex)
         {
@@ -111,16 +153,10 @@ public static class DriveAuthEndpoints
         }
     }
 
-    // ── helpers ─────────────────────────────────────────────────────────────
-
     private static (string clientId, string clientSecret, string tokenPath) GetConfig(IConfiguration cfg)
     {
-        var clientId = cfg["GoogleDriveExport:OAuthClientId"]
-            ?? throw new InvalidOperationException("GoogleDriveExport:OAuthClientId není nakonfigurováno.\nNastavte ho v appsettings.json nebo jako env proměnnou.");
-        var clientSecret = cfg["GoogleDriveExport:OAuthClientSecret"]
-            ?? throw new InvalidOperationException("GoogleDriveExport:OAuthClientSecret není nakonfigurováno.");
-        var tokenPath = cfg["GoogleDriveExport:UserTokenPath"]
-            ?? "secrets/google-drive-token.json";
+        var tokenPath = cfg["GoogleDriveExport:UserTokenPath"] ?? "secrets/google-drive-token.json";
+        var (clientId, clientSecret) = GoogleDriveAuthHelper.ReadOAuthCredentials(cfg, tokenPath);
         return (clientId, clientSecret, tokenPath);
     }
 
@@ -133,7 +169,7 @@ public static class DriveAuthEndpoints
     private static GoogleAuthorizationCodeFlow CreateFlow(string clientId, string clientSecret) =>
         new(new GoogleAuthorizationCodeFlow.Initializer
         {
-            ClientSecrets = new ClientSecrets { ClientId = clientId, ClientSecret = clientSecret },
-            Scopes = [DriveService.Scope.Drive]
+            ClientSecrets = new Google.Apis.Auth.OAuth2.ClientSecrets { ClientId = clientId, ClientSecret = clientSecret },
+            Scopes = [Google.Apis.Drive.v3.DriveService.Scope.Drive]
         });
 }

@@ -193,6 +193,28 @@ public static class ExportEndpoints
         {
             return Results.NotFound(new { error = ex.Message });
         }
+        catch (GoogleDriveAuthException ex)
+        {
+            return Results.Problem(
+                title: "Google Drive není autorizován",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status401Unauthorized,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["reauthorizeUrl"] = GoogleDriveAuthException.ReauthorizePath
+                });
+        }
+        catch (Exception ex) when (GoogleDriveAuthHelper.IsInvalidGrant(ex))
+        {
+            return Results.Problem(
+                title: "Google Drive token vypršel",
+                detail: "Token has been expired or revoked. Znovu autorizuj Google účet.",
+                statusCode: StatusCodes.Status401Unauthorized,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["reauthorizeUrl"] = GoogleDriveAuthException.ReauthorizePath
+                });
+        }
         catch (Exception ex)
         {
             return Results.Problem(
