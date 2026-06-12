@@ -56,7 +56,7 @@ public static class DriveAuthEndpoints
             });
         }
 
-        var redirectUri = GetRedirectUri(ctx);
+        var redirectUri = GetRedirectUri(ctx, configuration);
         var authUrl = GoogleDriveAuthHelper.BuildAuthorizationUrl(clientId, clientSecret, redirectUri);
 
         if (redirect)
@@ -109,7 +109,7 @@ public static class DriveAuthEndpoints
             return Results.BadRequest(new { message = "Chybí parametr 'code'." });
 
         var (clientId, clientSecret, tokenPath) = GetConfig(configuration);
-        var redirectUri = GetRedirectUri(ctx);
+        var redirectUri = GetRedirectUri(ctx, configuration);
         var flow = CreateFlow(clientId, clientSecret);
 
         try
@@ -160,10 +160,21 @@ public static class DriveAuthEndpoints
         return (clientId, clientSecret, tokenPath);
     }
 
-    private static string GetRedirectUri(HttpContext ctx)
+    private static string GetRedirectUri(HttpContext ctx, IConfiguration configuration)
     {
+        var publicBase = configuration["GoogleDriveExport:PublicBaseUrl"]
+            ?? configuration["PHOTOS_PUBLIC_BASE_URL"]
+            ?? Environment.GetEnvironmentVariable("PUBLIC_API_URL");
+
+        if (!string.IsNullOrWhiteSpace(publicBase)
+            && Uri.TryCreate(publicBase.TrimEnd('/'), UriKind.Absolute, out var baseUri))
+        {
+            return $"{baseUri.Scheme}://{baseUri.Authority}{CallbackPath}";
+        }
+
         var req = ctx.Request;
-        return $"{req.Scheme}://{req.Host}{CallbackPath}";
+        var scheme = req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme;
+        return $"{scheme}://{req.Host}{CallbackPath}";
     }
 
     private static GoogleAuthorizationCodeFlow CreateFlow(string clientId, string clientSecret) =>
