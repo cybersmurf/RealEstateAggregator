@@ -2164,12 +2164,12 @@
                     && err.Contains("invalid_grant", StringComparison.OrdinalIgnoreCase))
                 {
                     Snackbar.Add("Google Drive token vypršel – otevři stránku pro znovu-připojení účtu.", Severity.Warning);
-                    await JS.InvokeVoidAsync("open", "/api/auth/drive/setup?force=1&redirect=1", "_blank");
+                    await JS.InvokeVoidAsync("open", "/api/auth/drive/setup?force=true&redirect=true", "_blank");
                 }
                 else if (err.Contains("reauthorizeUrl", StringComparison.OrdinalIgnoreCase))
                 {
                     Snackbar.Add("Google Drive vyžaduje znovu-připojení účtu.", Severity.Warning);
-                    await JS.InvokeVoidAsync("open", "/api/auth/drive/setup?force=1&redirect=1", "_blank");
+                    await JS.InvokeVoidAsync("open", "/api/auth/drive/setup?force=true&redirect=true", "_blank");
                 }
                 else
                 {

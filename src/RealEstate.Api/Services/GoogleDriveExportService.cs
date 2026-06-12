@@ -294,7 +294,7 @@ public sealed class GoogleDriveExportService(
             catch (Exception ex) when (GoogleDriveAuthHelper.IsInvalidGrant(ex))
             {
                 throw new GoogleDriveAuthException(
-                    "Google Drive token vypršel nebo byl zrušen. Znovu autorizuj účet přes /api/auth/drive/setup?force=1&redirect=1",
+                    "Google Drive token vypršel nebo byl zrušen. Znovu autorizuj účet přes /api/auth/drive/setup?force=true&redirect=true",
                     ex);
             }
         }

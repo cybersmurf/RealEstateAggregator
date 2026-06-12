@@ -8,7 +8,7 @@ namespace RealEstate.Api.Endpoints;
 /// OAuth nastavení pro Google Drive.
 ///
 /// Postup:
-/// 1. GET  /api/auth/drive/setup?force=1&amp;redirect=1  → přesměruje na Google login
+/// 1. GET  /api/auth/drive/setup?force=true&amp;redirect=true  → přesměruje na Google login
 /// 2. Schválit přístup → callback uloží secrets/google-drive-token.json
 /// 3. Export na Drive funguje
 /// </summary>
@@ -119,7 +119,7 @@ public static class DriveAuthEndpoints
             if (string.IsNullOrEmpty(tokenResponse.RefreshToken))
                 return Results.BadRequest(new
                 {
-                    message = "Google nevrátil refresh_token. Zkus revokovat přístup na https://myaccount.google.com/permissions a opakovat setup s ?force=1.",
+                    message = "Google nevrátil refresh_token. Zkus revokovat přístup na https://myaccount.google.com/permissions a opakovat setup s ?force=true.",
                     reauthorizeUrl = GoogleDriveAuthHelper.ReauthorizePath
                 });
 

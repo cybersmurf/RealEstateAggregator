@@ -10,7 +10,7 @@ namespace RealEstate.Api.Services;
 
 public static class GoogleDriveAuthHelper
 {
-    public const string ReauthorizePath = "/api/auth/drive/setup?force=1&redirect=1";
+    public const string ReauthorizePath = "/api/auth/drive/setup?force=true&redirect=true";
 
     public static async Task<DriveService> CreateDriveServiceFromTokenFileAsync(string tokenPath, CancellationToken ct)
     {
