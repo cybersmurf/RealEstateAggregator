@@ -393,7 +393,7 @@ async def get_inspection_photos(listing_id: str, page: int = 1, page_size: int =
             raw_url = p.get('url', '')
             # Relativní URL → stahuj přes API_BASE_URL (lokální)
             if raw_url.startswith("/"):
-                url = API_BASE_URL.rstrip("/") + raw_url
+                url = PHOTOS_BASE_URL.rstrip("/") + raw_url
             else:
                 url = raw_url
             result.append(TextContent(type="text", text=f"**{i}. {filename}** (orig. {filesize_kb} KB)"))
@@ -454,7 +454,7 @@ async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 5)
             # storedUrl je relativní /uploads/... → stahuj přes API_BASE_URL (lokální)
             # originalUrl je přímá CDN URL (fallback pokud stored není k dispozici)
             if stored.startswith("/"):
-                url = API_BASE_URL.rstrip("/") + stored
+                url = PHOTOS_BASE_URL.rstrip("/") + stored
             elif stored:
                 url = stored
             else:
@@ -528,7 +528,7 @@ async def analyze_inspection_photos(listing_id: str, page: int = 1, page_size: i
             filename = p.get("originalFileName", f"photo-{i}.jpg")
             url = p.get("url", "")
             if url and url.startswith("/"):
-                url = API_BASE_URL.rstrip("/") + url
+                url = PHOTOS_BASE_URL.rstrip("/") + url
             cached = p.get("aiDescription")
             lines.append(f"\n---\n### Fotka {i}: `{filename}`")
 
@@ -627,7 +627,7 @@ async def analyze_listing_photos(listing_id: str, page: int = 1, page_size: int 
             photo_id = p.get("id", "")
             url = p.get("storedUrl") or p.get("originalUrl") or ""
             if url and url.startswith("/"):
-                url = API_BASE_URL.rstrip("/") + url
+                url = PHOTOS_BASE_URL.rstrip("/") + url
             cached = p.get("aiDescription")
             lines.append(f"\n---\n### Fotka {i}")
 
