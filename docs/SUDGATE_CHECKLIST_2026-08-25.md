@@ -1,5 +1,24 @@
 # Co ověřit a nasadit na sudgate
 
+> **Stav k 25. 8. 2026 večer — většina hotová.** Provedeno ze `zupagate`:
+>
+> | Bod | Stav | Poznámka |
+> |---|---|---|
+> | A1 API klíč | ✅ | Produkce **skutečně** jela s `dev-key-change-me` (ověřeno shodou sha256). Rotováno přes nový `/usr/local/bin/rotate-api-key.sh`. |
+> | A2 Zálohy | ✅ | `backup-databases.timer` denně 03:30, retence 14 dní + 6 měsíců, ověřeno obnovou do dočasné DB (6 803 / 96 812 / 1 005 sedí). Inspekční fotky zrcadlené. |
+> | A3 Místo | ✅ | 380 GB volných (15 % využito), prune nebyl potřeba. |
+> | B1 Zavřít `/api` | ✅ | Řešeno jinak než návrhem: dva routery — LAN bez hesla (`ClientIP`), zvenčí BasicAuth. Ověřeno z obou stran. |
+> | C1 LEXAMO | ✅ | Nasazeno, scrape doběhl: **0 → 12 aktivních**, `overall: ok`, 14/14 zdrojů. |
+> | C2 Production | ✅ | `ASPNETCORE_ENVIRONMENT=Production`, Swagger vrací 404, health zelený. |
+> | C3 Monitoring | ✅ | `scraper-health-exporter` á 5 min → textfile collector, 5 alertů v `realestate.yml`. Ověřeno: LEXAMO alert vyskočil a po opravě zhasl. |
+> | D MCP loopback | ✅ | Vyžádalo si `ports: !override` — Compose seznamy slučuje, viz commit 18e2038. |
+> | D hetzner_cred | ✅ | Netrackovaný, v `.gitignore`, nikdy nebyl v historii. Planý poplach. |
+> | D Sjednotit secrets | ⬜ | Neřešeno. |
+> | D Úklid disku na Macu | ⬜ | Neřešeno. |
+> | **Off-site záloha** | ⬜ | **Zbývá.** Zálohy leží na stejném disku jako produkce. |
+>
+> Detaily jsou v historii commitů a v `zupagate/CLAUDE.md`.
+
 Doprovod k `PROJECT_ANALYSIS_2026-08-25.md`. Kódové opravy jsou hotové v repu;
 tady je to, co jde udělat jen na serveru nebo co jsem nemohl ověřit zvenčí.
 
