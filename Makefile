@@ -206,7 +206,8 @@ deploy-scraper:
 	@echo ">>> Deploy scraperu na $(SERVER)..."
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build scraper && $(COMPOSE_SRV) up -d --no-deps scraper && echo "DEPLOY SCRAPER OK"'
 	@echo ">>> Ověření..."
-	@ssh $(SERVER) "curl -sf http://localhost:8001/v1/health/scrapers | python3 -c 'import json,sys; d=json.load(sys.stdin); print(f\"scrapery: {d[\\\"overall\\\"]}, ok={d[\\\"ok\\\"]}/{d[\\\"total_sources\\\"]}\")'"
+	@ssh $(SERVER) "curl -sf http://localhost:8001/v1/health/scrapers" \
+	  | python3 -c "import json,sys; d=json.load(sys.stdin); print('scrapery: %s, ok=%d/%d, stale/dead=%d' % (d['overall'], d['ok'], d['total_sources'], d['stale_or_dead']))"
 
 deploy-both:
 	@echo ">>> Deploy API+App na $(SERVER)..."
