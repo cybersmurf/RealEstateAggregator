@@ -1,0 +1,26 @@
+# ============================================================================
+# Produkční override pro sudgate. Použití:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ============================================================================
+# Základní docker-compose.yml je laděný na lokální vývoj. Tento soubor přepíná
+# API do Production, což:
+#   • vypne Swagger UI (v základu je zapnutý – dnes není zvenčí vidět jen díky
+#     tomu, že Traefik routuje na API pouze PathPrefix(/api)),
+#   • aktivuje kontrolu, že API_KEY není výchozí 'dev-key-change-me'.
+#
+# Bootstrap schématu (EnsureCreatedAsync + DbInitializer) běží dál – není vázaný
+# na prostředí, řídí se proměnnou SKIP_EF_MIGRATIONS.
+#
+# API_KEY musí být nastavený v .env na serveru, jinak API odmítne nastartovat.
+# ============================================================================
+
+services:
+  api:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+
+  # MCP publikuje port na 0.0.0.0. Z internetu ho drží UFW + DOCKER-USER chain,
+  # ale svázání na loopback je explicitnější a nespoléhá na firewall.
+  mcp:
+    ports:
+      - "127.0.0.1:8002:8002"

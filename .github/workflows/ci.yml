@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  dotnet:
+    name: .NET – build, test, audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test tests/RealEstate.Tests --no-build --configuration Release --verbosity normal
+
+      # Zachytí obnovené CVE v závislostech (AutoMapper/Microsoft.OpenApi byly high severity).
+      # Selže i na tranzitivních – ty se do projektu dostanou bez jediné změny v csproj.
+      - name: Audit zranitelných balíčků
+        run: |
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee audit.txt
+          if grep -q -E '\s(Critical|High|Moderate)\s*$' audit.txt; then
+            echo "::error::Nalezeny zranitelné balíčky – viz výpis výše"
+            exit 1
+          fi
+
+  python:
+    name: Python – scraper + MCP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Instalace závislostí
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scraper/requirements.txt
+          pip install pytest
+
+      - name: Pytest
+        run: python -m pytest scraper/tests -q
+
+      # Scrapery se mění často a syntaktická chyba se jinak projeví až v noční úloze.
+      - name: Kontrola syntaxe scraperů a MCP
+        run: python -m compileall -q scraper/core mcp
