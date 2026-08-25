@@ -175,15 +175,30 @@ DEPLOY_BASE = cd $(REMOTE_DIR) && git stash && git pull && git stash pop
 # každý deploy by tak tiše vrátil API z Production do Development a zapnul Swagger.
 COMPOSE_SRV := docker compose -p realestate -f docker-compose.yml -f docker-compose.prod.yml
 
+# Počká, až kontejner ohlásí healthy. Bez toho ověření curluje dřív, než API
+# stihne nastartovat (healthcheck má start_period 30 s), a deploy hlásí 502
+# i u naprosto v pořádku proběhlého nasazení.
+define wait_healthy
+	@echo ">>> Čekám na healthy: $(1)"
+	@ssh $(SERVER) 'for i in $$(seq 1 40); do \
+	  s=$$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" $(1) 2>/dev/null); \
+	  [ "$$s" = "healthy" ] && echo "   $(1): healthy" && exit 0; \
+	  [ "$$s" = "none" ] && echo "   $(1): bez healthchecku, pokračuji" && exit 0; \
+	  sleep 3; \
+	done; echo "   $(1): NEDOSÁHL healthy"; docker logs --tail 30 $(1); exit 1'
+endef
+
 deploy-api:
 	@echo ">>> Deploy API na $(SERVER)..."
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build api && $(COMPOSE_SRV) up -d --no-deps api && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY API OK"'
+	$(call wait_healthy,realestate-api)
 	@echo ">>> Ověření..."
 	@ssh $(SERVER) "curl -sf -o /dev/null -w 'API HTTP %{http_code}\n' https://realestate.sudata.eu/api/sources"
 
 deploy-app:
 	@echo ">>> Deploy App na $(SERVER)..."
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build app && $(COMPOSE_SRV) up -d --no-deps app && echo "DEPLOY APP OK"'
+	$(call wait_healthy,realestate-app)
 	@echo ">>> Ověření..."
 	@ssh $(SERVER) "curl -sf -o /dev/null -w 'App HTTP %{http_code}\n' https://realestate.sudata.eu/"
 
@@ -196,6 +211,7 @@ deploy-scraper:
 deploy-both:
 	@echo ">>> Deploy API+App na $(SERVER)..."
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build api app && $(COMPOSE_SRV) up -d --no-deps api app && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY OK"'
+	$(call wait_healthy,realestate-api)
 	@echo ">>> Ověření..."
 	@ssh $(SERVER) "curl -sf -o /dev/null -w 'API HTTP %{http_code}\n' https://realestate.sudata.eu/api/sources"
 	@ssh $(SERVER) "curl -sf -o /dev/null -w 'App HTTP %{http_code}\n' https://realestate.sudata.eu/"
