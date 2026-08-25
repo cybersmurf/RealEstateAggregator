@@ -170,21 +170,32 @@ scrape-full:
 
 DEPLOY_BASE = cd $(REMOTE_DIR) && git stash && git pull && git stash pop
 
+# Na serveru MUSÍ jít oba compose soubory dohromady. Samotné `docker compose -p realestate`
+# vezme jen docker-compose.yml, kde je ASPNETCORE_ENVIRONMENT=Development natvrdo –
+# každý deploy by tak tiše vrátil API z Production do Development a zapnul Swagger.
+COMPOSE_SRV := docker compose -p realestate -f docker-compose.yml -f docker-compose.prod.yml
+
 deploy-api:
 	@echo ">>> Deploy API na $(SERVER)..."
-	ssh $(SERVER) '$(DEPLOY_BASE) && docker compose -p realestate build api && docker compose -p realestate up -d --no-deps api && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY API OK"'
+	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build api && $(COMPOSE_SRV) up -d --no-deps api && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY API OK"'
 	@echo ">>> Ověření..."
 	@ssh $(SERVER) "curl -sf -o /dev/null -w 'API HTTP %{http_code}\n' https://realestate.sudata.eu/api/sources"
 
 deploy-app:
 	@echo ">>> Deploy App na $(SERVER)..."
-	ssh $(SERVER) '$(DEPLOY_BASE) && docker compose -p realestate build app && docker compose -p realestate up -d --no-deps app && echo "DEPLOY APP OK"'
+	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build app && $(COMPOSE_SRV) up -d --no-deps app && echo "DEPLOY APP OK"'
 	@echo ">>> Ověření..."
 	@ssh $(SERVER) "curl -sf -o /dev/null -w 'App HTTP %{http_code}\n' https://realestate.sudata.eu/"
 
+deploy-scraper:
+	@echo ">>> Deploy scraperu na $(SERVER)..."
+	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build scraper && $(COMPOSE_SRV) up -d --no-deps scraper && echo "DEPLOY SCRAPER OK"'
+	@echo ">>> Ověření..."
+	@ssh $(SERVER) "curl -sf http://localhost:8001/v1/health/scrapers | python3 -c 'import json,sys; d=json.load(sys.stdin); print(f\"scrapery: {d[\\\"overall\\\"]}, ok={d[\\\"ok\\\"]}/{d[\\\"total_sources\\\"]}\")'"
+
 deploy-both:
 	@echo ">>> Deploy API+App na $(SERVER)..."
-	ssh $(SERVER) '$(DEPLOY_BASE) && docker compose -p realestate build api app && docker compose -p realestate up -d --no-deps api app && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY OK"'
+	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build api app && $(COMPOSE_SRV) up -d --no-deps api app && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY OK"'
 	@echo ">>> Ověření..."
 	@ssh $(SERVER) "curl -sf -o /dev/null -w 'API HTTP %{http_code}\n' https://realestate.sudata.eu/api/sources"
 	@ssh $(SERVER) "curl -sf -o /dev/null -w 'App HTTP %{http_code}\n' https://realestate.sudata.eu/"
