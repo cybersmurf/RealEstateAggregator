@@ -14,12 +14,16 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts:/docker-entrypoint-initdb.d
+      # Jen extensions + schéma. NEmountovat ./scripts – entrypoint pouští všechny .sql
+      # abecedně s ON_ERROR_STOP=1, takže backfill_*.sql spadl a přerušil celý init.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     networks:
       - realestate-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d realestate_dev"]
+      # pg_isready hlásí "healthy" i u prázdné databáze bez schématu – proto navíc
+      # kontrola, že init skript proběhl (schéma + PostGIS). Jinak depends_on nechrání před ničím.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d realestate_dev && psql -U postgres -d realestate_dev -tAc \"select 1 from pg_namespace n, pg_extension e where n.nspname='re_realestate' and e.extname='postgis'\" | grep -q 1"]
       interval: 5s
       timeout: 5s
       retries: 10

@@ -33,6 +33,14 @@ public sealed class RealEstateDbContext : DbContext
         // 🔥 Enable pgvector extension
         modelBuilder.HasPostgresExtension("vector");
 
+        // PostGIS – SpatialArea.GeomWkt je mapovaná na sloupec typu `geometry` (viz níže).
+        // Bez této registrace vygeneruje EnsureCreatedAsync/MigrateAsync CREATE TABLE bez
+        // předchozího CREATE EXTENSION postgis a na čisté DB spadne na 42704 "type geometry does not exist".
+        modelBuilder.HasPostgresExtension("postgis");
+
+        // uuid-ossp – používá init-db.sql i DEFAULT hodnoty v ručních SQL migracích.
+        modelBuilder.HasPostgresExtension("uuid-ossp");
+
         // 🔥 Configure Npgsql to use snake_case naming
         modelBuilder.UseIdentityAlwaysColumns();
 
