@@ -20,16 +20,45 @@ public class ListingService : IListingService
     private readonly RealEstateDbContext _dbContext;
     private static readonly Guid DefaultUserId = new("00000000-0000-0000-0000-000000000001");
 
+    /// <summary>Strop stránky pro veřejné vyhledávání – brání tomu, aby si klient vyžádal celou DB naráz.</summary>
+    private const int MaxSearchPageSize = 200;
+
+    /// <summary>Strop pro CSV export (dokumentovaný limit endpointu).</summary>
+    private const int MaxExportPageSize = 5_000;
+
     public ListingService(IListingRepository repository, RealEstateDbContext dbContext)
     {
         _repository = repository;
         _dbContext = dbContext;
     }
 
-    public async Task<PagedResultDto<ListingSummaryDto>> SearchAsync(
+    public Task<PagedResultDto<ListingSummaryDto>> SearchAsync(
         ListingFilterDto filter,
         CancellationToken cancellationToken)
+        => SearchInternalAsync(filter, MaxSearchPageSize, cancellationToken);
+
+    /// <summary>
+    /// Ořízne stránkování do povolených mezí. Vstup chodí z veřejného POST /api/listings/search,
+    /// kde si klient jinak může vyžádat PageSize=1000000 a stáhnout celou databázi jedním dotazem.
+    /// </summary>
+    public static void NormalizePaging(ListingFilterDto filter, int maxPageSize)
     {
+        filter.Page = filter.Page < 1 ? 1 : filter.Page;
+        filter.PageSize = filter.PageSize switch
+        {
+            < 1 => 1,
+            var size when size > maxPageSize => maxPageSize,
+            var size => size,
+        };
+    }
+
+    private async Task<PagedResultDto<ListingSummaryDto>> SearchInternalAsync(
+        ListingFilterDto filter,
+        int maxPageSize,
+        CancellationToken cancellationToken)
+    {
+        NormalizePaging(filter, maxPageSize);
+
         var query = _repository.Query(); // IQueryable<Listing> s AsExpandable()
 
         // 1) Stavíme predikát s AND kombinací filtrů přes LinqKit PredicateBuilder
@@ -532,10 +561,10 @@ public class ListingService : IListingService
 
     public async Task<byte[]> ExportCsvAsync(ListingFilterDto filter, CancellationToken cancellationToken)
     {
-        // Využijeme stávající SearchAsync (maxPageSize interně omezeno na 5000)
+        // Export má vlastní, vyšší strop než veřejné vyhledávání.
         filter.Page = 1;
-        filter.PageSize = 5000;
-        var result = await SearchAsync(filter, cancellationToken);
+        filter.PageSize = MaxExportPageSize;
+        var result = await SearchInternalAsync(filter, MaxExportPageSize, cancellationToken);
 
         var sb = new StringBuilder();
 

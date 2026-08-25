@@ -19,6 +19,7 @@ public sealed class ListingRepository : IListingRepository
     public IQueryable<Listing> Query()
     {
         return _context.Listings
+            .AsNoTracking()  // Read-only cesta (search, CSV export) – bez change trackingu
             .AsExpandable() // Důležité pro PredicateBuilder + EF Core
             .Include(l => l.Source)
             .Include(l => l.Photos.OrderBy(p => p.Order).Take(1)) // Jen thumbnail pro seznam
