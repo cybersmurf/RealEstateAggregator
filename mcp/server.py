@@ -285,18 +285,16 @@ async def get_listing(listing_id: str) -> str:
 
     result_lines.append(f"**URL:** {listing.get('sourceUrl') or listing.get('url', '')}")
 
-    # ── Google Drive / OneDrive ───────────────────────────────────────────────
+    # ── Google Drive ──────────────────────────────────────────────────────────
+    # OneDrive byl odstraněn (commit b7d7596) – API už hasOneDriveExport nevrací.
     drive_url = listing.get("driveFolderUrl")
     drive_inspection_url = listing.get("driveInspectionFolderUrl")
-    has_onedrive = listing.get("hasOneDriveExport", False)
-    if drive_url or has_onedrive:
+    if drive_url or drive_inspection_url:
         result_lines += ["", "## ☁️ Cloud export"]
         if drive_url:
             result_lines.append(f"**Google Drive složka:** {drive_url}")
         if drive_inspection_url:
             result_lines.append(f"**Google Drive – fotky z prohlídky:** {drive_inspection_url}")
-        if has_onedrive:
-            result_lines.append("**OneDrive:** exportováno ✅")
 
     # ── Stav a zápis z prohlídky ─────────────────────────────────────────────
     if user_state:
