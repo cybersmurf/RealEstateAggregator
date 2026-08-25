@@ -282,7 +282,45 @@ Co je nově v repu:
 | Upsert nově persistuje `district` + `municipality` (sloupce v INSERTu chyběly – proto NULL v celé DB) | `database.py` |
 | Geocoding preferuje obec před location_text (Bazoš „671 63 Znojmo" se geokódoval do Znojma místo Lechovic) | `SpatialService.cs` |
 
-### Postup nasazení (pořadí je důležité)
+### Postup nasazení — PROVEDENO 25. 8. 2026, 22:30
+
+| Krok | Stav | Výsledek |
+|---|---|---|
+| `make deploy-api` | ✅ | Napoprvé shodilo API na 500 — viz níže. |
+| `make deploy-scraper` | ✅ | Cíl neexistoval, doplněn. |
+| `make deploy-app` | ✅ | **V původním postupu chyběl**, přitom chip „+N" je v `Listings.razor`. |
+| `make server-scrape-full` | ✅ | `Succeeded`, 3 950 nalezených. |
+| Bulk geocode | ✅ | 637 → 32 bez GPS (605 doplněno). Zbylých 32 Nominatim nenajde. |
+| Znovu detect-duplicates | ✅ | 25 → **168 duplikátů ve 116 skupinách**. |
+
+Dopad na data:
+
+| Metrika | Před | Po |
+|---|---|---|
+| aktivní s obcí | 0 | 1 462 |
+| aktivní s okresem | 0 | 1 440 |
+| SREALITY bez `area_land` | 757 | 140 (opraveno 617) |
+| aktivní bez GPS | 647 | 32 |
+| označených duplikátů | 0 | 168 |
+| vyhledávání vrací | 2 209 | 2 041 (skrývá 168) |
+
+**Kolize jmen endpointů shodila produkci.** Nový `POST /api/listings/detect-duplicates`
+dostal `.WithName("DetectDuplicates")`, které už měl `/api/ollama/detect-duplicates`.
+ASP.NET staví routovací tabulku až při prvním requestu, takže to neodhalil start
+ani 173 testů — API jen začalo vracet 500 na všechno. Opraveno na `ScanListingDuplicates`,
+přidán `EndpointNameUniquenessTests`.
+
+**Kunštátská je dvojice, ne trojice.** SREALITY (Znojmo) + IDNES se spárovaly správně.
+Třetí inzerát (REMAX, 314 m², stejná cena) se nepřipojil, protože **nemá GPS ani obec** —
+neuchytí se ani GPS větev, ani fallback. Není to chyba detekce, ale chybějící data.
+
+**Obec plní jen SREALITY.** Po opravě má `municipality` 1 428/1 428 SREALITY záznamů,
+ale u ostatních 12 zdrojů je to 100 % NULL (BAZOS 34/290 — parsuje jen titulky
+ve tvaru „Obec, prodej…"). Dokud to tak zůstane, fallback větev detekce (cena + obec
++ plocha) funguje prakticky jen uvnitř SREALITY a u zdrojů bez GPS je slepá.
+To je největší zbývající rezerva v kvalitě dat.
+
+### Původní postup (pro referenci)
 
 - [ ] Commit + push, `make deploy-api` **a** rebuild scraperu (změny jsou v obou).
 - [ ] `make scrape-full` (nebo počkat na noční run) – re-upsert opraví SREALITY plochy,
