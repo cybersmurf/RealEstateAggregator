@@ -10,6 +10,7 @@ Migrováno z v2 → v1 (květen 2026): SReality přešlo na Next.js, stará /api
 """
 import asyncio
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -426,6 +427,10 @@ class SrealityScraper:
         location_parts = [p for p in [city, district] if p]
         location_text = ", ".join(location_parts) if location_parts else (estate.get("advert_name") or "")[:100]
 
+        # Obec + okres ukládáme i strukturovaně – geo filtry a detekce duplikátů
+        # jinak vidí jen volný text a nemají se čeho chytit
+        municipality = city or None
+
         # GPS z locality objektu
         gps_lat = locality_obj.get("gps_lat")
         gps_lon = locality_obj.get("gps_lon")
@@ -460,6 +465,8 @@ class SrealityScraper:
             "url": detail_url,
             "title": (estate.get("advert_name") or "")[:200],
             "location_text": location_text,
+            "municipality": municipality,
+            "district": district or None,
             "district": district,
             "price": price,
             "property_type": property_type,
@@ -506,12 +513,23 @@ class SrealityScraper:
         # v1 API: plocha je přímý field estate_area (items[] je prázdné)
         estate_area = detail.get("estate_area")
         if estate_area:
-            # U pozemků → area_land, u domů/bytů → area_built_up
             cat_main = (detail.get("category_main_cb") or {}).get("value", self.category_main_cb or 2)
             if cat_main == 3:  # Pozemek
                 normalized["area_land"] = int(estate_area)
             else:
-                normalized["area_built_up"] = int(estate_area)
+                # ⚠️ U domů estate_area nese plochu POZEMKU, ne užitnou plochu –
+                # dřívější zápis do area_built_up rozbil filtr podle plochy u všech
+                # SREALITY domů (616 aktivních mělo v area_built_up výměru pozemku).
+                # Titulek má obě čísla: "Prodej rodinného domu 129 m², pozemek 1 238 m²".
+                usable, land = self._parse_title_areas(normalized.get("title") or "")
+                if usable:
+                    normalized["area_built_up"] = usable
+                if land:
+                    normalized["area_land"] = land
+                elif not usable:
+                    # Titulek bez čísel (např. "Prodej rodinného domu") – ponech
+                    # estate_area jako užitnou; bez pozemku v titulku bývá jediná plocha
+                    normalized["area_built_up"] = int(estate_area)
 
         # URL: v1 API nemá seo field, sestavíme z locality a category
         cat_main = (detail.get("category_main_cb") or {}).get("value", self.category_main_cb or 2)
@@ -520,6 +538,10 @@ class SrealityScraper:
         hash_id = detail.get("hash_id") or normalized.get("external_id")
         locality_obj = detail.get("locality") or {}
         seo_locality = locality_obj.get("city_seo_name", "")
+        if not normalized.get("municipality") and locality_obj.get("city"):
+            normalized["municipality"] = locality_obj["city"]
+        if not normalized.get("district") and locality_obj.get("district"):
+            normalized["district"] = locality_obj["district"]
         seo = {
             "category_main_cb": cat_main,
             "category_sub_cb": cat_sub,
@@ -573,6 +595,35 @@ class SrealityScraper:
         if "dispoz" in lower:
             return "Dispozice"
         return name.strip()
+
+    # "Prodej rodinného domu 129 m², pozemek 1 238 m²" → (129, 1238)
+    # Titulky používají nezlomitelné mezery a mezery v tisících.
+    _TITLE_AREA_RE = re.compile(r"(\d[\d\s\u00a0]*)\s*m[²2]")
+    _TITLE_LAND_RE = re.compile(r"pozem\w*[\s\u00a0]+(\d[\d\s\u00a0]*)\s*m[²2]", re.IGNORECASE)
+
+    @classmethod
+    def _parse_title_areas(cls, title: str) -> tuple[Optional[int], Optional[int]]:
+        """Vytáhne (užitná, pozemek) z titulku inzerátu; chybějící hodnota = None."""
+        if not title:
+            return None, None
+
+        land: Optional[int] = None
+        land_match = cls._TITLE_LAND_RE.search(title)
+        if land_match:
+            digits = re.sub(r"\D", "", land_match.group(1))
+            land = int(digits) if digits else None
+
+        usable: Optional[int] = None
+        for m in cls._TITLE_AREA_RE.finditer(title):
+            # Přeskoč číslo patřící k "pozemek X m²"
+            if land_match and m.start(1) >= land_match.start(1):
+                continue
+            digits = re.sub(r"\D", "", m.group(1))
+            if digits:
+                usable = int(digits)
+                break
+
+        return usable, land
 
     @staticmethod
     def _parse_area(value: Optional[str]) -> Optional[int]:

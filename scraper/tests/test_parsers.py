@@ -17,6 +17,8 @@ from core.scrapers.remax_scraper import RemaxScraper
 from core.scrapers.reas_scraper import ReasScraper, PROPERTY_TYPE_MAP
 from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper as ZnojmorealityScraper
 from core.scrapers.lexamo_scraper import LexamoScraper
+from core.scrapers.sreality_scraper import SrealityScraper
+from core.scrapers.bazos_scraper import BazosScraper
 
 
 # ---------------------------------------------------------------------------
@@ -607,3 +609,66 @@ class TestLexamoExtractDistrict:
     def test_unknown_district_slug_is_titlecased(self):
         url = self.BASE + "prodej-domu-nekde-okres-kolin-prodej-rodinneho-domu-99"
         assert LexamoScraper._extract_district(url) == "Kolin"
+
+
+# ---------------------------------------------------------------------------
+# SrealityScraper – plochy z titulku
+# ---------------------------------------------------------------------------
+
+class TestSrealityParseTitleAreas:
+    """estate_area z v1 API nese u domů výměru POZEMKU – dřívější zápis do
+    area_built_up rozbil filtr podle plochy u všech SREALITY domů.
+    Titulek má obě čísla, včetně nezlomitelných mezer."""
+
+    NBSP = "\u00a0"
+
+    def test_house_with_land(self):
+        title = f"Prodej rodinného domu 129{self.NBSP}m², pozemek 1{self.NBSP}238{self.NBSP}m²"
+        assert SrealityScraper._parse_title_areas(title) == (129, 1238)
+
+    def test_house_with_land_regular_spaces(self):
+        assert SrealityScraper._parse_title_areas(
+            "Prodej rodinného domu 314 m² s pozemkem 673 m²") == (314, 673)
+
+    def test_house_without_land(self):
+        assert SrealityScraper._parse_title_areas("Prodej rodinného domu 72 m²") == (72, None)
+
+    def test_no_numbers(self):
+        assert SrealityScraper._parse_title_areas("Prodej rodinného domu") == (None, None)
+
+    def test_empty(self):
+        assert SrealityScraper._parse_title_areas("") == (None, None)
+
+    def test_land_only_project(self):
+        assert SrealityScraper._parse_title_areas(
+            "Prodej projektu na klíč 106 m², pozemek 166 m²") == (106, 166)
+
+
+# ---------------------------------------------------------------------------
+# BazosScraper – obec z titulku
+# ---------------------------------------------------------------------------
+
+class TestBazosExtractMunicipality:
+    """Bazoš neposílá GPS ani obec ("671 63 Znojmo" je jen PSČ okresního města);
+    konvence inzerentů je začínat titulek lokalitou: "Lechovice, prodej RD 5+1, …"."""
+
+    def test_leading_place(self):
+        assert BazosScraper._extract_municipality(
+            "Lechovice, prodej RD 5+1, garáž, zahrada, dvorek, pozemek 12") == "Lechovice"
+
+    def test_two_word_place(self):
+        assert BazosScraper._extract_municipality(
+            "Moravské Budějovice, prodej bytu 2+1") == "Moravské Budějovice"
+
+    def test_offer_word_first_is_not_place(self):
+        assert BazosScraper._extract_municipality("Prodej RD 5+1, Lechovice") is None
+        assert BazosScraper._extract_municipality("Pronájem bytu, Znojmo") is None
+
+    def test_digits_disqualify(self):
+        assert BazosScraper._extract_municipality("RD 5+1 Lechovice, prodej") is None
+
+    def test_no_comma(self):
+        assert BazosScraper._extract_municipality("Prodej domu Lechovice") is None
+
+    def test_lowercase_start(self):
+        assert BazosScraper._extract_municipality("prodej domu, Lechovice") is None

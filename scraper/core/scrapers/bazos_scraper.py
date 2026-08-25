@@ -294,6 +294,7 @@ class BazosScraper:
             "offer_type": offer_type,
             "price": price,
             "location_text": location_text,
+            "municipality": self._extract_municipality(title),
             "area_built_up": area_built_up,
             "area_land": area_land,
             "photos": photos,
@@ -416,6 +417,34 @@ class BazosScraper:
                 pass
 
         return None
+
+    # Slova, kterými inzerenti začínají titulek místo lokality
+    _TITLE_NON_PLACE_RE = re.compile(
+        r"^(prodej|prodám|prodám|pronájem|pronajmu|koupě|koupím|nabízím|sleva|exkluzivn|"
+        r"rd\b|byt\b|dům|chata|chalupa|pozemek|zahrada|garáž|novostavba|stavební)",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _extract_municipality(cls, title: str) -> Optional[str]:
+        """Obec z titulku – bazošská konvence je "Lechovice, prodej RD 5+1, …".
+
+        Bazoš neposílá GPS ani strukturovanou lokalitu (jen "PSČ Okresní-město"),
+        takže bez tohohle nemá detekce duplikátů ani geo filtr u Bazoše co porovnávat.
+        """
+        if not title or "," not in title:
+            return None
+
+        first = title.split(",", 1)[0].strip()
+        if not first or not first[0].isupper():
+            return None
+        if any(ch.isdigit() for ch in first):
+            return None
+        if len(first.split()) > 3 or len(first) > 40:
+            return None
+        if cls._TITLE_NON_PLACE_RE.match(first):
+            return None
+        return first
 
     def _extract_location(self, soup: BeautifulSoup) -> str:
         """Extrahuje lokalitu ve formátu 'PSČ Město'."""

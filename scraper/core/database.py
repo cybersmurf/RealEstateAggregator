@@ -286,10 +286,12 @@ class DatabaseManager:
                     disposition, rooms, condition, construction_type,
                     latitude, longitude, geocoded_at, geocode_source,
                     view_count, date_created_source,
-                    first_seen_at, last_seen_at, is_active
+                    first_seen_at, last_seen_at, is_active,
+                    district, municipality
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, true)
+                        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, true,
+                        $27, $28)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
                     url               = EXCLUDED.url,
@@ -318,7 +320,9 @@ class DatabaseManager:
                     view_count          = COALESCE(EXCLUDED.view_count, re_realestate.listings.view_count),
                     date_created_source = COALESCE(re_realestate.listings.date_created_source, EXCLUDED.date_created_source),
                     last_seen_at = EXCLUDED.last_seen_at,
-                    is_active    = true
+                    is_active    = true,
+                    district     = COALESCE(EXCLUDED.district,     re_realestate.listings.district),
+                    municipality = COALESCE(EXCLUDED.municipality, re_realestate.listings.municipality)
                 RETURNING id
                 """,
                 listing_id,
@@ -346,7 +350,9 @@ class DatabaseManager:
                 listing_data.get("view_count"),
                 listing_data.get("date_created_source"),
                 now,
-                now
+                now,
+                listing_data.get("district"),
+                listing_data.get("municipality"),
             )
             
             # Pokud UPDATE navrátil existující ID, použij to
