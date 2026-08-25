@@ -259,3 +259,40 @@ infrastrukturní metriky. Proto mohl LEXAMO 6 dní mlčky ležet: kontejner bě�
 
 **Nedotčeno záměrně:** squash EF migrací (potřebuje diff proti produkčnímu schématu),
 `BaseScraper` refaktoring, rozpad `ListingDetail.razor`, autentizace v aplikaci.
+
+---
+
+## E. Druhá dávka (25. 8. večer) – duplikáty a kvalita dat
+
+Reakce na screenshoty: stejný dům 3× s protichůdnými cenovými signály.
+Příčina: dedup z května (`fd62dee`) postavil sloupec, DTO i banner, ale **detekci ne** –
+`duplicate_of_listing_id` nikde nic nezapisovalo, na produkci `count = 0`.
+
+Co je nově v repu:
+
+| Změna | Soubor |
+|---|---|
+| Detekce duplikátů (cena ±2 % + GPS ≤300 m; fallback bez GPS: cena na korunu + obec + plocha ±5 %) | `DuplicateDetectionService.cs` |
+| `POST /api/listings/detect-duplicates`; scraper ho volá po každém jobu | `ListingEndpoints.cs`, `runner.py` |
+| Vyhledávání skrývá duplikáty (`IncludeDuplicates=false`), karta má chip „+N" s tooltippem zdrojů | `ListingService.cs`, `Listings.razor` |
+| Mapa a bulk AI joby přeskakují duplikáty (AI joby nově i neaktivní – dřív tagovaly celou DB) | `SpatialService.cs`, `OllamaTextService.cs` |
+| **SREALITY: oprava záměny ploch** – `estate_area` je u domů výměra POZEMKU; všech 616 aktivních domů mělo v `area_built_up` pozemek a `area_land` NULL → filtr podle plochy u SREALITY lhal | `sreality_scraper.py` |
+| SREALITY: obec + okres z API se ukládají (dřív se zahazovaly) | `sreality_scraper.py` |
+| BAZOS: obec z titulku („Lechovice, prodej RD 5+1…") | `bazos_scraper.py` |
+| Upsert nově persistuje `district` + `municipality` (sloupce v INSERTu chyběly – proto NULL v celé DB) | `database.py` |
+| Geocoding preferuje obec před location_text (Bazoš „671 63 Znojmo" se geokódoval do Znojma místo Lechovic) | `SpatialService.cs` |
+
+### Postup nasazení (pořadí je důležité)
+
+- [ ] Commit + push, `make deploy-api` **a** rebuild scraperu (změny jsou v obou).
+- [ ] `make scrape-full` (nebo počkat na noční run) – re-upsert opraví SREALITY plochy,
+      doplní obce; runner na konci sám zavolá detekci duplikátů.
+- [ ] Bulk geocode chybějících GPS (Scrape stránka v UI, nebo endpoint spatial geocode-missing)
+      – 647 aktivních bez GPS; s obcí z Bazoše se trefí do správné vesnice.
+- [ ] Znovu `POST /api/listings/detect-duplicates` – po geocodingu chytí i páry,
+      kde dřív jedna strana GPS neměla.
+- [ ] Ověřit v UI: karta z screenshotu (Kunštátská, 7 490 000 Kč) má být v seznamu jen jednou,
+      s chipem „+2".
+
+Očekávání: GPS větev našla při odhadu na produkci **24 duplikátů** ještě před geocodingem;
+po doplnění GPS to bude víc. Kunštátská trojice se sloučí hned, Lechovice až po geocodingu Bazoše.

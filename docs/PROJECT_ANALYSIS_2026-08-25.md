@@ -446,3 +446,30 @@ plus `UseForwardedHeaders()` — za Traefikem by jinak všichni návštěvníci 
 Zbývá otevřené: squash EF migrací (kap. 6.1), `BaseScraper` (6.3), rozpad
 `ListingDetail.razor` (6.4), autentizace v aplikaci (kap. 2.4 květnové analýzy),
 a ověření API klíče na sudgate (kap. 5.1) — to jediné jsem nemohl spustit.
+
+---
+
+## 12. Dodatek 2 – duplikáty a kvalita dat (25. 8. večer)
+
+Uživatelské screenshoty odhalily, co statická analýza přehlédla: **květnový dedup (`fd62dee`)
+je poloviční feature** – sloupec, DTO a UI banner existují, ale detekce nikdy nevznikla
+(`duplicate_of_listing_id` se nikde nezapisoval; na produkci 0 řádků). Stejný dům se proto
+zobrazoval 2–3× a AI hodnotila každou kopii zvlášť → „Podhodnocená" vs. „Přiměřená" vedle sebe.
+
+Při ověřování na produkci vyplavaly dvě systémové vady dat:
+
+1. **SREALITY plochy:** v1 API pole `estate_area` nese u domů výměru pozemku; parser ho
+   zapisoval do `area_built_up`. Všech **616 aktivních SREALITY domů** mělo v ploše domu
+   výměru pozemku a `area_land` NULL. Filtr „plocha domu" tak u největšího zdroje lhal.
+2. **`municipality`/`district` se nikdy neukládaly** – sloupce chyběly v INSERT příkazu
+   upsertu v `database.py`. Scrapery je někdy parsovaly, DB je zahodila. Bez nich nemá
+   geo filtr ani detekce duplikátů strukturovaná data (SREALITY je má v API, Bazoš v titulku).
+
+Vše opraveno (viz `SUDGATE_CHECKLIST_2026-08-25.md`, sekce E). Detekce je konzervativní
+(radši nechá dvě karty, než sloučí dva různé domy): cena ±2 % + GPS ≤ 300 m; bez GPS cena
+na korunu + stejná obec + plocha ±5 %. Testy: 173 C# + 118 pytest.
+
+Poučení pro příště: analýza kódu odhalí rozbitou infrastrukturu, ale ne polovičaté featury –
+ty jsou vidět jen na datech („sloupec existuje" ≠ „sloupec se plní"). Kontrola typu
+`SELECT count(*) FROM ... WHERE duplicate_of_listing_id IS NOT NULL` měla být součástí
+květnového „hotovo".
