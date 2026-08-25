@@ -46,8 +46,10 @@ public static class ListingEndpoints
             .WithName("DeactivateDead")
             .WithSummary("HTTP-HEAD zkontroluje aktivní inzeráty starší než daysOld dní a deaktivuje ty s HTTP 404/410");
 
+        // Jméno musí být globálně unikátní napříč VŠEMI endpointy – /api/ollama/detect-duplicates
+        // už "DetectDuplicates" zabralo a kolize shodí routing až za běhu (500 na každý request).
         group.MapPost("/detect-duplicates", DetectDuplicates)
-            .WithName("DetectDuplicates")
+            .WithName("ScanListingDuplicates")
             .WithSummary("Najde stejnou nemovitost napříč zdroji (cena + GPS/obec/plocha) a označí duplikáty; primární = nejstarší záznam");
 
         // User photo upload endpoints
