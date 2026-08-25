@@ -64,8 +64,8 @@ src/RealEstate.App/           # Blazor Web App (MudBlazor 9)
 src/RealEstate.Export/        # Export content builders (Markdown, Word)
 src/RealEstate.Background/    # Background job services
 tests/RealEstate.Tests/       # xUnit tests
-scraper/                      # Python FastAPI scraping service (12 sources)
-mcp/server.py                 # FastMCP 3.x MCP server (14 tools)
+scraper/                      # Python FastAPI scraping service (14 sources)
+mcp/server.py                 # FastMCP 3.x MCP server (15 tools)
 ```
 
 ### API endpoint organization
@@ -135,8 +135,20 @@ Environment variables used by API (set in `docker-compose.yml` or `.env`):
 | `Ollama__BaseUrl` | Ollama endpoint (Docker: `http://host.docker.internal:11434`) |
 | `Ollama__VisionModel` | Vision model for photo classification (default: `llama3.2-vision:11b`) |
 | `PHOTOS_PUBLIC_BASE_URL` | Base URL for serving stored photos |
+| `PUBLIC_API_URL` | Externí URL API – plní `PHOTOS_PUBLIC_BASE_URL` a `ApiPublicUrl` |
+| `OpenRouter__ApiKey` / `Groq__ApiKey` / `Mistral__ApiKey` | Cloud LLM fallback |
+| `Anthropic__ApiKey` / `OllamaCloud__ApiKey` | Cloud LLM fallback |
+| `SLACK_WEBHOOK_URL` | Slack notifikace chyb ze scraperu |
+| `SKIP_EF_MIGRATIONS` | `true` = přeskočí bootstrap schématu při startu API |
 
-Secrets (Google Drive, OneDrive) live in `secrets/` and `src/RealEstate.Api/secrets/` – never commit these.
+Secrets (Google Drive) live in `secrets/` and `src/RealEstate.Api/secrets/` – never commit these.
+
+## Kde běží produkce
+
+Aplikace neběží lokálně – produkce je na domácím serveru **sudgate** (`192.168.11.2`, `realestate.sudata.eu`)
+za Traefikem. Infrastruktura je verzovaná v samostatném repu `/Volumes/edata/dev/zupagate`
+(Traefik routy, TLS přes Wedos DNS-01, DDNS relay, Prometheus/Grafana/Alertmanager, UFW + DOCKER-USER).
+Lokální `make up` je jen pro vývoj. Deploy: `make deploy-api` / `make deploy-app`.
 
 ## Database Migrations
 

@@ -9,7 +9,11 @@
 
 Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu realitních inzerátů ze 14 českých zdrojů. Podporuje centralizované vyhledávání, filtrování, AI chat nad inzeráty (RAG), prostorové analýzy (PostGIS), export do cloudu a integraci s Claude Desktop přes MCP.
 
-**Aktuální stav:** ~1 558 aktivních inzerátů · 14 zdrojů · 97 % GPS pokrytí · AI enrichment 91 % · Docker stack plně funkční
+**Aktuální stav (25. 8. 2026):** ~2 249 aktivních inzerátů (6 803 celkem) · 14 zdrojů · AI enrichment 91 %
+
+> **Kde to běží:** produkce je na domácím serveru **sudgate** (`192.168.11.2`, `realestate.sudata.eu`) za Traefikem.
+> Infrastruktura (Traefik, TLS, DDNS, monitoring) je verzovaná v samostatném repu `zupagate`, viz [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+> Lokální `make up` slouží jen k vývoji.
 
 ### Klíčové funkce
 
@@ -18,7 +22,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 ✅ **Pokročilé filtrování** – typ, nabídka, cena, lokalita, fulltextový GIN index  
 ✅ **RAG + AI chat** – lokální Ollama (nomic-embed-text + qwen2.5:14b), pgvector 768 dim  
 ✅ **MCP server** – 15 nástrojů pro Claude Desktop / AI asistenty  
-✅ **Cloud export s retry** – Google Drive + OneDrive, retry 3×, foto stats v UI  
+✅ **Cloud export s retry** – Google Drive, retry 3×, foto stats v UI  
 ✅ **User management** – označování (líbí/nelíbí/navštívit), poznámky, favority  
 ✅ **Moderní UI** – Blazor + MudBlazor 9, responzivní, filter state persistence  
 ✅ **Prostorové analýzy** – PostGIS 3.4, Leaflet mapa, koridor podél trasy (OSRM + ST_Buffer)  
@@ -48,10 +52,10 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
   ┌────┴──────────────┬──────────────────┬──────────────────┐
   │                   │                  │                  │
 ┌─▼──────────┐  ┌─────▼──────┐  ┌───────▼──────┐  ┌───────▼──────────┐
-│ PostgreSQL │  │Cloud Storage│  │ Ollama :11434│  │ Python Scraper   │
-│ PostGIS 3.4│  │Google Drive │  │nomic-embed   │  │ FastAPI :8001    │
-│ + pgvector │  │OneDrive     │  │qwen2.5:14b   │  │ 14 zdrojů        │
-│ ~1 558 inz │  │(retry 3×)   │  │llama3.2-vis  │  │ APScheduler 3 AM │
+│ PostgreSQL │  │Google Drive │  │ Ollama :11434│  │ Python Scraper   │
+│ PostGIS 3.4│  │  (export)   │  │nomic-embed   │  │ FastAPI :8001    │
+│ + pgvector │  │             │  │qwen2.5:14b   │  │ 14 zdrojů        │
+│ ~2 249 inz │  │(retry 3×)   │  │llama3.2-vis  │  │ APScheduler 3 AM │
 └────────────┘  └────────────┘  └──────────────┘  │ Slack alerting   │
                                                    └──────────────────┘
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -70,7 +74,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 - **ORM**: Entity Framework Core 10 + EFCore.NamingConventions (snake_case)
 - **Databáze**: PostgreSQL 15 + PostGIS 3.4 + pgvector (768-dim embeddingy)
 - **AI enrichment**: Ollama (nomic-embed-text · qwen2.5:14b · llama3.2-vision:11b)
-- **API integrace**: Google Drive API, Microsoft Graph API (OneDrive)
+- **API integrace**: Google Drive API
 - **Security**: API key middleware, CORS, CancellationToken pattern, porty bind na 127.0.0.1
 
 ### Scraping (Python FastAPI)
@@ -98,7 +102,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 ### Infrastruktura
 - **Hosting**: Docker Compose (**6 služeb**: postgres, api, app, scraper, mcp, pgadmin)
 - **Restart policy**: `unless-stopped` na všech 5 produkčních službách
-- **Storage**: Google Drive / OneDrive (export s retry 3×) + lokální `uploads_data` volume
+- **Storage**: Google Drive (export s retry 3×) + lokální `uploads_data` volume
 - **Logging**: Serilog structured logging (CompactJsonFormatter v produkci)
 
 ---
@@ -298,7 +302,7 @@ AI analýza inzerátu
 - `GET /api/photos/stats` – statistiky stažených fotek
 - `POST /api/photos/bulk-classify-inspection` – Vision klasifikace
 
-### Export (Google Drive / OneDrive)
+### Export (Google Drive)
 - `POST /api/listings/{id}/export/drive`
 - `POST /api/listings/{id}/export/onedrive`
 
@@ -391,7 +395,7 @@ Tři bulk Ollama joby zpracovávají inzeráty na pozadí:
 - [x] .NET 10 backend s EF Core + pgvector
 - [x] Blazor frontend s MudBlazor 9
 - [x] Filtrování, user stavy, filter state persistence
-- [x] Cloud export (Google Drive + OneDrive)
+- [x] Cloud export (Google Drive; OneDrive odstraněn 5/2026)
 - [x] Docker stack (5 služeb, restart: unless-stopped)
 - [x] OfferType.Auction + SReality dražby
 - [x] Fulltext GIN index, CORS, API key security

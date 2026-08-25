@@ -207,3 +207,6 @@ test-results/
 
 # Shell output files
 nohup.out
+
+# Datované výstupy benchmarků
+benchmark_*.json
