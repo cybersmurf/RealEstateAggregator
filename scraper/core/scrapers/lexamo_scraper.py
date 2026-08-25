@@ -35,6 +35,16 @@ OFFER_TYPE_MAP = {
     "pronajem": "Rent",
 }
 
+# Slug okresu v URL → název okresu s diakritikou (kvůli shodě s target_districts)
+DISTRICT_SLUG_MAP = {
+    "znojmo": "Znojmo",
+    "trebic": "Třebíč",
+    "brno-venkov": "Brno-venkov",
+    "brno-mesto": "Brno-město",
+    "breclav": "Břeclav",
+    "jihlava": "Jihlava",
+}
+
 PROPERTY_TYPE_MAP = {
     "byt": "Apartment",
     "bytov": "Apartment",
@@ -172,6 +182,11 @@ class LexamoScraper:
         # Location text – heading after the title heading
         location = self._extract_location(soup, title)
 
+        # Okres – LEXAMO ho neuvádí v obsahu, ale má ho ve slugu URL
+        # (…-prodej-zahrady-dyjakovice-okres-znojmo-…). Bez něj vidí geo filtr
+        # jen název obce ("Vrbovec") a zahodí i inzeráty z cílového okresu.
+        district = self._extract_district(url)
+
         # Parameters (Užitná plocha, Celková plocha, …)
         params = self._extract_params(soup)
         area = params.get("uzitna_plocha") or params.get("celkova_plocha")
@@ -193,6 +208,7 @@ class LexamoScraper:
             "property_type": property_type,
             "area": area,
             "location_text": location,
+            "district": district,
             "photos": photos,
         }
 
@@ -214,6 +230,23 @@ class LexamoScraper:
             if keyword in text:
                 return ptype
         return "Other"
+
+    @staticmethod
+    def _extract_district(url: str) -> Optional[str]:
+        """Vytáhne okres ze slugu URL: '…-okres-znojmo-…' → 'Znojmo'.
+
+        LEXAMO pokrývá Znojemsko i Třebíčsko a okres je v obsahu stránky
+        nespolehlivý; ve slugu je konzistentně.
+        """
+        match = re.search(r"-okres-([a-z-]+?)-(?:prodej|pronajem|pronájem)", url.lower())
+        if not match:
+            match = re.search(r"-okres-([a-z]+)", url.lower())
+        if not match:
+            return None
+        slug = match.group(1).strip("-")
+        # Slug je bez diakritiky; geo filtr porovnává case-insensitive substringem,
+        # takže stačí vrátit čitelnou podobu se zachovaným kmenem.
+        return DISTRICT_SLUG_MAP.get(slug, slug.replace("-", " ").title())
 
     def _extract_price(self, soup: BeautifulSoup) -> Optional[float]:
         """Extract price from heading or paragraph containing Kč."""

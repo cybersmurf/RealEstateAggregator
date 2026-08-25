@@ -16,6 +16,7 @@ from core.scrapers.prodejmeto_scraper import ProdejmeToScraper as ProdejmetoScra
 from core.scrapers.remax_scraper import RemaxScraper
 from core.scrapers.reas_scraper import ReasScraper, PROPERTY_TYPE_MAP
 from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper as ZnojmorealityScraper
+from core.scrapers.lexamo_scraper import LexamoScraper
 
 
 # ---------------------------------------------------------------------------
@@ -568,3 +569,41 @@ class TestZnojmorealityExtractPrice:
         link = soup.find("p")
         result = self.scraper._extract_price_from_context(link)
         assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# LexamoScraper – okres ze slugu URL
+# ---------------------------------------------------------------------------
+
+class TestLexamoExtractDistrict:
+    """LEXAMO neuvádí okres v obsahu, jen ve slugu URL.
+
+    Bez něj vidí geo filtr pouze název obce ("Vrbovec") a zahodí i inzeráty
+    z cílového okresu Znojmo – zdroj pak vypadá jako mrtvý.
+    """
+
+    BASE = "https://www.lexamo.cz/realman-listing/"
+
+    def test_znojmo_district_from_slug(self):
+        url = self.BASE + "prodej-zahrady-dyjakovice-okres-znojmo-prodej-zahrady-3-930-m2-dyjakovice-383"
+        assert LexamoScraper._extract_district(url) == "Znojmo"
+
+    def test_trebic_district_gets_diacritics(self):
+        url = self.BASE + "prodej-stavebniho-pozemku-mohelno-okres-trebic-prodej-stavebniho-pozemku-1-680-m2-mohelno-390"
+        assert LexamoScraper._extract_district(url) == "Třebíč"
+
+    def test_rental_slug(self):
+        url = self.BASE + "pronajem-bytu-1-1-moravske-budejovice-okres-trebic-pronajem-bytu-1-1-33-m2-moravske-budejovice-389"
+        assert LexamoScraper._extract_district(url) == "Třebíč"
+
+    def test_multiword_district(self):
+        url = self.BASE + "prodej-domu-pohorelice-okres-brno-venkov-prodej-rodinneho-domu-120-m2-401"
+        assert LexamoScraper._extract_district(url) == "Brno-venkov"
+
+    def test_missing_district_returns_none(self):
+        url = self.BASE + "prodej-bytu-2-1-sanov-prodej-bytu-2-1-sanov-308"
+        assert LexamoScraper._extract_district(url) is None
+
+    def test_unknown_district_slug_is_titlecased(self):
+        url = self.BASE + "prodej-domu-nekde-okres-kolin-prodej-rodinneho-domu-99"
+        assert LexamoScraper._extract_district(url) == "Kolin"
