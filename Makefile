@@ -206,6 +206,8 @@ deploy-scraper:
 	@echo ">>> Deploy scraperu na $(SERVER)..."
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build scraper && $(COMPOSE_SRV) up -d --no-deps scraper && echo "DEPLOY SCRAPER OK"'
 	@echo ">>> Ověření..."
+	@echo ">>> Čekám na scraper (nemá healthcheck, poll na /v1/health)"
+	@ssh $(SERVER) 'for i in $$(seq 1 30); do curl -sf -o /dev/null http://localhost:8001/v1/health/scrapers && exit 0; sleep 3; done; echo "   scraper neodpovídá"; docker logs --tail 30 realestate-scraper; exit 1'
 	@ssh $(SERVER) "curl -sf http://localhost:8001/v1/health/scrapers" \
 	  | python3 -c "import json,sys; d=json.load(sys.stdin); print('scrapery: %s, ok=%d/%d, stale/dead=%d' % (d['overall'], d['ok'], d['total_sources'], d['stale_or_dead']))"
 
