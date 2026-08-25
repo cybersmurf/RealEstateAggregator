@@ -156,6 +156,7 @@ public sealed class SpatialService(
             // Hledej pomocí WKT polygonu – $1 = pozicový Npgsql parametr
             whereClause = """
                 l.is_active = true
+                AND l.duplicate_of_listing_id IS NULL
                 AND l.location_point IS NOT NULL
                 AND ST_Intersects(l.location_point, ST_GeomFromText($1, 4326))
                 """;
@@ -167,6 +168,7 @@ public sealed class SpatialService(
             // Bounding box search – $1..$4 = pozicové Npgsql parametry
             whereClause = """
                 l.is_active = true
+                AND l.duplicate_of_listing_id IS NULL
                 AND l.location_point IS NOT NULL
                 AND l.location_point && ST_MakeEnvelope($1, $2, $3, $4, 4326)
                 """;
@@ -200,6 +202,7 @@ public sealed class SpatialService(
             LEFT JOIN re_realestate.listing_photos p
                 ON p.listing_id = l.id AND p.order_index = 0
             WHERE l.is_active = true
+              AND l.duplicate_of_listing_id IS NULL
               AND l.latitude IS NOT NULL
               AND l.longitude IS NOT NULL
             """;
@@ -297,10 +300,10 @@ public sealed class SpatialService(
         // 1. Načti dávku inzerátů bez GPS přes EF Core LINQ
         var listings = await db.Listings
             .Where(l => l.Latitude == null && l.IsActive
-                     && l.LocationText != null && l.LocationText != "")
+                     && ((l.LocationText != null && l.LocationText != "") || l.Municipality != null))
             .OrderByDescending(l => l.FirstSeenAt)
             .Take(batchSize)
-            .Select(l => new { l.Id, l.LocationText })
+            .Select(l => new { l.Id, l.LocationText, l.Municipality })
             .ToListAsync(ct);
 
         if (listings.Count == 0)
@@ -317,7 +320,11 @@ public sealed class SpatialService(
         {
             ct.ThrowIfCancellationRequested();
 
-            var query = ExtractCityFromLocationText(item.LocationText!);
+            // Strukturovaná obec má přednost – location_text u Bazoše je jen "PSČ Okresní-město",
+            // takže by se dům z Lechovic geokódoval do Znojma (15 km vedle)
+            var query = !string.IsNullOrWhiteSpace(item.Municipality)
+                ? item.Municipality
+                : ExtractCityFromLocationText(item.LocationText ?? "");
             if (string.IsNullOrWhiteSpace(query))
             {
                 failed++;

@@ -4,6 +4,9 @@ Orchestrates individual scrapers and manages job lifecycle.
 """
 import asyncio
 import logging
+import os
+
+import httpx
 import yaml
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Awaitable
@@ -262,6 +265,10 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
 
             logger.info(f"Job {job_id}: All scrapers completed. Total listings: {total_scraped}")
 
+            # Přepočítej cross-source duplikáty (stejný dům na SREALITY + BAZOS + …).
+            # Detekci vlastní .NET API; selhání nesmí shodit scrape job.
+            await _trigger_duplicate_detection(job_id)
+
             # Slack notifikace – pošle jen pokud něco selhalo nebo vrátilo 0
             job_results = {name: res for (name, _), res in zip(tasks, results)}
             await notifications.notify_job_summary(
@@ -296,3 +303,27 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             error_message=str(exc),
             finished_at=datetime.utcnow()
         )
+
+
+async def _trigger_duplicate_detection(job_id: UUID) -> None:
+    """Po scrapu požádá API o přepočet duplicate_of_listing_id.
+
+    Bez tohoto kroku by nové inzeráty zůstaly neoznačené a stejný dům by se
+    v aplikaci zobrazoval vícekrát s protichůdnými AI cenovými signály.
+    """
+    api_base_url = os.environ.get("API_BASE_URL", "http://realestate-api:8080")
+    url = f"{api_base_url.rstrip('/')}/api/listings/detect-duplicates"
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(url)
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info(
+                "Job %s: Duplicate detection – %s aktivních, %s skupin, %s duplikátů",
+                job_id,
+                data.get("activeListings"),
+                data.get("clusters"),
+                data.get("duplicatesMarked"),
+            )
+    except Exception as exc:  # noqa: BLE001 – detekce je best-effort, job už uspěl
+        logger.warning("Job %s: Duplicate detection call failed: %s", job_id, exc)

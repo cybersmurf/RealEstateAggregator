@@ -40,4 +40,7 @@ public sealed class ListingSummaryDto
 
     /// <summary>Smart tagy jako JSON pole stringů, např. ["Cihla","Zahrada","Garáž"].</summary>
     public string? SmartTags { get; set; }
+
+    /// <summary>Kódy dalších zdrojů, kde je tentýž inzerát (duplikáty tohoto primárního záznamu).</summary>
+    public List<string> OtherSourceCodes { get; set; } = [];
 }

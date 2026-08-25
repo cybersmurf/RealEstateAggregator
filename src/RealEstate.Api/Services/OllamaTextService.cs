@@ -43,6 +43,7 @@ public sealed class OllamaTextService(
         batchSize = Math.Clamp(batchSize, 1, 50);
 
         var query = db.Listings
+            .Where(l => l.IsActive && l.DuplicateOfListingId == null)
             .Where(l => (force ? true : l.SmartTags == null) && l.Description != null && l.Description.Length > 50)
             .Where(l => listingId == null || l.Id == listingId);
 
@@ -108,6 +109,7 @@ public sealed class OllamaTextService(
         batchSize = Math.Clamp(batchSize, 1, 50);
 
         var query = db.Listings
+            .Where(l => l.IsActive && l.DuplicateOfListingId == null)
             .Where(l => (force ? true : l.AiNormalizedData == null) && l.Description != null && l.Description.Length > 100)
             .Where(l => listingId == null || l.Id == listingId);
 
@@ -208,6 +210,7 @@ public sealed class OllamaTextService(
             .Include(l => l.UserStates)
             .Include(l => l.Analyses)
             .AsSplitQuery()
+            .Where(l => l.IsActive && l.DuplicateOfListingId == null)
             .Where(l => (force ? true : l.PriceSignal == null) && l.Price != null && l.Price > 0)
             .Where(l => listingId == null || l.Id == listingId);
 

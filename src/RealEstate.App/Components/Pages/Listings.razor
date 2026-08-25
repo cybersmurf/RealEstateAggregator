@@ -395,6 +395,15 @@
                             {
                                 <MudChip T="string" Size="Size.Small" Color="@SourceColor(item.SourceCode)" Variant="Variant.Outlined">@item.SourceName</MudChip>
                             }
+                            @if (item.OtherSourceCodes.Count > 0)
+                            {
+                                <MudTooltip Text="@($"Stejný inzerát také na: {string.Join(", ", item.OtherSourceCodes)}")">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Text"
+                                             Icon="@Icons.Material.Filled.ContentCopy">
+                                        +@item.OtherSourceCodes.Count
+                                    </MudChip>
+                                </MudTooltip>
+                            }
                             <MudSpacer />
                             @{ var pti = PropertyTypeInfo(item.PropertyType); }
                             <MudChip T="string" Size="Size.Small" Color="@pti.Color" Variant="Variant.Text" Icon="@pti.Icon">@TranslatePropertyType(item.PropertyType)</MudChip>

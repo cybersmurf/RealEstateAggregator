@@ -45,6 +45,9 @@ public sealed class ListingFilterDto
     public double? BboxLonMin { get; set; }
     public double? BboxLonMax { get; set; }
 
+    /// <summary>Zobrazit i inzeráty označené jako duplikát jiného zdroje (výchozí: skryté).</summary>
+    public bool IncludeDuplicates { get; set; } = false;
+
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 50;
 }

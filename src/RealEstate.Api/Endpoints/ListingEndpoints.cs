@@ -46,6 +46,10 @@ public static class ListingEndpoints
             .WithName("DeactivateDead")
             .WithSummary("HTTP-HEAD zkontroluje aktivní inzeráty starší než daysOld dní a deaktivuje ty s HTTP 404/410");
 
+        group.MapPost("/detect-duplicates", DetectDuplicates)
+            .WithName("DetectDuplicates")
+            .WithSummary("Najde stejnou nemovitost napříč zdroji (cena + GPS/obec/plocha) a označí duplikáty; primární = nejstarší záznam");
+
         // User photo upload endpoints
         group = group.MapUserPhotoEndpoints();
 
@@ -183,6 +187,14 @@ public static class ListingEndpoints
         {
             return TypedResults.Ok(new CheckLiveResultDto(null, null, ex.Message));
         }
+    }
+
+    private static async Task<Ok<DuplicateScanResultDto>> DetectDuplicates(
+        [FromServices] IDuplicateDetectionService detectionService,
+        CancellationToken cancellationToken)
+    {
+        var result = await detectionService.DetectAsync(cancellationToken);
+        return TypedResults.Ok(result);
     }
 
     private static async Task<Ok<DeactivateDeadResult>> DeactivateDead(

@@ -119,6 +119,7 @@ services:
       - DOCKER=1                  # ← vypne uvicorn --reload (způsobuje hang na macOS Docker)
       - UPLOADS_BASE_PATH=/app/uploads  # Sdílený volume s API pro inline photo download
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - API_BASE_URL=http://realestate-api:8080  # Po scrapu volá detekci duplikátů v API
     ports:
       - "127.0.0.1:8001:8001"
     depends_on:

@@ -13,6 +13,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddRealEstateServices(this IServiceCollection services, IConfiguration config)
     {
         services.AddScoped<IListingService, ListingService>();
+        services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddScoped<ISourceService, SourceService>();
         services.AddScoped<IAnalysisService, AnalysisService>();
         services.AddScoped<IScrapingService, ScrapingService>();

@@ -114,6 +114,32 @@ public class ListingService : IListingService
         // 6) Projekce do DTO
         var items = entities.Select(MapToSummaryDto).ToList();
 
+        // 7) Doplnění "kde všude tento inzerát ještě je" – jen pro zobrazenou stránku (levný dotaz)
+        if (items.Count > 0)
+        {
+            var pageIds = items.Select(i => i.Id).ToList();
+            var duplicateSources = await _dbContext.Listings
+                .AsNoTracking()
+                .Where(l => l.IsActive
+                            && l.DuplicateOfListingId != null
+                            && pageIds.Contains(l.DuplicateOfListingId.Value))
+                .Select(l => new { PrimaryId = l.DuplicateOfListingId!.Value, l.SourceCode })
+                .ToListAsync(cancellationToken);
+
+            if (duplicateSources.Count > 0)
+            {
+                var bySource = duplicateSources
+                    .GroupBy(d => d.PrimaryId)
+                    .ToDictionary(g => g.Key, g => g.Select(d => d.SourceCode).Distinct().Order().ToList());
+
+                foreach (var item in items)
+                {
+                    if (bySource.TryGetValue(item.Id, out var codes))
+                        item.OtherSourceCodes = codes;
+                }
+            }
+        }
+
         return new PagedResultDto<ListingSummaryDto>
         {
             Items = items,
@@ -327,6 +353,13 @@ public class ListingService : IListingService
     {
         // true = začínáme s "vše je povoleno" (identita AND)
         var predicate = PredicateBuilder.New<Listing>(true);
+
+        // Duplikáty z jiných zdrojů skryté – stejný dům se jinak zobrazí 2–3×,
+        // pokaždé s jinými SmartTags a jiným cenovým signálem (AI hodnotí každou kopii zvlášť).
+        if (!filter.IncludeDuplicates)
+        {
+            predicate = predicate.And(x => x.DuplicateOfListingId == null);
+        }
 
         // Source codes
         if (filter.SourceCodes is { Count: > 0 })
