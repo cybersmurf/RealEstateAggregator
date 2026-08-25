@@ -22,5 +22,8 @@ services:
   # MCP publikuje port na 0.0.0.0. Z internetu ho drží UFW + DOCKER-USER chain,
   # ale svázání na loopback je explicitnější a nespoléhá na firewall.
   mcp:
-    ports:
+    # !override je nutné: Compose u `ports` seznamy SLUČUJE, nepřepisuje.
+    # Bez něj by platilo základní "8002:8002" i tohle a kontejner by kolidoval
+    # sám se sebou – "failed to bind host port 127.0.0.1:8002: address already in use".
+    ports: !override
       - "127.0.0.1:8002:8002"
