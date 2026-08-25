@@ -40,7 +40,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
     <PackageReference Include="Google.Apis.Drive.v3" Version="1.73.0.4045" />
     <PackageReference Include="Markdig" Version="0.38.0" />
@@ -52,6 +51,8 @@
     <PackageReference Include="Serilog.Enrichers.Thread" Version="4.*" />
     <PackageReference Include="Serilog.Formatting.Compact" Version="3.*" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.3" />
+    <!-- Pin: tranzitivní Microsoft.OpenApi 2.4.1 ze Swashbuckle má GHSA-v5pm-xwqc-g5wc -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.3">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

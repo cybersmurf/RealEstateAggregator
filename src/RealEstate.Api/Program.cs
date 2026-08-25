@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
@@ -50,14 +51,18 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(opts 
 
 // ─── API Key ──────────────────────────────────────────────────────────────────
 // Načteme z prostředí, fallback na výchozí dev hodnotu.
-// V produkci nastavit: API_KEY=<tajný klíč>
-var apiKey = Environment.GetEnvironmentVariable("API_KEY") ?? "dev-key-change-me";
+// Mimo Development nastavit: API_KEY=<tajný klíč>
+const string DefaultDevApiKey = "dev-key-change-me";
+var apiKey = Environment.GetEnvironmentVariable("API_KEY") ?? DefaultDevApiKey;
 
-// V produkci nesmí běžet s defaultním dev klíčem.
-if (builder.Environment.IsProduction() && apiKey == "dev-key-change-me")
+// Výchozí dev klíč je povolený POUZE v Development.
+// Pozor: podmínka záměrně NENÍ IsProduction() – nasazení běží s ASPNETCORE_ENVIRONMENT=Development,
+// takže kontrola vázaná na Production by byla mrtvý kód a produkce by tiše jela s klíčem z gitu.
+if (!builder.Environment.IsDevelopment() && apiKey == DefaultDevApiKey)
 {
     throw new InvalidOperationException(
-        "API_KEY environment variable must be set in production. Default 'dev-key-change-me' is not allowed.");
+        $"API_KEY environment variable must be set outside Development. " +
+        $"Default '{DefaultDevApiKey}' is not allowed (environment: {builder.Environment.EnvironmentName}).");
 }
 
 // Override connection string and scraper API base URL from environment variables
@@ -123,25 +128,47 @@ builder.Services.AddHealthChecks()
 
 // ─── Rate Limiting ───────────────────────────────────────────────────────────
 // Chrání drahé AI endpointy (RAG ask, embed) před zneužitím.
+// Pozor: AddFixedWindowLimiter(name, …) vytváří JEDEN sdílený limiter pro všechny volající –
+// komentář „per IP" tedy dřív nesouhlasil s kódem a jeden klient mohl vyčerpat limit všem.
+// Proto AddPolicy + PartitionedRateLimiter s klíčem podle IP.
+static string RateLimitPartitionKey(HttpContext ctx) =>
+    ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    // RAG ask: 20 req/min per IP
-    options.AddFixedWindowLimiter("rag-ask", o =>
-    {
-        o.PermitLimit = 20;
-        o.Window = TimeSpan.FromMinutes(1);
-        o.QueueLimit = 0;
-    });
+    // RAG ask: 20 req/min na IP
+    options.AddPolicy("rag-ask", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        RateLimitPartitionKey(ctx),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
 
-    // RAG embed: 5 req/min per IP (drahá operace)
-    options.AddFixedWindowLimiter("rag-embed", o =>
-    {
-        o.PermitLimit = 5;
-        o.Window = TimeSpan.FromMinutes(1);
-        o.QueueLimit = 0;
-    });
+    // RAG embed: 5 req/min na IP (drahá operace)
+    options.AddPolicy("rag-embed", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        RateLimitPartitionKey(ctx),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+});
+
+// ─── Forwarded Headers ───────────────────────────────────────────────────────
+// API běží za Traefikem – bez tohoto vidí aplikace jako klientskou IP kontejner proxy,
+// takže by rate limiting výše partišnoval všechny návštěvníky do jednoho kbelíku.
+builder.Services.Configure<ForwardedHeadersOptions>(opts =>
+{
+    opts.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Traefik je v Docker síti s proměnlivou IP – seznam známých proxy nelze zadat staticky.
+    // Bezpečné jen proto, že kontejner není z internetu dostupný přímo (UFW + DOCKER-USER).
+    opts.KnownNetworks.Clear();
+    opts.KnownProxies.Clear();
 });
 
 
@@ -151,7 +178,12 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
 
+// Bootstrap schématu záměrně NENÍ vázaný na Development.
+// Dřív byl uvnitř if (IsDevelopment()) – přepnutí nasazení na Production by tak u prázdné
+// databáze znamenalo start bez jediné tabulky. Řídí se výhradně SKIP_EF_MIGRATIONS.
+{
     var skipMigrations = string.Equals(
         Environment.GetEnvironmentVariable("SKIP_EF_MIGRATIONS"),
         "true",
@@ -182,10 +214,14 @@ if (app.Environment.IsDevelopment())
         }
     }
 }
-else
-{
-    app.UseHttpsRedirection();
-}
+
+// Musí být první middleware – ostatní (rate limiting, logování) potřebují skutečnou klientskou IP.
+app.UseForwardedHeaders();
+
+// Pozn.: UseHttpsRedirection() zde záměrně NENÍ.
+// TLS terminuje Traefik na sudgate a přesměrování 80→443 dělá edge (entrypoint `web`).
+// Uvnitř Docker sítě chodí požadavky po HTTP (App → http://realestate-api:8080) –
+// redirect by je rozbil, jakmile se prostředí přepne na Production.
 
 // Enable static files for local storage serving
 app.UseStaticFiles();
@@ -238,8 +274,15 @@ app.MapLocalAnalysisEndpoints();
 app.MapScrapingEndpoints()
     .AddEndpointFilter(async (ctx, next) =>
     {
+        // FixedTimeEquals – porovnání nezávislé na délce shodného prefixu (timing side-channel)
+        static bool KeysMatch(string? provided, string expected) =>
+            provided is not null
+            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(provided),
+                System.Text.Encoding.UTF8.GetBytes(expected));
+
         if (!ctx.HttpContext.Request.Headers.TryGetValue("X-Api-Key", out var providedKey)
-            || providedKey != apiKey)
+            || !KeysMatch(providedKey.ToString(), apiKey))
         {
             return Results.Problem(
                 title: "Unauthorized",
