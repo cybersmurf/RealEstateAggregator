@@ -334,3 +334,44 @@ To je největší zbývající rezerva v kvalitě dat.
 
 Očekávání: GPS větev našla při odhadu na produkci **24 duplikátů** ještě před geocodingem;
 po doplnění GPS to bude víc. Kunštátská trojice se sloučí hned, Lechovice až po geocodingu Bazoše.
+
+---
+
+## F. Třetí dávka (27. 8.) – halucinace tagů a neaktuální cenové signály
+
+Nasazeno v pořadí podle zadání: `deploy-api` → `deploy-scraper` → `scrape-full`
+→ migrační skripty → bulk joby. Pořadí bylo skutečně důležité — scrape sám
+zneplatnil 104 signálů dotčených opravou ploch ještě před spuštěním skriptů.
+
+| Krok | Výsledek |
+|---|---|
+| `make deploy-api` + `deploy-scraper` | OK |
+| `make server-scrape-full` | `Succeeded`, 3 976 nalezených; signály 1 920 → 1 816 |
+| `migrate_fix_hallucinated_tags.sql` | 23 nepodložených `condition='Novostavba'`, 230 sad tagů k přegenerování |
+| `migrate_reset_stale_price_signals.sql` | 1 108 signálů zneplatněno (392 nesmyslné Kč/m², 354 před změnou ceny, 362 SREALITY domy) |
+| bulk smart-tags | 304 přegenerováno přes validátor, 0 selhání |
+| bulk price-opinion | ~1 100 přepočítáno |
+
+### Dvě vady, které se ukázaly až na produkci
+
+**1. Pojistka na Kč/m² nefungovala.** `PlausiblePricePerM2` jen vynechávala Kč/m²
+z promptu — inzerát ale stejně šel do modelu a ten vrátil verdikt z ceny samotné.
+Migrace tedy smazala 1 108 signálů a bulk job jich vzápětí **394 vrátil zpátky**,
+z toho 325 u inzerátů bez jakékoli plochy. Komentář v migračním skriptu přitom
+slibuje opak. Opraveno — bez věrohodné Kč/m² se signál nepočítá.
+
+**2. Přeskakování po načtení dávku neposunulo.** První verze opravy filtrovala až
+po načtení, takže dotaz vybíral pořád tytéž nespočitatelné inzeráty:
+`processed 50, succeeded 0` se stále stejným `remainingUnprocessed` — smyčka
+„dokud zbývá" by se točila donekonečna. Filtr je nově součástí SQL dotazu
+i počítadla zbývajících.
+
+Regresní testy: `PriceSignalSkipTests`.
+
+### Zbývá
+
+- **12 signálů u inzerátů bez ceny i plochy** (SREALITY Commercial, CENTURY21, PREMIAREALITY),
+  nejstarší z února. Migrace je nesáhla, protože má podmínku `price > 0` — rozsah
+  skriptu jsem záměrně nerozšiřoval. Signál u inzerátu bez ceny nedává smysl,
+  stojí za samostatný úklid.
+- **Obec plní jen SREALITY** (viz sekce E) — u zbylých 12 zdrojů 100 % NULL.
