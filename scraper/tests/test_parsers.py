@@ -672,3 +672,47 @@ class TestBazosExtractMunicipality:
 
     def test_lowercase_start(self):
         assert BazosScraper._extract_municipality("prodej domu, Lechovice") is None
+
+
+# ---------------------------------------------------------------------------
+# BazosScraper – plochy (místnost vs. celý dům)
+# ---------------------------------------------------------------------------
+
+class TestBazosExtractAreas:
+    """Fallback bral první "X m²" v popisu. U domu v Lechovicích to byla kuchyň
+    (10 m²) → cenový signál z toho spočítal 730 000 Kč/m² a označil dům
+    za extrémně nadhodnocený."""
+
+    def setup_method(self):
+        self.scraper = BazosScraper()
+
+    def test_room_area_is_not_used_as_house_area(self):
+        desc = ("Hledáte prostorný rodinný dům? Novější část, vybudovaná v roce 2000, "
+                "disponuje kuchyní o výměře 10 m², která navazuje na jídelnu.")
+        assert self.scraper._extract_areas("Lechovice, prodej RD 5+1", desc, "Dům") == (None, None)
+
+    def test_explicit_usable_area_nominative(self):
+        # "užitná plocha" (1. pád) dřív neprocházelo – regex uměl jen 7. pád
+        desc = "Rodinný dům. Kuchyní o výměře 10 m². Užitná plocha domu činí 129 m²."
+        assert self.scraper._extract_areas("Titulek", desc, "Dům") == (129.0, None)
+
+    def test_land_nominative(self):
+        # "Pozemek 1238 m²" (1. pád) dřív neprocházelo
+        desc = "Dům. Kuchyní o výměře 10 m². Pozemek o výměře 1238 m²."
+        assert self.scraper._extract_areas("Titulek", desc, "Dům") == (None, 1238.0)
+
+    def test_both_areas(self):
+        desc = "Dům na pozemku o výměře 1238 m². Užitná plocha 129 m²."
+        assert self.scraper._extract_areas("Titulek", desc, "Dům") == (129.0, 1238.0)
+
+    def test_land_listing_does_not_duplicate_into_built_up(self):
+        desc = "Prodej pozemku o výměře 800 m²."
+        assert self.scraper._extract_areas("Titulek", desc, "Pozemek") == (None, 800.0)
+
+    def test_small_room_areas_rejected_for_house(self):
+        desc = "Dům s garáží 18 m² a dílnou 25 m²."
+        assert self.scraper._extract_areas("Titulek", desc, "Dům") == (None, None)
+
+    def test_plain_area_without_room_context_is_used(self):
+        desc = "Nabízíme dům. Celkem 150 m² plochy k dispozici."
+        assert self.scraper._extract_areas("Titulek", desc, "Dům") == (150.0, None)

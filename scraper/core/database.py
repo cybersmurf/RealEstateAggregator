@@ -269,11 +269,16 @@ class DatabaseManager:
         now = datetime.utcnow()
         
         async with self.acquire() as conn:
-            # 🔥 Načti stávající cenu před upsertem – pro detekci změny ceny
-            old_price = await conn.fetchval(
-                "SELECT price FROM re_realestate.listings WHERE source_id = $1 AND external_id = $2",
+            # 🔥 Načti stávající cenu a plochy před upsertem – pro detekci změny ceny
+            # a pro invalidaci AI cenového signálu, jehož vstupem je Kč/m²
+            old_row = await conn.fetchrow(
+                """
+                SELECT price, area_built_up, area_land
+                FROM re_realestate.listings WHERE source_id = $1 AND external_id = $2
+                """,
                 source_id, external_id
             )
+            old_price = old_row["price"] if old_row else None
 
             # 🔥 ATOMIC UPSERT s ON CONFLICT DO UPDATE
             # Žádné race conditions - DB se postará o atomicitu
@@ -357,6 +362,33 @@ class DatabaseManager:
             
             # Pokud UPDATE navrátil existující ID, použij to
             final_listing_id = result if result else listing_id
+
+            # 🔥 Invalidace AI cenového signálu při změně jeho vstupů.
+            # Signál se generuje z Kč/m², ale bulk job bere jen řádky s price_signal IS NULL,
+            # takže bez tohohle by u inzerátu po zdražení nebo po opravě plochy natrvalo
+            # zůstalo zdůvodnění počítané ze starých čísel.
+            if old_row is not None:
+                def _changed(old_val, new_val) -> bool:
+                    if old_val is None and new_val is None:
+                        return False
+                    if old_val is None or new_val is None:
+                        return True
+                    return abs(float(old_val) - float(new_val)) > 0.5
+
+                inputs_changed = (
+                    _changed(old_row["price"], listing_data.get("price"))
+                    or _changed(old_row["area_built_up"], listing_data.get("area_built_up"))
+                    or _changed(old_row["area_land"], listing_data.get("area_land"))
+                )
+                if inputs_changed:
+                    await conn.execute(
+                        """
+                        UPDATE re_realestate.listings
+                        SET price_signal = NULL, price_signal_reason = NULL, price_signal_at = NULL
+                        WHERE id = $1 AND price_signal IS NOT NULL
+                        """,
+                        final_listing_id,
+                    )
 
             # 🔥 Zaloguj změnu ceny do price_history
             new_price = listing_data.get("price")

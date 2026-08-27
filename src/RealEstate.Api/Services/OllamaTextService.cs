@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Domain.Entities;
+using RealEstate.Domain.Enums;
 using RealEstate.Infrastructure;
 
 namespace RealEstate.Api.Services;
@@ -182,16 +183,54 @@ public sealed class OllamaTextService(
         reason must be in Czech, max 250 characters.
         """;
 
+    /// <summary>
+    /// Meze věrohodnosti Kč/m² zastavěné plochy. Mimo ně je skoro jistě špatná plocha,
+    /// ne zvláštní cena – reálné případy: kuchyň 10 m² uložená jako plocha domu
+    /// (730 000 Kč/m²) nebo plocha pozemku v poli zastavěné plochy (5 900 Kč/m²).
+    /// </summary>
+    /// <remarks>
+    /// Spodní mez je 6 000 Kč/m², i když nejlevnější kategorie v promptu (venkov)
+    /// začíná na 10 000. Záměrně je níž, aby prošel i skutečně zchátralý dům –
+    /// ale dost vysoko, aby zachytila typickou záměnu plochy pozemku za zastavěnou
+    /// (dům za 7,3 mil. na pozemku 1 238 m² vyšel na 5 897 Kč/m²).
+    /// Je to heuristika: raději pár chybějících signálů než sebejisté nesmysly.
+    /// </remarks>
+    private const decimal MinPlausiblePricePerM2 = 6_000m;
+    private const decimal MaxPlausiblePricePerM2 = 250_000m;
+
+    /// <summary>
+    /// Vrátí Kč/m², pokud jsou vstupy věrohodné. Jinak null – model pak dostane
+    /// „plocha neznámá" místo čísla, které by ho dovedlo k sebejistému nesmyslu.
+    /// </summary>
+    public static decimal? PlausiblePricePerM2(decimal? price, double? areaBuiltUp, double? areaLand, bool isLand)
+    {
+        var area = areaBuiltUp > 0 ? areaBuiltUp : areaLand;
+        if (price is not > 0 || area is not > 0) return null;
+
+        var perM2 = price.Value / (decimal)area.Value;
+
+        // U pozemků je Kč/m² přirozeně o řád níž, meze pro budovy tam neplatí
+        if (isLand) return perM2 is > 0 and < 50_000m ? perM2 : null;
+
+        return perM2 is >= MinPlausiblePricePerM2 and <= MaxPlausiblePricePerM2 ? perM2 : null;
+    }
+
     /// <summary>Sestaví user message pro cenový signál ze základních dat inzerátu.</summary>
     private static string BuildPriceOpinionMessage(Listing listing, string? inspectionNotes, IEnumerable<string>? analysisSnippets)
     {
-        var area = listing.AreaBuiltUp > 0 ? listing.AreaBuiltUp : listing.AreaLand;
-        var pricePerM2 = area > 0 ? listing.Price / (decimal)area!.Value : null;
+        var pricePerM2 = PlausiblePricePerM2(
+            listing.Price, listing.AreaBuiltUp, listing.AreaLand,
+            listing.PropertyType == PropertyType.Land);
 
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"Typ: {listing.PropertyType} | Nabídka: {listing.OfferType}");
         sb.AppendLine($"Cena: {listing.Price:N0} Kč{(pricePerM2 != null ? $" ({pricePerM2:N0} Kč/m²)" : "")}");
-        sb.AppendLine($"Plocha: {(listing.AreaBuiltUp > 0 ? $"{listing.AreaBuiltUp} m² (zastavěná)" : listing.AreaLand > 0 ? $"{listing.AreaLand} m² (pozemek)" : "neznámá")}");
+        // Plochu uvádíme jen když z ní vyšlo věrohodné Kč/m². Jinak je v datech chyba
+        // a model by na ní postavil sebejisté zdůvodnění ("730 000 Kč/m² je extrémně nadhodnocená").
+        var areaText = pricePerM2 is null
+            ? "neznámá (údaj ze zdroje nevěrohodný)"
+            : listing.AreaBuiltUp > 0 ? $"{listing.AreaBuiltUp} m² (zastavěná)" : $"{listing.AreaLand} m² (pozemek)";
+        sb.AppendLine($"Plocha: {areaText}");
         sb.AppendLine($"Lokalita: {listing.LocationText}");
         sb.AppendLine($"Stav: {listing.Condition ?? "neznámý"}");
         sb.AppendLine($"Dispozice: {listing.Disposition ?? "neznámá"}");

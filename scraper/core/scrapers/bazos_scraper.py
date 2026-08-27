@@ -77,6 +77,16 @@ _DEMAND_RE = re.compile(
 )
 
 
+# Slova, po kterých následující "X m²" patří MÍSTNOSTI, ne celé nemovitosti.
+# Reálný případ: "kuchyní o výměře 10 m²" se uložilo jako plocha domu
+# a cenový signál z toho spočítal 730 000 Kč/m².
+_ROOM_CONTEXT_RE = re.compile(
+    r"kuchyn|koupeln|lo[žz]nic|pokoj|j[íi]deln|ob[ýy]vac|chodb|p[řr]eds[íi]n|"
+    r"sp[íi][žz]|komor|gar[áa][žz]|d[íi]ln|teras|balk[óo]n|lod[žz]i|sklep|"
+    r"p[ůu]d[aěe]|verand|m[íi]stnost|wc|toalet|[šs]atn|z[áa]dve[řr]",
+    re.IGNORECASE,
+)
+
 class BazosScraper:
     """Scraper pro reality.bazos.cz (Znojmo, 25 km okruh, max 8.5M Kč)."""
 
@@ -474,8 +484,10 @@ class BazosScraper:
 
         # Plocha pozemku: 'pozemek o výměře X m²' nebo 'zahrada X m²' apod.
         area_land: Optional[float] = None
+        # pozem\w* / zahrad\w* pokrývá i 1. pád ("pozemek 800 m²") – původní
+        # pozemk(?:u|em|y|ů|a) na "pozemek" vůbec nesedělo
         m_land = re.search(
-            r"(?:pozemk(?:u|em|y|ů|a)|zahrad(?:a|e|y|ou)|parcel)\s+(?:o\s+(?:výměře|velikosti|ploše)\s+)?([\d][\d\s\.]+)\s*(?:m[²2]|㎡)",
+            r"(?:pozem\w*|zahrad\w*|parcel\w*)\s+(?:o\s+(?:výměře|velikosti|ploše)\s+)?([\d][\d\s\.]+)\s*(?:m[²2]|㎡)",
             full_text,
             re.IGNORECASE,
         )
@@ -490,8 +502,10 @@ class BazosScraper:
 
         # Zastavěná plocha: preferuj 'zastavěnou plochou X m²' / 'užitnou X m²' z popisu
         area_built_up: Optional[float] = None
+        # ploch\w* pokrývá i 1. pád "užitná plocha" – dřívější (plochou?|plochem?)
+        # matchovalo jen 7. pád, takže nejběžnější formulace propadla na fallback
         m_built = re.search(
-            r"(?:zastav[eě]n[oaáíé]+\s+(?:plochou?|plochem?)|u[žz]itn[aáíé]+\s+(?:plochou?|plochem?))[^\d]*(\d{2,5})\s*(?:m[²2]|㎡)",
+            r"(?:zastav[eě]n[oaáíé]+|u[žz]itn[aáíé]+|obytn[aáíé]+)\s+ploch\w*[^\d]*(\d{2,5})\s*(?:m[²2]|㎡)",
             full_text,
             re.IGNORECASE,
         )
@@ -503,19 +517,31 @@ class BazosScraper:
             except ValueError:
                 pass
 
-        # Fallback: první 'X m²' v POPISU (ne titulku), aby titulek nefalšoval výsledek
+        # Fallback: 'X m²' v POPISU (ne titulku), aby titulek nefalšoval výsledek.
+        # POZOR: nesmí sebrat výměru MÍSTNOSTI – reálný případ: "kuchyní o výměře 10 m²"
+        # se uložilo jako plocha domu a cenový signál pak počítal 730 000 Kč/m².
         if area_built_up is None:
-            m = re.search(r"(\d{2,5})\s*(?:m[²2]|㎡)", description)
-            if m:
+            for m in re.finditer(r"(\d{2,5})\s*(?:m[²2]|㎡)", description):
+                context = description[max(0, m.start() - 60):m.start()]
+                if _ROOM_CONTEXT_RE.search(context):
+                    continue  # jde o pokoj/kuchyň/garáž, ne o celý dům
                 try:
                     val = float(m.group(1))
-                    if 10 <= val <= 5000:
-                        if property_type == "Pozemek" and area_land is None:
-                            area_land = val
-                        else:
-                            area_built_up = val
                 except ValueError:
-                    pass
+                    continue
+                if not (10 <= val <= 5000):
+                    continue
+                if property_type == "Pozemek":
+                    # U pozemku plocha patří vždy do area_land; pokud už ji máme,
+                    # nesmí se stejné číslo propsat i do zastavěné plochy
+                    if area_land is None:
+                        area_land = val
+                    break
+                # Dům pod 40 m² je téměř jistě špatně přiřazená místnost
+                if property_type == "Dům" and val < 40:
+                    continue
+                area_built_up = val
+                break
 
         # Pokud pořád nic, zkus titulek – ale jen pro Pozemek kde to jde do area_land
         if area_built_up is None and area_land is None:
