@@ -30,12 +30,17 @@ public sealed class OllamaTextService(
 
     private const string SmartTagsSystem = """
         You are a Czech real estate data extractor.
-        Extract exactly 5 short keyword tags from the listing description.
+        Extract UP TO 5 short keyword tags from the listing description.
         Tags must be in Czech, lowercase, max 2 words each.
         Focus on: property features, amenities, construction type, condition, extras.
         Examples: sklep, zahrada, garáž, novostavba, rekonstrukce, výtah, bazén, rohový byt, podkroví, terasa.
-        Respond ONLY with valid JSON array: ["tag1","tag2","tag3","tag4","tag5"]
-        If fewer than 5 relevant tags exist, fill remaining slots with the most relevant general tags.
+
+        CRITICAL: every tag must be directly supported by the text. Never guess or pad.
+        If the text supports only two tags, return two. An empty array [] is a valid answer.
+        Never infer age or condition that is not stated – a house described as 60 years old
+        and in need of modernisation is NOT "novostavba".
+
+        Respond ONLY with a valid JSON array, e.g. ["sklep","zahrada"]
         """;
 
     public async Task<OllamaTextBatchResultDto> BulkSmartTagsAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false)
@@ -59,14 +64,24 @@ public sealed class OllamaTextService(
             var response = await embedding.ChatAsync(SmartTagsSystem, userMsg, c, jsonMode: true);
 
             var tags = TryParseJsonArray(response);
-            if (tags is null || tags.Count == 0)
+            if (tags is null)
             {
                 logger.LogWarning("SmartTags: invalid JSON for listing {Id}: {Raw}", listing.Id,
                     response[..Math.Min(200, response.Length)]);
                 return false;
             }
 
-            listing.SmartTags = JsonSerializer.Serialize(tags.Take(5));
+            // Pojistka proti halucinaci – tag bez opory ve zdrojovém textu zahoď.
+            // Prázdné pole je legitimní výsledek: raději žádný tag než vymyšlený.
+            var grounded = SmartTagValidator.Filter(tags, listing.Title, listing.Description);
+            if (grounded.Count < tags.Count)
+            {
+                logger.LogInformation(
+                    "SmartTags: u inzerátu {Id} zahozeno {Dropped} nepodložených tagů ({Rejected})",
+                    listing.Id, tags.Count - grounded.Count, string.Join(", ", tags.Except(grounded)));
+            }
+
+            listing.SmartTags = JsonSerializer.Serialize(grounded.Take(5));
             listing.SmartTagsAt = DateTime.UtcNow;
             return true;
         }, "smart_tags");
