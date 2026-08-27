@@ -202,6 +202,24 @@ public sealed class OllamaTextService(
     /// Vrátí Kč/m², pokud jsou vstupy věrohodné. Jinak null – model pak dostane
     /// „plocha neznámá" místo čísla, které by ho dovedlo k sebejistému nesmyslu.
     /// </summary>
+    /// <summary>
+    /// Kandidáti na cenový signál – jen ti, u kterých vyjde věrohodná Kč/m².
+    /// Musí se filtrovat v SQL, ne až po načtení dávky: jinak dotaz pořád vybírá
+    /// tytéž nespočitatelné inzeráty, dávka se neposune a smyčka "dokud zbývá"
+    /// se točí donekonečna.
+    /// Násobení místo dělení – vyhne se dělení nulou i zaokrouhlování v SQL.
+    /// </summary>
+    public static IQueryable<Listing> WithPlausiblePricePerM2(IQueryable<Listing> q) =>
+        q.Where(l => l.Price != null && l.Price > 0
+                  && (l.AreaBuiltUp > 0 || l.AreaLand > 0)
+                  && (l.PropertyType == PropertyType.Land
+                      ? (double)l.Price!.Value
+                            < 50_000d * (l.AreaBuiltUp > 0 ? l.AreaBuiltUp!.Value : l.AreaLand!.Value)
+                      : (double)l.Price!.Value
+                            >= 6_000d * (l.AreaBuiltUp > 0 ? l.AreaBuiltUp!.Value : l.AreaLand!.Value)
+                        && (double)l.Price!.Value
+                            <= 250_000d * (l.AreaBuiltUp > 0 ? l.AreaBuiltUp!.Value : l.AreaLand!.Value)));
+
     public static decimal? PlausiblePricePerM2(decimal? price, double? areaBuiltUp, double? areaLand, bool isLand)
     {
         var area = areaBuiltUp > 0 ? areaBuiltUp : areaLand;
@@ -267,6 +285,8 @@ public sealed class OllamaTextService(
             .Where(l => l.IsActive && l.DuplicateOfListingId == null)
             .Where(l => (force ? true : l.PriceSignal == null) && l.Price != null && l.Price > 0)
             .Where(l => listingId == null || l.Id == listingId);
+
+        query = WithPlausiblePricePerM2(query);
 
         var listings = await (orderDesc
             ? query.OrderByDescending(l => l.FirstSeenAt)
@@ -487,7 +507,8 @@ public sealed class OllamaTextService(
         {
             "smart_tags"    => await db.Listings.CountAsync(l => l.SmartTags == null && l.Description != null && l.Description.Length > 50, ct),
             "normalize"     => await db.Listings.CountAsync(l => l.AiNormalizedData == null && l.Description != null && l.Description.Length > 100, ct),
-            "price_opinion" => await db.Listings.CountAsync(l => l.PriceSignal == null && l.Price != null && l.Price > 0, ct),
+            // Stejný filtr jako výběr kandidátů – jinak by tu navždy viselo N nespočitatelných
+            "price_opinion" => await WithPlausiblePricePerM2(db.Listings.Where(l => l.PriceSignal == null)).CountAsync(ct),
             _ => 0
         };
 
