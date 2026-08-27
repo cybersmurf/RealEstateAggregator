@@ -71,3 +71,40 @@ public class PriceSignalPlausibilityTests
         Assert.Null(ForHouse(5_000_000m, -50));
     }
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  Regresní pojistka: bez věrohodné Kč/m² se signál nesmí počítat.
+//
+//  27. 8. 2026 migrace smazala 1 108 signálů postavených na špatných
+//  vstupech, ale bulk job jich 394 hned vrátil zpátky — PlausiblePricePerM2
+//  totiž jen vynechávala Kč/m² z promptu, inzerát ale stejně šel do modelu
+//  a ten vrátil verdikt z ceny samotné. 325 z nich nemělo plochu vůbec.
+// ─────────────────────────────────────────────────────────────────
+public class PriceSignalSkipTests
+{
+    [Theory]
+    // žádná plocha → nelze spočítat
+    [InlineData(7_300_000, null, null, false)]
+    [InlineData(7_300_000, 0d, 0d, false)]
+    // plocha z kuchyně (10 m²) → 730 000 Kč/m², nesmysl
+    [InlineData(7_300_000, 10d, null, false)]
+    // plocha z pozemku (1 238 m²) → 5 897 Kč/m², pod dolní mezí
+    [InlineData(7_300_000, 1_238d, null, false)]
+    // skutečná plocha domu 129 m² → 56 589 Kč/m², v pořádku
+    [InlineData(7_300_000, 129d, null, true)]
+    public void Budova_DostaneSignal_JenPriVerohodneCeneZaM2(
+        decimal price, double? areaBuiltUp, double? areaLand, bool expectSignal)
+    {
+        var perM2 = OllamaTextService.PlausiblePricePerM2(price, areaBuiltUp, areaLand, isLand: false);
+
+        Assert.Equal(expectSignal, perM2 is not null);
+    }
+
+    [Fact]
+    public void Pozemek_MaVlastniMez()
+    {
+        // 2 000 Kč/m² je u pozemku běžné, u budovy by to spadlo pod dolní mez
+        Assert.NotNull(OllamaTextService.PlausiblePricePerM2(2_000_000m, 1_000d, null, isLand: true));
+        Assert.Null(OllamaTextService.PlausiblePricePerM2(2_000_000m, 1_000d, null, isLand: false));
+    }
+}

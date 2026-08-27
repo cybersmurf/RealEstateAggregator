@@ -276,6 +276,17 @@ public sealed class OllamaTextService(
 
         return await ProcessBatchAsync(listings, ct, async (listing, c) =>
         {
+            // Bez věrohodné Kč/m² se signál nepočítá vůbec. PlausiblePricePerM2 dřív jen
+            // vynechala Kč/m² z promptu, ale inzerát stejně šel do modelu a ten vrátil
+            // verdikt z ceny samotné – takže dům bez uvedené plochy dostal sebejisté
+            // "Nadhodnocená". Prázdno je poctivější než sebejistý nesmysl.
+            if (PlausiblePricePerM2(listing.Price, listing.AreaBuiltUp, listing.AreaLand,
+                                    listing.PropertyType == PropertyType.Land) is null)
+            {
+                logger.LogDebug("PriceOpinion: přeskakuji {Id} – nevěrohodná Kč/m²", listing.Id);
+                return false;
+            }
+
             var notes = listing.UserStates.FirstOrDefault()?.Notes;
             var analysisSnippets = listing.Analyses
                 .OrderByDescending(a => a.CreatedAt)
@@ -316,6 +327,11 @@ public sealed class OllamaTextService(
             ?? throw new ArgumentException($"Inzerát {listingId} nenalezen.");
 
         if (listing.Price is null or <= 0)
+            return new RecalculatePriceOpinionResultDto(listingId, null, null, false);
+
+        // Stejná pojistka jako v bulk verzi – bez věrohodné Kč/m² žádný signál.
+        if (PlausiblePricePerM2(listing.Price, listing.AreaBuiltUp, listing.AreaLand,
+                                listing.PropertyType == PropertyType.Land) is null)
             return new RecalculatePriceOpinionResultDto(listingId, null, null, false);
 
         var notes = listing.UserStates.FirstOrDefault()?.Notes;
