@@ -364,7 +364,9 @@ public sealed class SpatialService(
                     logger.LogDebug("Geocoding nenalezl výsledek pro: '{Query}'", query);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            // Timeout HttpClientu je taky TaskCanceledException – bez výjimky pro něj jeden
+            // pomalý Nominatim dotaz shodil celou dávku (HTTP 500)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 failed++;
                 logger.LogWarning(ex, "Geocoding selhal pro listing {Id} / '{Query}'", item.Id, query);
