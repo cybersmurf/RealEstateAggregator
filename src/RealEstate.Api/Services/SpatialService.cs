@@ -386,9 +386,11 @@ public sealed class SpatialService(
     }
 
     /// <summary>
-    /// Extrahuje obec z location_text inzerátu – poslední část bez čísel, PSČ a okresu/kraje.
+    /// Extrahuje obec z location_text inzerátu – poslední část bez čísel popisných a okresu/kraje.
     /// "Štítary" → "Štítary", "Pohořelice, Jihomoravský kraj" → "Pohořelice",
-    /// "137, Borotice, okres Znojmo" → "Borotice", "Dyjská, Znojmo" → "Znojmo", "671 61 Znojmo" → "Znojmo".
+    /// "137, Borotice, okres Znojmo" → "Borotice", "Dyjská, Znojmo" → "Znojmo".
+    /// "PSČ Město" zůstává celé – Bazoš "671 61 Znojmo" je vesnice v okolí a PSČ ji lokalizuje
+    /// líp než střed Znojma (bez PSČ padaly domy 5–20 km vedle).
     /// Dřív se brala první část: číslo popisné nebo ulice ("Dyjská") skončila v Praze.
     /// </summary>
     public static string ExtractCityFromLocationText(string locationText)
@@ -397,15 +399,16 @@ public sealed class SpatialService(
 
         var parts = locationText
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(p => System.Text.RegularExpressions.Regex.Replace(p, @"\b\d{3}\s?\d{2}\b", "").Trim())
-            .Where(p => p.Length > 0
-                        && !System.Text.RegularExpressions.Regex.IsMatch(p, @"^(okres|okr\.)\s|\bkraj$",
+            .Where(p => !System.Text.RegularExpressions.Regex.IsMatch(p, @"^(okres|okr\.)\s|\bkraj$",
                             System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-                        && !p.Any(char.IsDigit))
+                        && (!p.Any(char.IsDigit) || PostcodeWithTown.IsMatch(p)))
             .ToList();
 
         return parts.Count > 0 ? parts[^1] : "";
     }
+
+    private static readonly System.Text.RegularExpressions.Regex PostcodeWithTown =
+        new(@"^\d{3}\s?\d{2}\s+\D+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS

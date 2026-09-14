@@ -16,7 +16,7 @@ public class GeocodeQueryTests
     [InlineData("Dyjská, Znojmo", "Znojmo")]                            // PREMIAREALITY
     [InlineData("243/7, Znojmo", "Znojmo")]
     [InlineData("Hlavní 137, Šanov, okres Znojmo", "Šanov")]
-    [InlineData("671 61 Znojmo", "Znojmo")]                              // BAZOS
+    [InlineData("671 61 Znojmo", "671 61 Znojmo")]                       // BAZOS – PSČ lokalizuje vesnici
     [InlineData("Oslnovice, okr. Znojmo", "Oslnovice")]
     public void PicksMunicipality(string locationText, string expected)
     {
