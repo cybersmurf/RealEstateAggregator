@@ -443,9 +443,16 @@ class BazosScraper:
     # Slova, kterými inzerenti začínají titulek místo lokality
     _TITLE_NON_PLACE_RE = re.compile(
         r"^(prodej|prodám|prodám|pronájem|pronajmu|koupě|koupím|nabízím|sleva|exkluzivn|"
-        r"rd\b|byt\b|dům|chata|chalupa|pozemek|zahrada|garáž|novostavba|stavební)",
+        r"rd\b|byt\b|dům|chata|chalupa|pozemek|zahrada|garáž|novostavba|stavební|"
+        # "Zemědělská půda, prodej, Džbánice" / "Rodinný dům Jevišovice" / "NA SAMOTĚ" / "TinyHouse"
+        r"zeměd|orn[áé]|rodinn|samot|na\s+samot|tiny|sady\b|sad\b|vinic|vinn|sklep|les\b|lesn|louk|"
+        r"rekrea|luxus|investi|útuln|krásn|prostorn)",
         re.IGNORECASE,
     )
+
+    # Titulky ze seznamu jsou useknuté na 60 znaků – "…, k.ú. Dobšice u Znojm", "…, k.ú. Vr"
+    _TITLE_MAX_LEN = 60
+    _CADASTRE_CONNECTORS = {"u", "na", "nad", "pod", "při", "v", "ve"}
 
     @classmethod
     def _extract_municipality(cls, title: str) -> Optional[str]:
@@ -463,7 +470,16 @@ class BazosScraper:
             return leading
 
         m = _CADASTRE_RE.search(title)
-        return m.group(1) if m and len(m.group(1)) <= 40 else None
+        if not m or len(m.group(1)) > 40:
+            return None
+
+        words = m.group(1).split()
+        if m.end() == len(title) and len(title) == cls._TITLE_MAX_LEN:
+            # Useknutý titulek: poslední slovo je nejspíš neúplné ("Znojm"), zahodit i visící "u"
+            words = words[:-1]
+            while words and words[-1] in cls._CADASTRE_CONNECTORS:
+                words.pop()
+        return " ".join(words) or None
 
     @classmethod
     def _leading_place(cls, title: str) -> Optional[str]:

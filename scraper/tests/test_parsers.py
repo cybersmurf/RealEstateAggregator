@@ -726,6 +726,25 @@ class TestBazosExtractMunicipality:
         assert BazosScraper._extract_municipality(
             "Prodej domu k.ú. Práče prodám rychle") == "Práče"
 
+    def test_truncated_title_drops_partial_cadastre_word(self):
+        # Titulky ze seznamu jsou useknuté na 60 znaků
+        assert BazosScraper._extract_municipality(
+            "Prodej zahrady 879m2, voda i elektřina, k.ú. Dobšice u Znojm") == "Dobšice"
+        assert BazosScraper._extract_municipality(
+            "Prodej rodinného domu, pozemek 313m2, k.ú. Kuchařovice u Zno") == "Kuchařovice"
+        assert BazosScraper._extract_municipality(
+            "Pozemek/vinný sklep/ubytování, investiční charakter, k.ú. Vr") is None
+
+    @pytest.mark.parametrize("title", [
+        "Zemědělská půda, prodej, Džbánice, Znojmo",
+        "Rodinný dům Jevišovice, dřevostavba",
+        "Sady, vinice, prodej, Popice, Znojmo",
+        "NA SAMOTĚ, dům se zahradou",
+        "TinyHouse, mobilní dům",
+    ])
+    def test_non_place_leading_words(self, title):
+        assert BazosScraper._extract_municipality(title) is None
+
     def test_leading_place_wins_over_cadastre(self):
         assert BazosScraper._extract_municipality(
             "Lechovice, prodej RD, k.ú. Lechovice u Znojma") == "Lechovice"
