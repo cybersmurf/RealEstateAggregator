@@ -37,7 +37,7 @@ DEFAULT_HEADERS = {
 PROPERTY_TYPE_MAP = {
     "byt": "Byt", "byty": "Byt",
     "dům": "Dům", "dom": "Dům", "rodinný": "Dům", "vila": "Dům",
-    "pozemek": "Pozemek", "parcela": "Pozemek",
+    "pozem": "Pozemek", "parcel": "Pozemek",  # kmeny – "stavební parcely" na "parcela" nesedělo
     "garáž": "Garáž", "garážové": "Garáž",
     "komerční": "Komerční", "ostatní": "Ostatní",
     "sklep": "Ostatní", "vinný": "Ostatní", "chalupa": "Dům", "chata": "Dům"

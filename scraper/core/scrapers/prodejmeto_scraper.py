@@ -18,6 +18,7 @@ import httpx
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..area_parsing import parse_title_areas
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,15 @@ LISTING_TYPE_MAP: Dict[str, str] = {
 
 # Skip non-active listings (SOLD/RESERVED still appear in initialProperties).
 _INACTIVE_STATUSES = frozenset({"SOLD", "RESERVED"})
+
+
+def _positive_int(value: Any) -> Optional[int]:
+    """"53" / 53 / 0 / None → 53 / 53 / None / None."""
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 class ProdejmeToScraper:
@@ -208,21 +218,12 @@ class ProdejmeToScraper:
             except (TypeError, ValueError):
                 pass
 
-        area_built_up: Optional[int] = None
-        raw_area = raw.get("area")
-        if raw_area:
-            try:
-                area_built_up = int(raw_area) if int(raw_area) > 0 else None
-            except (TypeError, ValueError):
-                pass
-
-        area_land: Optional[int] = None
-        raw_land = raw.get("landArea")
-        if raw_land:
-            try:
-                area_land = int(raw_land) if int(raw_land) > 0 else None
-            except (TypeError, ValueError):
-                pass
+        # Plochy: pole area/landArea API už neposílá (v DB 0 %) – data jsou v sourcePayload.estate
+        # (formát SReality). Užitná přednostně z titulku, stejně jako u SREALITY, ať se kopie spárují.
+        estate = (raw.get("sourcePayload") or {}).get("estate") or {}
+        title_usable, title_land = parse_title_areas(raw.get("title") or "")
+        area_built_up = _positive_int(raw.get("area")) or title_usable or _positive_int(estate.get("usable_area"))
+        area_land = _positive_int(raw.get("landArea")) or title_land or _positive_int(estate.get("estate_area"))
 
         description = (raw.get("description") or "")[:5000]
         images = raw.get("images") or []
@@ -240,6 +241,7 @@ class ProdejmeToScraper:
             "area_built_up": area_built_up,
             "area_land": area_land,
             "location_text": location_text,
+            "municipality": city or None,
             "photos": photos,
         }
 

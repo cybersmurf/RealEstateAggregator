@@ -40,6 +40,7 @@ _PHOTO_DOWNLOAD_HEADERS = {
 }
 
 from .filters import get_filter_manager
+from .area_parsing import parse_title_areas, parse_description_land, title_offers_land
 
 
 # ── Regex enrichment ──────────────────────────────────────────────────────────
@@ -92,6 +93,45 @@ def _enrich_listing_fields(data: Dict[str, Any]) -> None:
             if pattern.search(text):
                 data['construction_type'] = value
                 break
+
+    _enrich_areas(data)
+
+
+_LAND_TYPES = {'Pozemek', 'Land'}
+_BUILDING_TYPES = {'Dům', 'House', 'Chata', 'Cottage'}
+_UNKNOWN_TYPES = {'Ostatní', 'Other', None, ''}
+
+
+def _enrich_areas(data: Dict[str, Any]) -> None:
+    """
+    Plochy a typ pozemku z titulku/popisu, když je scraper nedodal.
+
+    7 zdrojů (NEMZNOJMO, CENTURY21, PRODEJMETO, MMR, LEXAMO, DELUXREALITY, HVREALITY)
+    neukládalo plochy vůbec a pozemky posílalo jako "Ostatní" – detekce duplikátů
+    je pak se SREALITY nemohla spárovat (jiný typ, nic k porovnání).
+    """
+    title = data.get('title') or ''
+
+    if data.get('property_type') in _UNKNOWN_TYPES and title_offers_land(title):
+        data['property_type'] = 'Pozemek'
+
+    usable, land = parse_title_areas(title)
+    if not data.get('area_built_up') and usable:
+        data['area_built_up'] = usable
+    if not data.get('area_land') and land:
+        data['area_land'] = land
+
+    if not data.get('area_land') and data.get('property_type') in _BUILDING_TYPES:
+        desc_land = parse_description_land(data.get('description') or '')
+        if desc_land:
+            data['area_land'] = desc_land
+
+    # U pozemku je jediná známá plocha jeho výměra ("Prodej zahrady 1 809 m²")
+    if data.get('property_type') in _LAND_TYPES and data.get('area_built_up'):
+        if not data.get('area_land'):
+            data['area_land'] = data['area_built_up']
+        if data['area_land'] == data['area_built_up']:
+            data['area_built_up'] = None
 
 logger = logging.getLogger(__name__)
 

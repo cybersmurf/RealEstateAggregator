@@ -62,7 +62,16 @@ TABLE_PROPERTY_TYPE = {
     "rodinný dům":         "House",
     "bytový dům":          "House",
     "řadový dům":          "House",
-    "vila":                "House",
+    "řadové domy":         "House",
+    "vil":                 "House",       # Vily
+    "zahrad":              "Land",
+    "orná":                "Land",
+    "louk":                "Land",
+    "les":                 "Land",
+    "vinic":               "Land",
+    "ubytování":           "Commercial",
+    "restaur":             "Commercial",
+    "obchod":              "Commercial",
     "byt":                 "Apartment",
     "byty":                "Apartment",
     "pozemek":             "Land",
@@ -70,8 +79,8 @@ TABLE_PROPERTY_TYPE = {
     "komerční":            "Commercial",
     "kancelář":            "Commercial",
     "sklad":               "Commercial",
-    "chata":               "Cottage",
-    "chalupa":             "Cottage",
+    "chat":                "Cottage",     # Chaty
+    "chalup":              "Cottage",     # Chalupy
     "rekreační":           "Cottage",
     "garáž":               "Garage",
     "garážové stání":      "Garage",
@@ -287,14 +296,14 @@ class Century21Scraper:
                     property_type = ptype
                     break
 
-        # Plocha
-        area = None
-        for key in ["PLOCHA UŽITNÁ", "PLOCHA", "VELIKOST BYTU"]:
-            if key in params:
-                m = re.search(r"(\d+(?:[.,]\d+)?)", params[key].replace("\xa0", ""))
-                if m:
-                    area = float(m.group(1).replace(",", "."))
-                    break
+        # Plocha – tabulka "plocha užitná / zastavěná / pozemku: 1 234 m²"
+        area = next((a for key in ["PLOCHA UŽITNÁ", "PLOCHA ZASTAVĚNÁ", "PLOCHA", "VELIKOST BYTU"]
+                     if (a := self._parse_m2(params.get(key, "")))), None)
+        area_land = self._parse_m2(params.get("PLOCHA POZEMKU", ""))
+
+        # Obec = poslední část lokality bez čísel: "Chaloupky, Rozdrojovice" → Rozdrojovice
+        lokalita_parts = [p.strip() for p in params.get("LOKALITA", "").split(",")]
+        municipality = next((p for p in reversed(lokalita_parts) if p and not re.search(r"\d", p)), None)
 
         # Dispozice (VELIKOST = "4+kk")
         disposition = params.get("VELIKOST", "")
@@ -329,7 +338,9 @@ class Century21Scraper:
             "price": price,
             "offer_type": offer_type,
             "property_type": property_type,
-            "area": area,
+            "area_built_up": area,
+            "area_land": area_land,
+            "municipality": municipality,
             "location_text": location,
             "photos": photos,
         }
@@ -362,13 +373,23 @@ class Century21Scraper:
         """Parsuje parametrovou tabulku na detailu."""
         params: Dict[str, str] = {}
         for row in soup.select("table tr"):
-            cells = row.select("td")
+            # Layout 2026: <th>plocha pozemku</th><td>897 m²</td>; starší: dvě <td>
+            cells = row.select("th, td")
             if len(cells) >= 2:
-                key = cells[0].get_text(strip=True).upper()
+                key = cells[0].get_text(" ", strip=True).upper()
                 val = cells[1].get_text(" ", strip=True)
                 if key and val:
                     params[key] = val
         return params
+
+    @staticmethod
+    def _parse_m2(text: str) -> Optional[int]:
+        """"1 234 m²" → 1234; bez "m" nebo nuly → None."""
+        m = re.search(r"(\d[\d\s ]*)\s*m", text)
+        if not m:
+            return None
+        value = int(re.sub(r"\D", "", m.group(1)))
+        return value if value > 0 else None
 
     def _extract_price(self, soup: BeautifulSoup) -> Optional[float]:
         """Extrahuje číselnou cenu v Kč."""

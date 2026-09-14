@@ -206,7 +206,7 @@ class LexamoScraper:
             "price": price,
             "offer_type": offer_type,
             "property_type": property_type,
-            "area": area,
+            "area_built_up": area,
             "location_text": location,
             "district": district,
             "photos": photos,

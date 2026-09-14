@@ -19,6 +19,7 @@ import httpx
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
 from ..http_utils import http_retry
+from ..area_parsing import parse_title_areas
 
 logger = logging.getLogger(__name__)
 
@@ -596,37 +597,10 @@ class SrealityScraper:
             return "Dispozice"
         return name.strip()
 
-    # "Prodej rodinného domu 129 m², pozemek 1 238 m²" → (129, 1238)
-    # Titulky používají nezlomitelné mezery a mezery v tisících.
-    # Mezera jako oddělovač tisíců jen před trojicí číslic ("1 238 m²") a číslo nesmí
-    # navazovat na dispozici – "3+1 75 m²" dřív dalo 175, "4+1 120 m²" 1120.
-    _AREA_NUMBER = r"(?<![\d+])(\d{1,3}(?:[\s\u00a0]\d{3})+|\d+)"
-    _TITLE_AREA_RE = re.compile(_AREA_NUMBER + r"\s*m[²2]")
-    _TITLE_LAND_RE = re.compile(r"pozem\w*[\s\u00a0]+" + _AREA_NUMBER + r"\s*m[²2]", re.IGNORECASE)
-
-    @classmethod
-    def _parse_title_areas(cls, title: str) -> tuple[Optional[int], Optional[int]]:
-        """Vytáhne (užitná, pozemek) z titulku inzerátu; chybějící hodnota = None."""
-        if not title:
-            return None, None
-
-        land: Optional[int] = None
-        land_match = cls._TITLE_LAND_RE.search(title)
-        if land_match:
-            digits = re.sub(r"\D", "", land_match.group(1))
-            land = int(digits) if digits else None
-
-        usable: Optional[int] = None
-        for m in cls._TITLE_AREA_RE.finditer(title):
-            # Přeskoč číslo patřící k "pozemek X m²"
-            if land_match and m.start(1) >= land_match.start(1):
-                continue
-            digits = re.sub(r"\D", "", m.group(1))
-            if digits:
-                usable = int(digits)
-                break
-
-        return usable, land
+    @staticmethod
+    def _parse_title_areas(title: str) -> tuple[Optional[int], Optional[int]]:
+        """Vytáhne (užitná, pozemek) z titulku: "Prodej rodinného domu 129 m², pozemek 1 238 m²" → (129, 1238)."""
+        return parse_title_areas(title)
 
     @staticmethod
     def _parse_area(value: Optional[str]) -> Optional[int]:

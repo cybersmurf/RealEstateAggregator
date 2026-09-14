@@ -33,10 +33,13 @@ DEFAULT_HEADERS = {
     "Referer": BASE_URL,
 }
 
+# Pořadí rozhoduje (první shoda vyhrává): "Prodej vily 5+1 s garáží" je dům, ne garáž.
+# Kmeny místo tvarů – "pozemků", "parcely" na "pozemek"/"parcela" nesedí.
 PROPERTY_TYPE_MAP = {
     "byt": "Byt", "byty": "Byt",
-    "dům": "Dům", "dom": "Dům", "rodinný": "Dům",
-    "pozemek": "Pozemek", "parcela": "Pozemek",
+    "dům": "Dům", "dom": "Dům", "rodinný": "Dům", "vil": "Dům",
+    "chat": "Chata", "chalup": "Chata",
+    "pozem": "Pozemek", "parcel": "Pozemek",
     "garáž": "Garáž", "garážové": "Garáž",
     "komerční": "Komerční", "ostatní": "Ostatní",
     "sklep": "Ostatní", "vinný": "Ostatní",

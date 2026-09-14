@@ -22,7 +22,7 @@ from ..http_utils import http_retry
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
-from .sreality_scraper import SrealityScraper
+from ..area_parsing import parse_title_areas
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +338,7 @@ class IdnesRealityScraper:
             # Plochy z titulku – IDNES má jednotný formát "Prodej domu 135 m² s pozemkem 212 m²".
             # Dřív se brala jen první "(\d+) m²": "1 809 m²" → 809, "50 076 m²" → 76
             # a pozemek se nikam neukládal (detekce duplikátů pak neměla co porovnat).
-            area, area_land = SrealityScraper._parse_title_areas(title)
+            area, area_land = parse_title_areas(title)
             if property_type == "Land" and area and not area_land:
                 area_land, area = area, None  # "Prodej zahrady 1 809 m²" = výměra pozemku
             # Fallback: tabulka parametrů (.b-detail__info)

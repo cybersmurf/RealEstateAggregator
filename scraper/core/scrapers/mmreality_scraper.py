@@ -362,7 +362,7 @@ class MmRealityScraper:
         desc_el = soup.select_one(".description p, article p, main p")
         result["description"] = desc_el.get_text(" ", strip=True) if desc_el else ""
 
-        params = self._parse_params_section(soup)
+        params = self._parse_params_rows(soup) or self._parse_params_section(soup)
         if not params:
             params = self._parse_params_fallback(soup)
 
@@ -378,6 +378,17 @@ class MmRealityScraper:
             result["longitude"] = lng
 
         return result
+
+    @staticmethod
+    def _parse_params_rows(soup: BeautifulSoup) -> Dict[str, str]:
+        """Aktuální layout (2026): div.rds-property-params-row > -label / -value."""
+        params: Dict[str, str] = {}
+        for row in soup.select(".rds-property-params-row"):
+            label = row.select_one(".rds-property-params-label")
+            value = row.select_one(".rds-property-params-value")
+            if label and value:
+                params[label.get_text(" ", strip=True)] = value.get_text(" ", strip=True)
+        return params
 
     def _parse_params_section(self, soup: BeautifulSoup) -> Dict[str, str]:
         params: Dict[str, str] = {}
@@ -462,7 +473,11 @@ class MmRealityScraper:
 
     @staticmethod
     def _parse_area(text: str) -> Optional[int]:
-        digits = "".join(c for c in text if c.isdigit())
+        # Jen číslo před "m" – "76 m²" / "76 m 2" (<sup>2</sup>) dřív dávalo 762, "²".isdigit() je True
+        match = re.search(r"(\d[\d\s ]*)\s*m", text)
+        if not match:
+            return None
+        digits = re.sub(r"\D", "", match.group(1))
         return int(digits) if digits else None
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
