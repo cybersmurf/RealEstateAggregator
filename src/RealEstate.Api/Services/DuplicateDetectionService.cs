@@ -93,7 +93,7 @@ public sealed class DuplicateDetectionService(
     /// Rozhodne, zda dva inzeráty popisují tutéž nemovitost.
     /// Nutné podmínky: jiný zdroj, stejný typ nemovitosti i nabídky, cena v toleranci 2 %.
     /// Plus jedna z evidencí: přesná GPS obou do 300 m, NEBO (bez přesné GPS) stejná cena
-    /// na korunu + plochy bez rozporu + (geokódovaná GPS do 5 km NEBO stejná obec).
+    /// na korunu + plochy bez rozporu + (GPS do 300 m, NEBO shodná plocha a GPS do 5 km či stejná obec).
     /// </summary>
     public static bool IsDuplicatePair(DuplicateCandidate a, DuplicateCandidate b)
     {
@@ -117,10 +117,20 @@ public sealed class DuplicateDetectionService(
         if (distance is not null && a.PreciseGps && b.PreciseGps)
             return distance <= GpsMaxMeters;
 
-        // Evidence 2 (GPS chybí, nebo je jen geokódovaná z obce/PSČ): cena na korunu stejná,
-        // plochy si neodporují, a k tomu blízkost nebo stejná obec.
-        // Přísnější než GPS větev, protože „7 490 000 Kč ve Znojmě" můžou být dva různé domy.
-        if (priceDiff != 0 || !AreasAgree(a, b))
+        // Evidence 2 (GPS chybí, nebo je jen geokódovaná z obce/PSČ): cena na korunu stejná
+        // a plochy si neodporují. Přísnější než GPS větev, protože „7 490 000 Kč ve Znojmě"
+        // můžou být dva různé domy.
+        var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
+        var land = CompareAreas(a.AreaLand, b.AreaLand);
+        if (priceDiff != 0 || builtUp == false || land == false)
+            return false;
+
+        // Do 300 m stačí cena na korunu – řada zdrojů plochy vůbec nemá (PRODEJMETO, MMR…)
+        if (distance <= GpsMaxMeters)
+            return true;
+
+        // Dál už je potřeba i shodná plocha, plus blízkost nebo stejná obec
+        if (builtUp != true && land != true)
             return false;
 
         if (distance <= ApproxGpsMaxMeters)
@@ -128,17 +138,6 @@ public sealed class DuplicateDetectionService(
 
         return !string.IsNullOrWhiteSpace(a.Municipality)
             && string.Equals(a.Municipality.Trim(), b.Municipality?.Trim(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Aspoň jedna plocha (zastavěná nebo pozemek) je známá u obou a shoduje se
-    /// a žádná plocha známá u obou si neodporuje.
-    /// </summary>
-    private static bool AreasAgree(DuplicateCandidate a, DuplicateCandidate b)
-    {
-        var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
-        var land = CompareAreas(a.AreaLand, b.AreaLand);
-        return builtUp != false && land != false && (builtUp == true || land == true);
     }
 
     /// <summary>

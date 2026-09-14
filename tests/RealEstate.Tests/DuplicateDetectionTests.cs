@@ -135,6 +135,25 @@ public class DuplicateDetectionPairTests
     }
 
     [Fact]
+    public void GeocodedGps_Within300m_ExactPriceNoAreas_IsDuplicate()
+    {
+        // PRODEJMETO plochy vůbec neposílá – "127 m² - Šatov" vs. SREALITY, stejný bod
+        var sreality = Make(source: SourceA, price: 3_790_000m, areaBuiltUp: 127, areaLand: 626);
+        var prodejmeto = Make(source: SourceB, price: 3_790_000m, areaBuiltUp: null, areaLand: null, preciseGps: false);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(sreality, prodejmeto));
+    }
+
+    [Fact]
+    public void GeocodedGps_OneKmAway_ExactPriceNoAreas_NotDuplicate()
+    {
+        var a = Make(source: SourceA, areaBuiltUp: null, areaLand: null);
+        var b = Make(source: SourceB, lat: 48.8645, areaBuiltUp: null, areaLand: null, preciseGps: false);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
+    }
+
+    [Fact]
     public void GeocodedGps_AreaContradiction_NotDuplicate()
     {
         // Stejná cena i pozemek, ale dům 180 vs. 120 m² – dva různé domy v okolí
