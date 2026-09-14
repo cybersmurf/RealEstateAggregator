@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Text;
 using LinqKit;
 using Microsoft.EntityFrameworkCore;
@@ -59,20 +60,8 @@ public class ListingService : IListingService
     {
         NormalizePaging(filter, maxPageSize);
 
-        var query = _repository.Query(); // IQueryable<Listing> s AsExpandable()
-
-        // 1) Stavíme predikát s AND kombinací filtrů přes LinqKit PredicateBuilder
-        var predicate = BuildBasePredicate(filter);
-
-        // 2) Přidáme fulltext (OR nad klíčovými slovy)
-        if (!string.IsNullOrWhiteSpace(filter.SearchText))
-        {
-            var searchPredicate = BuildSearchPredicate(filter.SearchText);
-            predicate = predicate.And(searchPredicate);
-        }
-
-        // 3) Expandujeme LinqKit predikát
-        query = query.Where(predicate);
+        // 1–3) Filtry, fulltext, skrytí duplikátů
+        var query = BuildFilteredQuery(filter);
 
         // 4) Counting před stránkováním
         var totalCount = await query.CountAsync(cancellationToken);
@@ -347,19 +336,44 @@ public class ListingService : IListingService
     }
 
     /// <summary>
+    /// Filtrovaný dotaz (bez řazení a stránkování) pro vyhledávání i CSV export.
+    /// </summary>
+    public IQueryable<Listing> BuildFilteredQuery(ListingFilterDto filter)
+    {
+        // 1) Stavíme predikát s AND kombinací filtrů přes LinqKit PredicateBuilder
+        var predicate = BuildBasePredicate(filter);
+
+        // 2) Přidáme fulltext (OR nad klíčovými slovy)
+        if (!string.IsNullOrWhiteSpace(filter.SearchText))
+        {
+            var searchPredicate = BuildSearchPredicate(filter.SearchText);
+            predicate = predicate.And(searchPredicate);
+        }
+
+        var query = _repository.Query().Where(predicate); // Query() je AsExpandable()
+
+        // 3) Duplikáty z jiných zdrojů skryté – stejný dům se jinak zobrazí 2–3×,
+        //    pokaždé s jinými SmartTags a jiným cenovým signálem (AI hodnotí každou kopii zvlášť).
+        //    Jen ale tehdy, když je ve výsledku i jejich primární kopie: filtr ji může vyřadit
+        //    (filtr zdroje SREALITY, primár je NEMZNOJMO) a dům by pak zmizel úplně.
+        if (!filter.IncludeDuplicates)
+        {
+            Expression<Func<Listing, bool>> matchesFilter = predicate;
+            var matchingListings = _dbContext.Listings.Where(matchesFilter.Expand());
+            query = query.Where(x => x.DuplicateOfListingId == null
+                                     || !matchingListings.Any(p => p.Id == x.DuplicateOfListingId));
+        }
+
+        return query;
+    }
+
+    /// <summary>
     /// Staví základní predikát s AND kombinací filtrů pomocí PredicateBuilder.
     /// </summary>
     private static ExpressionStarter<Listing> BuildBasePredicate(ListingFilterDto filter)
     {
         // true = začínáme s "vše je povoleno" (identita AND)
         var predicate = PredicateBuilder.New<Listing>(true);
-
-        // Duplikáty z jiných zdrojů skryté – stejný dům se jinak zobrazí 2–3×,
-        // pokaždé s jinými SmartTags a jiným cenovým signálem (AI hodnotí každou kopii zvlášť).
-        if (!filter.IncludeDuplicates)
-        {
-            predicate = predicate.And(x => x.DuplicateOfListingId == null);
-        }
 
         // Source codes
         if (filter.SourceCodes is { Count: > 0 })
