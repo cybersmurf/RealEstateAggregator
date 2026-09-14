@@ -240,6 +240,53 @@ public class DuplicateDetectionClusterTests
     }
 
     [Fact]
+    public void Subdivision_IdenticalParcelsOnTwoSources_NotMerged()
+    {
+        // Božice: pozemky č. 1–3, stejná cena, výměra i poloha – na Bazoši i SREALITY
+        var bazos = Enumerable.Range(0, 3).Select(i => Make(SourceA, daysOld: 10 + i)).ToList();
+        var sreality = Enumerable.Range(0, 3).Select(i => Make(SourceB, daysOld: i)).ToList();
+
+        var mapping = DuplicateDetectionService.BuildClusters([.. bazos, .. sreality]);
+
+        Assert.Empty(mapping);
+    }
+
+    [Fact]
+    public void UniqueMatchSurvivesNextToAmbiguousOne()
+    {
+        // Jednoznačná dvojice se nesmí ztratit jen proto, že vedle je nejednoznačná parcelace
+        var house1 = Make(SourceA, daysOld: 20);
+        var house2 = Make(SourceB, daysOld: 5);
+        var parcels = new[]
+        {
+            Make(SourceA, daysOld: 9, price: 2_160_000m, lat: 48.7550, lon: 16.2280),
+            Make(SourceA, daysOld: 8, price: 2_160_000m, lat: 48.7550, lon: 16.2280),
+            Make(SourceB, daysOld: 7, price: 2_160_000m, lat: 48.7550, lon: 16.2280),
+        };
+
+        var mapping = DuplicateDetectionService.BuildClusters([house1, house2, .. parcels]);
+
+        Assert.Single(mapping);
+        Assert.Equal(house1.Id, mapping[house2.Id]);
+    }
+
+    [Fact]
+    public void ChainWithTwoListingsFromSameSource_Dropped()
+    {
+        // A(S1)–B(S2)–C(S3)–D(S1): každý pár jednoznačný, ale skupina by měla dva inzeráty z S1
+        var a = Make(SourceA, daysOld: 40, price: 7_400_000m);
+        var b = Make(SourceB, daysOld: 30, price: 7_500_000m);
+        var c = Make(SourceC, daysOld: 20, price: 7_620_000m);
+        var d = Make(SourceA, daysOld: 10, price: 7_740_000m);
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(c, d));
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(b, d));
+
+        var mapping = DuplicateDetectionService.BuildClusters([a, b, c, d]);
+
+        Assert.Empty(mapping);
+    }
+
+    [Fact]
     public void UnrelatedListings_NoClusters()
     {
         var a = Make(SourceA, daysOld: 5, price: 3_000_000m, lat: 48.90);

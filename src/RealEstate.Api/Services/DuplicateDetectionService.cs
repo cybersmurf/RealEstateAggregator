@@ -168,6 +168,7 @@ public sealed class DuplicateDetectionService(
 
         // Kandidáty porovnáváme jen uvnitř (typ, nabídka) skupiny a jen v cenovém okně ±2 %
         // – z O(n²) přes všechno je O(n²) přes pár desítek inzerátů se stejnou cenou.
+        var pairs = new List<(DuplicateCandidate A, DuplicateCandidate B)>();
         foreach (var group in candidates.Where(c => c.Price is > 0).GroupBy(c => (c.PropertyType, c.OfferType)))
         {
             var sorted = group.OrderBy(c => c.Price).ToList();
@@ -178,9 +179,22 @@ public sealed class DuplicateDetectionService(
                 for (var j = i + 1; j < sorted.Count && (double)sorted[j].Price!.Value <= maxPrice; j++)
                 {
                     if (IsDuplicatePair(a, sorted[j]))
-                        Union(a.Id, sorted[j].Id);
+                        pairs.Add((a, sorted[j]));
                 }
             }
+        }
+
+        // Pár platí, jen když si oba inzeráty v cizím zdroji odpovídají jednoznačně.
+        // Parcelace v Božicích (pozemky č. 1–8, stejná cena i výměra) na Bazoši i SREALITY
+        // se jinak slila do jedné skupiny a 12 skutečných pozemků zmizelo z výsledků.
+        var matchesInSource = pairs
+            .SelectMany(p => new[] { (p.A.Id, p.B.SourceId), (p.B.Id, p.A.SourceId) })
+            .CountBy(k => k)
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        foreach (var (a, b) in pairs)
+        {
+            if (matchesInSource[(a.Id, b.SourceId)] == 1 && matchesInSource[(b.Id, a.SourceId)] == 1)
+                Union(a.Id, b.Id);
         }
 
         // Skupiny → primární podle FirstSeenAt
@@ -192,6 +206,9 @@ public sealed class DuplicateDetectionService(
         {
             var members = cluster.Select(id => byId[id]).ToList();
             if (members.Count < 2) continue;
+
+            // Dva inzeráty ze stejného zdroje ve skupině = řetěz přes různé nemovitosti; radši nic
+            if (members.DistinctBy(m => m.SourceId).Count() < members.Count) continue;
 
             var primary = members.OrderBy(m => m.FirstSeenAt).ThenBy(m => m.Id).First();
             foreach (var m in members.Where(m => m.Id != primary.Id))
