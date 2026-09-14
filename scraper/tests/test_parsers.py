@@ -19,6 +19,7 @@ from core.scrapers.znojmoreality_scraper import ZnojmoRealityScraper as Znojmore
 from core.scrapers.lexamo_scraper import LexamoScraper
 from core.scrapers.sreality_scraper import SrealityScraper
 from core.scrapers.bazos_scraper import BazosScraper
+from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +643,42 @@ class TestSrealityParseTitleAreas:
     def test_land_only_project(self):
         assert SrealityScraper._parse_title_areas(
             "Prodej projektu na klíč 106 m², pozemek 166 m²") == (106, 166)
+
+    def test_disposition_digit_is_not_thousands(self):
+        # "3+1 75 m²" dřív dalo 175, "4+1 120 m²" 1120
+        assert SrealityScraper._parse_title_areas("Prodej bytu 3+1 75 m²") == (75, None)
+        assert SrealityScraper._parse_title_areas("Prodej bytu 4+1 120 m²") == (120, None)
+
+    def test_thousands_separator(self):
+        assert SrealityScraper._parse_title_areas("Prodej pole 50 076 m²") == (50076, None)
+        assert SrealityScraper._parse_title_areas("Prodej stavebního pozemku 1 809 m²") == (None, 1809)
+
+
+# ---------------------------------------------------------------------------
+# IdnesRealityScraper – plochy z titulku
+# ---------------------------------------------------------------------------
+
+class TestIdnesAreas:
+    """IDNES bral jen první "(\\d+) m²": "1 809 m²" → 809, "50 076 m²" → 76,
+    a pozemek neukládal vůbec – detekce duplikátů pak neměla co porovnat."""
+
+    @staticmethod
+    def _parse(title: str, kind: str) -> Dict[str, Any]:
+        html = f"<html><body><h1>{title}</h1><div class='b-detail__price'>2 400 000 Kč</div></body></html>"
+        url = f"https://reality.idnes.cz/detail/prodej/{kind}/znojmo/68f114793da2f02fc20a2b19/"
+        return IdnesRealityScraper()._parse_detail_page(html, url)
+
+    def test_house_with_land(self):
+        d = self._parse("Prodej domu 135 m² s pozemkem 212 m²", "dum")
+        assert (d["area_built_up"], d["area_land"]) == (135, 212)
+
+    def test_land_with_thousands_goes_to_area_land(self):
+        d = self._parse("Prodej zahrady 1 809 m²", "pozemek")
+        assert (d["area_built_up"], d["area_land"]) == (None, 1809)
+
+    def test_field_with_thousands(self):
+        d = self._parse("Prodej pole 50 076 m²rezervováno", "pozemek")
+        assert (d["area_built_up"], d["area_land"]) == (None, 50076)
 
 
 # ---------------------------------------------------------------------------

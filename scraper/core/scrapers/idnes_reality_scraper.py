@@ -22,6 +22,7 @@ from ..http_utils import http_retry
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from .sreality_scraper import SrealityScraper
 
 logger = logging.getLogger(__name__)
 
@@ -334,26 +335,20 @@ class IdnesRealityScraper:
                         description = t
                         break
 
-            # Extract area - look in table params or title
-            area = None
-            # Try to find in spec table (IDNES uses .b-detail__info table)
-            for row in soup.select(".b-detail__info-item, .b-detail__param"):
-                text = row.get_text(" ", strip=True)
-                area_match = re.search(r"Plocha\D+?(\d+)\s*m", text, re.IGNORECASE)
-                if area_match:
-                    try:
+            # Plochy z titulku – IDNES má jednotný formát "Prodej domu 135 m² s pozemkem 212 m²".
+            # Dřív se brala jen první "(\d+) m²": "1 809 m²" → 809, "50 076 m²" → 76
+            # a pozemek se nikam neukládal (detekce duplikátů pak neměla co porovnat).
+            area, area_land = SrealityScraper._parse_title_areas(title)
+            if property_type == "Land" and area and not area_land:
+                area_land, area = area, None  # "Prodej zahrady 1 809 m²" = výměra pozemku
+            # Fallback: tabulka parametrů (.b-detail__info)
+            if not area and not area_land:
+                for row in soup.select(".b-detail__info-item, .b-detail__param"):
+                    text = row.get_text(" ", strip=True)
+                    area_match = re.search(r"Plocha\D+?(\d+)\s*m", text, re.IGNORECASE)
+                    if area_match:
                         area = int(area_match.group(1))
                         break
-                    except ValueError:
-                        pass
-            # Fallback: extract area from title (e.g. "Prodej domu 120 m²")
-            if not area:
-                title_area = re.search(r"(\d+)\s*m[²2]", title)
-                if title_area:
-                    try:
-                        area = int(title_area.group(1))
-                    except ValueError:
-                        pass
 
             # Return normalized data
             return {
@@ -368,6 +363,7 @@ class IdnesRealityScraper:
                 "location_text": location[:200] if location else "Znojmo",
                 "photos": photos[:50],
                 "area_built_up": area,
+                "area_land": area_land,
             }
 
         except Exception as exc:

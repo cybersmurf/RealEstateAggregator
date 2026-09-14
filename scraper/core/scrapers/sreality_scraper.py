@@ -598,8 +598,11 @@ class SrealityScraper:
 
     # "Prodej rodinného domu 129 m², pozemek 1 238 m²" → (129, 1238)
     # Titulky používají nezlomitelné mezery a mezery v tisících.
-    _TITLE_AREA_RE = re.compile(r"(\d[\d\s\u00a0]*)\s*m[²2]")
-    _TITLE_LAND_RE = re.compile(r"pozem\w*[\s\u00a0]+(\d[\d\s\u00a0]*)\s*m[²2]", re.IGNORECASE)
+    # Mezera jako oddělovač tisíců jen před trojicí číslic ("1 238 m²") a číslo nesmí
+    # navazovat na dispozici – "3+1 75 m²" dřív dalo 175, "4+1 120 m²" 1120.
+    _AREA_NUMBER = r"(?<![\d+])(\d{1,3}(?:[\s\u00a0]\d{3})+|\d+)"
+    _TITLE_AREA_RE = re.compile(_AREA_NUMBER + r"\s*m[²2]")
+    _TITLE_LAND_RE = re.compile(r"pozem\w*[\s\u00a0]+" + _AREA_NUMBER + r"\s*m[²2]", re.IGNORECASE)
 
     @classmethod
     def _parse_title_areas(cls, title: str) -> tuple[Optional[int], Optional[int]]:
