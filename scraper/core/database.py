@@ -2,6 +2,7 @@
 Database utilities for scraper.
 Provides async connection pool and CRUD operations for listings.
 """
+import hashlib
 import os
 import re
 import asyncpg
@@ -15,8 +16,13 @@ from contextlib import asynccontextmanager
 
 # Cesta k lokálnímu úložišti fotek (sdílený volume s .NET API)
 # API ukládá do /app/wwwroot/uploads, scraper do /app/uploads — oba na stejném Docker volume.
-# Výsledný stored_url = "/uploads/listings/{id}/photos/{order}.jpg"
+# Výsledný stored_url = "/uploads/listings/{id}/photos/{hash original_url}.jpg"
 _UPLOADS_BASE_PATH: Optional[Path] = None
+
+
+def photo_file_stem(photo_url: str) -> str:
+    """Název souboru fotky (bez přípony) – stabilní a jedinečný pro každou original_url."""
+    return hashlib.sha1(photo_url.encode("utf-8")).hexdigest()[:16]
 
 def _get_uploads_base_path() -> Optional[Path]:
     """Vrátí base path pro lokální ukládání fotek, nebo None pokud není nakonfigurováno."""
@@ -470,15 +476,17 @@ class DatabaseManager:
         self,
         photo_url: str,
         listing_id: UUID,
-        order_index: int,
         http_client: httpx.AsyncClient,
     ) -> Optional[str]:
         """
         Stáhne fotku z CDN a uloží ji do sdíleného uploads volume.
-        Vrátí relativní stored_url (např. "/uploads/listings/{id}/photos/0.jpg")
+        Vrátí relativní stored_url (např. "/uploads/listings/{id}/photos/3f2a9c01d4e5b6a7.jpg")
         nebo None pokud download selhal.
 
-        Cesta v kontejneru: {UPLOADS_BASE_PATH}/listings/{id}/photos/{order}.ext
+        Název souboru = hash original_url. Dřív to byl order_index, jenže nová fotka
+        vložená na už obsazenou pozici přepsala soubor jiné fotky (sdílený stored_url).
+
+        Cesta v kontejneru: {UPLOADS_BASE_PATH}/listings/{id}/photos/{hash}.ext
         API volume mountpoint:  /app/wwwroot/uploads  → stored_url prefix /uploads/
         Scraper volume mountpoint: /app/uploads      → stored_url prefix /uploads/
         """
@@ -502,10 +510,10 @@ class DatabaseManager:
             # Uložit do sdíleného volume
             photo_dir = uploads_base / "listings" / str(listing_id) / "photos"
             photo_dir.mkdir(parents=True, exist_ok=True)
-            file_path = photo_dir / f"{order_index}{ext}"
-            file_path.write_bytes(response.content)
+            file_name = f"{photo_file_stem(photo_url)}{ext}"
+            (photo_dir / file_name).write_bytes(response.content)
 
-            return f"/uploads/listings/{listing_id}/photos/{order_index}{ext}"
+            return f"/uploads/listings/{listing_id}/photos/{file_name}"
 
         except Exception as e:
             logger.debug(f"Photo download failed for {photo_url}: {e}")
@@ -549,8 +557,8 @@ class DatabaseManager:
 
         if all_download_urls and uploads_base is not None:
             async with httpx.AsyncClient(timeout=15.0) as http_client:
-                for idx, url in all_download_urls:
-                    stored = await self._download_photo_to_storage(url, listing_id, idx, http_client)
+                for _, url in all_download_urls:
+                    stored = await self._download_photo_to_storage(url, listing_id, http_client)
                     new_urls_to_download[url] = stored
             downloaded = sum(1 for v in new_urls_to_download.values() if v is not None)
             if all_download_urls:
