@@ -40,6 +40,12 @@ public sealed class PhotoClassificationService(
 
     private const string MistralApiUrl = "https://api.mistral.ai/v1/chat/completions";
 
+    // Prodlevy před opakováním po HTTP 429; po vyčerpání se dávka ukončí
+    private static readonly TimeSpan[] _rateLimitRetryDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5)];
+
+    private const string RateLimitedMessage =
+        "Mistral Vision API odmítá požadavky (HTTP 429 – rate limit / vyčerpaná kvóta).";
+
     // Public base URL odstraníme ze stored_url abychom dostali relativní cestu k souboru
     private string PublicBaseUrl =>
         Environment.GetEnvironmentVariable("PHOTOS_PUBLIC_BASE_URL")
@@ -119,6 +125,7 @@ public sealed class PhotoClassificationService(
         }
 
         int succeeded = 0, failed = 0;
+        string? error = null;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         using var httpClient = httpClientFactory.CreateClient("MistralVision");
         httpClient.DefaultRequestHeaders.Authorization =
@@ -234,6 +241,12 @@ public sealed class PhotoClassificationService(
 
                 succeeded++;
             }
+            catch (MistralRateLimitedException ex)
+            {
+                logger.LogWarning("{Message} Dávka ukončena po {Done} fotkách.", ex.Message, succeeded + failed);
+                error = ex.Message;
+                break;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(ex,
@@ -269,7 +282,7 @@ public sealed class PhotoClassificationService(
             photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0));
 
         return new PhotoClassificationResultDto(
-            photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0));
+            photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0), error);
     }
 
     public async Task<PhotoClassificationResultDto> ClassifyInspectionBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool onlyMyListings = false)
@@ -316,6 +329,7 @@ public sealed class PhotoClassificationService(
         }
 
         int succeeded = 0, failed = 0;
+        string? error = null;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         using var httpClient = httpClientFactory.CreateClient("MistralVision");
         httpClient.DefaultRequestHeaders.Authorization =
@@ -363,6 +377,12 @@ public sealed class PhotoClassificationService(
 
                 succeeded++;
             }
+            catch (MistralRateLimitedException ex)
+            {
+                logger.LogWarning("{Message} Dávka ukončena po {Done} fotkách.", ex.Message, succeeded + failed);
+                error = ex.Message;
+                break;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(ex,
@@ -398,7 +418,7 @@ public sealed class PhotoClassificationService(
             photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0));
 
         return new PhotoClassificationResultDto(
-            photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0));
+            photos.Count, succeeded, failed, remaining, Math.Round(avgMs, 0), error);
     }
 
     /// <summary>
@@ -471,10 +491,28 @@ public sealed class PhotoClassificationService(
             temperature = temperature
         };
 
-        using var content = new StringContent(
-            JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-        using var response = await httpClient.PostAsync(MistralApiUrl, content, ct);
+        var json = JsonSerializer.Serialize(requestBody);
+        HttpResponseMessage response;
+        for (var attempt = 0; ; attempt++)
+        {
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            response = await httpClient.PostAsync(MistralApiUrl, content, ct);
+            if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests)
+                break;
 
+            var retryAfter = response.Headers.RetryAfter?.Delta;
+            response.Dispose();
+
+            // Krátký limit (req/s) přejde po pár sekundách; vyčerpaná kvóta ne → dávku ukončíme
+            if (attempt >= _rateLimitRetryDelays.Length)
+                throw new MistralRateLimitedException();
+
+            var delay = retryAfter is { } ra && ra <= TimeSpan.FromSeconds(10) ? ra : _rateLimitRetryDelays[attempt];
+            logger.LogInformation("Mistral Vision HTTP 429, retry {Attempt} za {Delay}s", attempt + 1, delay.TotalSeconds);
+            await Task.Delay(delay, ct);
+        }
+
+        using var _ = response;
         if (!response.IsSuccessStatusCode)
         {
             var errBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
@@ -675,6 +713,7 @@ public sealed class PhotoClassificationService(
         }
 
         int succeeded = 0, failed = 0;
+        string? error = null;
         var sw = System.Diagnostics.Stopwatch.StartNew();
         using var httpClient = httpClientFactory.CreateClient("MistralVision");
         httpClient.DefaultRequestHeaders.Authorization =
@@ -739,6 +778,12 @@ public sealed class PhotoClassificationService(
                 logger.LogDebug("AltText listing {ListingId} photo {Order}: {Alt}",
                     photo.ListingId, photo.Order, altText[..Math.Min(80, altText.Length)]);
             }
+            catch (MistralRateLimitedException ex)
+            {
+                logger.LogWarning("{Message} Dávka ukončena po {Done} fotkách.", ex.Message, succeeded + failed);
+                error = ex.Message;
+                break;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(ex, "AltText failed for listing {ListingId} photo {Order}",
@@ -758,10 +803,12 @@ public sealed class PhotoClassificationService(
         logger.LogInformation("AltText batch: {Ok}/{Proc} OK. Remaining: {Rem}. Avg: {Avg:F0}ms",
             succeeded, photos.Count, remaining, avgMs);
 
-        return new PhotoClassificationResultDto(photos.Count, succeeded, failed, remaining, avgMs);
+        return new PhotoClassificationResultDto(photos.Count, succeeded, failed, remaining, avgMs, error);
     }
 
     // ── Interní deserialization modely ───────────────────────────────────────
+
+    private sealed class MistralRateLimitedException() : Exception(RateLimitedMessage);
 
     private sealed class MistralChatResponse
     {

@@ -27,7 +27,8 @@ public record PhotoClassificationResultDto(
     int Succeeded,
     int Failed,
     int RemainingUnclassified,
-    double AvgMsPerPhoto);
+    double AvgMsPerPhoto,
+    string? Error = null);
 
 public record PhotoClassificationStatsDto(
     int Total,

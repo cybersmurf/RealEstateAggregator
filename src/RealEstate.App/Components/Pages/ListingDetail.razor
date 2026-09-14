@@ -1460,6 +1460,27 @@
         }
     }
 
+    private record PhotoBatchResult(int Processed, int Succeeded, int Failed, int RemainingUnclassified, string? Error);
+
+    private void ShowPhotoBatchResult(PhotoBatchResult? result, string doneLabel)
+    {
+        if (result is null || result.Processed == 0)
+        {
+            Snackbar.Add("Nic ke zpracování.", Severity.Info);
+            return;
+        }
+
+        var summary = $"{doneLabel} {result.Succeeded}/{result.Processed} fotek.";
+        if (result.Error is not null)
+            Snackbar.Add($"{summary} {result.Error}", Severity.Error);
+        else if (result.Succeeded == 0)
+            Snackbar.Add($"{summary} Žádná fotka se nepodařila – viz log API.", Severity.Error);
+        else if (result.Failed > 0)
+            Snackbar.Add($"{summary} {result.Failed} selhalo.", Severity.Warning);
+        else
+            Snackbar.Add(summary, Severity.Success);
+    }
+
     private async Task TriggerPhotoClassificationAsync()
     {
         _classifyLoading = true;
@@ -1470,12 +1491,13 @@
                 $"api/photos/bulk-classify?batchSize=20&listingId={Id}", null, _cts.Token);
             if (response.IsSuccessStatusCode)
             {
+                var result = await response.Content.ReadFromJsonAsync<PhotoBatchResult>(_cts.Token);
                 await LoadListingAsync();
-                Snackbar.Add("Klasifikace fotek dokončena.", Severity.Success);
+                ShowPhotoBatchResult(result, "Klasifikováno");
             }
             else
             {
-                Snackbar.Add("Klasifikace selhala (Ollama běží?).", Severity.Warning);
+                Snackbar.Add("Klasifikace selhala (chyba API).", Severity.Warning);
             }
         }
         catch (Exception ex)
@@ -1528,12 +1550,13 @@
                 $"api/photos/bulk-alt-text?batchSize=20&listingId={Id}", null, _cts.Token);
             if (response.IsSuccessStatusCode)
             {
+                var result = await response.Content.ReadFromJsonAsync<PhotoBatchResult>(_cts.Token);
                 await LoadListingAsync();
-                Snackbar.Add("Alt text vygenerován.", Severity.Success);
+                ShowPhotoBatchResult(result, "Alt text vygenerován");
             }
             else
             {
-                Snackbar.Add("Generování alt textu selhalo (Ollama běží?).", Severity.Warning);
+                Snackbar.Add("Generování alt textu selhalo (chyba API).", Severity.Warning);
             }
         }
         catch (Exception ex)
