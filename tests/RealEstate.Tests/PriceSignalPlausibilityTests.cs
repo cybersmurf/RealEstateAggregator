@@ -46,9 +46,19 @@ public class PriceSignalPlausibilityTests
     }
 
     [Fact]
-    public void FallsBackToLandAreaWhenBuiltUpMissing()
+    public void HouseWithoutBuiltUp_DoesNotFallBackToLandArea()
     {
-        Assert.Equal(50_000m, ForHouse(10_000_000m, null, 200)!.Value, 0);
+        // Práče: dům bez užitné plochy, pozemek 820 m² → 7 305 Kč/m² by prošlo mezí,
+        // ale je to cena domu dělená zahradou – verdikt z toho by byl nesmysl
+        Assert.Null(ForHouse(5_990_000m, null, 820));
+        Assert.Null(ForHouse(10_000_000m, null, 200));
+    }
+
+    [Fact]
+    public void LandListing_PrefersLandAreaOverBuiltUp()
+    {
+        var perM2 = OllamaTextService.PlausiblePricePerM2(2_400_000m, 809, 1809, isLand: true);
+        Assert.Equal(1_327m, perM2!.Value, 0);
     }
 
     [Fact]

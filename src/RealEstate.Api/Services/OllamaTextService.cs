@@ -211,18 +211,19 @@ public sealed class OllamaTextService(
     /// </summary>
     public static IQueryable<Listing> WithPlausiblePricePerM2(IQueryable<Listing> q) =>
         q.Where(l => l.Price != null && l.Price > 0
-                  && (l.AreaBuiltUp > 0 || l.AreaLand > 0)
                   && (l.PropertyType == PropertyType.Land
-                      ? (double)l.Price!.Value
-                            < 50_000d * (l.AreaBuiltUp > 0 ? l.AreaBuiltUp!.Value : l.AreaLand!.Value)
-                      : (double)l.Price!.Value
-                            >= 6_000d * (l.AreaBuiltUp > 0 ? l.AreaBuiltUp!.Value : l.AreaLand!.Value)
+                      ? (l.AreaLand > 0 || l.AreaBuiltUp > 0)
                         && (double)l.Price!.Value
-                            <= 250_000d * (l.AreaBuiltUp > 0 ? l.AreaBuiltUp!.Value : l.AreaLand!.Value)));
+                            < 50_000d * (l.AreaLand > 0 ? l.AreaLand!.Value : l.AreaBuiltUp!.Value)
+                      : l.AreaBuiltUp > 0
+                        && (double)l.Price!.Value >= 6_000d * l.AreaBuiltUp!.Value
+                        && (double)l.Price!.Value <= 250_000d * l.AreaBuiltUp!.Value));
 
     public static decimal? PlausiblePricePerM2(decimal? price, double? areaBuiltUp, double? areaLand, bool isLand)
     {
-        var area = areaBuiltUp > 0 ? areaBuiltUp : areaLand;
+        // Budova: jen užitná/zastavěná plocha. Cena domu dělená výměrou zahrady vyjde
+        // "věrohodně" (Práče: 5 990 000 / 820 m² = 7 305 Kč/m²) a model z ní udělá verdikt.
+        var area = isLand ? (areaLand > 0 ? areaLand : areaBuiltUp) : areaBuiltUp;
         if (price is not > 0 || area is not > 0) return null;
 
         var perM2 = price.Value / (decimal)area.Value;
@@ -247,7 +248,9 @@ public sealed class OllamaTextService(
         // a model by na ní postavil sebejisté zdůvodnění ("730 000 Kč/m² je extrémně nadhodnocená").
         var areaText = pricePerM2 is null
             ? "neznámá (údaj ze zdroje nevěrohodný)"
-            : listing.AreaBuiltUp > 0 ? $"{listing.AreaBuiltUp} m² (zastavěná)" : $"{listing.AreaLand} m² (pozemek)";
+            : listing.PropertyType == PropertyType.Land
+                ? $"{(listing.AreaLand > 0 ? listing.AreaLand : listing.AreaBuiltUp)} m² (pozemek)"
+                : $"{listing.AreaBuiltUp} m² (zastavěná)";
         sb.AppendLine($"Plocha: {areaText}");
         sb.AppendLine($"Lokalita: {listing.LocationText}");
         sb.AppendLine($"Stav: {listing.Condition ?? "neznámý"}");
