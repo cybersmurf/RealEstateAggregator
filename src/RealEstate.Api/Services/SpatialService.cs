@@ -27,6 +27,9 @@ public sealed class SpatialService(
     private const string OsrmBaseUrl = "http://router.project-osrm.org";
     private const string UserAgent = "RealEstateAggregator/1.0 (spatial search, CZ)";
 
+    /// <summary>Oblast inzerátů (jižní Morava + jih Vysočiny) jako Nominatim viewbox: lon1,lat1,lon2,lat2.</summary>
+    private const string ListingRegionViewbox = "14.8,49.9,18.0,48.5";
+
     // ═══════════════════════════════════════════════════════════════════════════
     // GEOCODING
     // ═══════════════════════════════════════════════════════════════════════════
@@ -333,8 +336,11 @@ public sealed class SpatialService(
 
             try
             {
+                // bounded viewbox: obcí stejného jména je v ČR víc (Borotice, Šanov, Horní Kounice…)
+                // a bez omezení Nominatim vrací tu první – u 43 inzerátů padla poloha 100+ km vedle
                 var url = $"{NominatimBaseUrl}/search"
-                        + $"?q={Uri.EscapeDataString(query)}&countrycodes=cz&format=json&limit=1&accept-language=cs";
+                        + $"?q={Uri.EscapeDataString(query)}&countrycodes=cz&format=json&limit=1&accept-language=cs"
+                        + $"&viewbox={ListingRegionViewbox}&bounded=1";
 
                 var results = await client.GetFromJsonAsync<NominatimResult[]>(url, ct);
 
@@ -380,23 +386,25 @@ public sealed class SpatialService(
     }
 
     /// <summary>
-    /// Extrahuje vhodný geocoding dotaz z location_text inzerátu.
+    /// Extrahuje obec z location_text inzerátu – poslední část bez čísel, PSČ a okresu/kraje.
     /// "Štítary" → "Štítary", "Pohořelice, Jihomoravský kraj" → "Pohořelice",
-    /// "Praha 10-Vršovice" → "Praha 10-Vršovice"
+    /// "137, Borotice, okres Znojmo" → "Borotice", "Dyjská, Znojmo" → "Znojmo", "671 61 Znojmo" → "Znojmo".
+    /// Dřív se brala první část: číslo popisné nebo ulice ("Dyjská") skončila v Praze.
     /// </summary>
-    private static string ExtractCityFromLocationText(string locationText)
+    public static string ExtractCityFromLocationText(string locationText)
     {
         if (string.IsNullOrWhiteSpace(locationText)) return "";
 
-        var parts = locationText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0) return locationText.Trim();
+        var parts = locationText
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(p => System.Text.RegularExpressions.Regex.Replace(p, @"\b\d{3}\s?\d{2}\b", "").Trim())
+            .Where(p => p.Length > 0
+                        && !System.Text.RegularExpressions.Regex.IsMatch(p, @"^(okres|okr\.)\s|\bkraj$",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                        && !p.Any(char.IsDigit))
+            .ToList();
 
-        // Heuristika: pokud první část vypadá jako "ulice 28" (číslo na konci), vezmi druhou část
-        var first = parts[0].Trim();
-        if (parts.Length > 1 && System.Text.RegularExpressions.Regex.IsMatch(first, @"\s+\d+\s*$"))
-            return parts[1].Trim();
-
-        return first;
+        return parts.Count > 0 ? parts[^1] : "";
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
