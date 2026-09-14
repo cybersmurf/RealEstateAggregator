@@ -23,11 +23,12 @@ public class DuplicateDetectionPairTests
         string? municipality = "Znojmo",
         double? areaBuiltUp = 314,
         double? areaLand = 673,
-        int daysOld = 0)
+        int daysOld = 0,
+        bool preciseGps = true)
         => new(
             Guid.NewGuid(), source ?? SourceA, propertyType, offerType,
             price, lat, lon, municipality, areaBuiltUp, areaLand,
-            new DateTime(2026, 8, 1).AddDays(-daysOld));
+            new DateTime(2026, 8, 1).AddDays(-daysOld), preciseGps);
 
     [Fact]
     public void SameHouse_TwoSources_SamePriceCloseGps_IsDuplicate()
@@ -117,6 +118,57 @@ public class DuplicateDetectionPairTests
         // Bez GPS i bez plochy není dost evidence – radši nechat oba
         var a = Make(source: SourceA, lat: null, lon: null, areaBuiltUp: null, areaLand: null);
         var b = Make(source: SourceB, lat: null, lon: null, areaBuiltUp: null, areaLand: null);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
+    }
+
+    [Fact]
+    public void GeocodedGps_TwoKmAway_ExactPriceMatchingLand_IsDuplicate()
+    {
+        // Práče: Bazoš geokódovaný z "671 61 Znojmo" padl 2,3 km od domu, SREALITY má přesnou GPS
+        var sreality = Make(source: SourceA, price: 5_990_000m, lat: 48.87560, lon: 16.20226,
+            municipality: "Práče", areaBuiltUp: 180, areaLand: 820);
+        var bazos = Make(source: SourceB, price: 5_990_000m, lat: 48.89415, lon: 16.18711,
+            municipality: null, areaBuiltUp: null, areaLand: 820, preciseGps: false);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(sreality, bazos));
+    }
+
+    [Fact]
+    public void GeocodedGps_AreaContradiction_NotDuplicate()
+    {
+        // Stejná cena i pozemek, ale dům 180 vs. 120 m² – dva různé domy v okolí
+        var a = Make(source: SourceA, areaBuiltUp: 180, areaLand: 820);
+        var b = Make(source: SourceB, lat: 48.8655, areaBuiltUp: 120, areaLand: 820, preciseGps: false);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
+    }
+
+    [Fact]
+    public void GeocodedGps_PriceDiffersByCrown_NotDuplicate()
+    {
+        var a = Make(source: SourceA, price: 7_490_000m);
+        var b = Make(source: SourceB, price: 7_500_000m, lat: 48.8655, preciseGps: false);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
+    }
+
+    [Fact]
+    public void GeocodedGps_FarAwayDifferentMunicipality_NotDuplicate()
+    {
+        // ~11 km a jiná obec – ani geokódování z PSČ se tolik nemýlí
+        var a = Make(source: SourceA, municipality: "Znojmo");
+        var b = Make(source: SourceB, lat: 48.8555 + 0.1, municipality: "Lechovice", preciseGps: false);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
+    }
+
+    [Fact]
+    public void PreciseGps_TwoKmAway_StillNotDuplicate()
+    {
+        // Přesná GPS u obou dál rozhoduje sama – plocha ani cena na korunu to nepřebijí
+        var a = Make(source: SourceA);
+        var b = Make(source: SourceB, lat: 48.8555 + 0.018);
 
         Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
     }

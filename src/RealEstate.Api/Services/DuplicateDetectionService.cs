@@ -20,7 +20,8 @@ public sealed record DuplicateCandidate(
     string? Municipality,
     double? AreaBuiltUp,
     double? AreaLand,
-    DateTime FirstSeenAt);
+    DateTime FirstSeenAt,
+    bool PreciseGps = true);
 
 public sealed class DuplicateDetectionService(
     RealEstateDbContext ctx,
@@ -37,6 +38,12 @@ public sealed class DuplicateDetectionService(
     /// <summary>Max. vzdálenost GPS bodů v metrech.</summary>
     private const double GpsMaxMeters = 300;
 
+    /// <summary>
+    /// Max. vzdálenost, když je aspoň jedna poloha jen geokódovaná Nominatimem ze středu obce/PSČ.
+    /// Reálný případ: Bazoš "671 61 Znojmo" padl 2,3 km od domu v Práči.
+    /// </summary>
+    private const double ApproxGpsMaxMeters = 5_000;
+
     /// <summary>Fallback bez GPS: max. relativní rozdíl plochy (5 %).</summary>
     private const double AreaTolerance = 0.05;
 
@@ -48,7 +55,8 @@ public sealed class DuplicateDetectionService(
             .Select(l => new DuplicateCandidate(
                 l.Id, l.SourceId, l.PropertyType, l.OfferType,
                 l.Price, l.Latitude, l.Longitude,
-                l.Municipality, l.AreaBuiltUp, l.AreaLand, l.FirstSeenAt))
+                l.Municipality, l.AreaBuiltUp, l.AreaLand, l.FirstSeenAt,
+                l.GeocodeSource != "nominatim"))
             .ToListAsync(cancellationToken);
 
         var mapping = BuildClusters(candidates); // dupId -> primaryId
@@ -84,8 +92,8 @@ public sealed class DuplicateDetectionService(
     /// <summary>
     /// Rozhodne, zda dva inzeráty popisují tutéž nemovitost.
     /// Nutné podmínky: jiný zdroj, stejný typ nemovitosti i nabídky, cena v toleranci 2 %.
-    /// Plus jedna z evidencí: GPS do 300 m, NEBO (bez spolehlivé GPS) stejná cena
-    /// na korunu + stejná obec + plocha v toleranci 5 %.
+    /// Plus jedna z evidencí: přesná GPS obou do 300 m, NEBO (bez přesné GPS) stejná cena
+    /// na korunu + plochy bez rozporu + (geokódovaná GPS do 5 km NEBO stejná obec).
     /// </summary>
     public static bool IsDuplicatePair(DuplicateCandidate a, DuplicateCandidate b)
     {
@@ -98,25 +106,39 @@ public sealed class DuplicateDetectionService(
         var priceDiff = (double)Math.Abs(a.Price.Value - b.Price.Value);
         if (priceDiff > maxPrice * PriceTolerance) return false;
 
-        // Evidence 1: GPS. Pokud ji mají oba, rozhoduje výhradně vzdálenost –
+        double? distance =
+            a.Latitude is not null && a.Longitude is not null &&
+            b.Latitude is not null && b.Longitude is not null
+                ? GpsDistanceMeters(a.Latitude.Value, a.Longitude.Value, b.Latitude.Value, b.Longitude.Value)
+                : null;
+
+        // Evidence 1: přesná GPS od zdroje u obou. Pak rozhoduje výhradně vzdálenost –
         // dva inzeráty 2 km od sebe nejsou tentýž dům, ani když sedí cena, obec i plocha.
-        if (a.Latitude is not null && a.Longitude is not null &&
-            b.Latitude is not null && b.Longitude is not null)
-        {
-            return GpsDistanceMeters(a.Latitude.Value, a.Longitude.Value, b.Latitude.Value, b.Longitude.Value) <= GpsMaxMeters;
-        }
+        if (distance is not null && a.PreciseGps && b.PreciseGps)
+            return distance <= GpsMaxMeters;
 
-        // Evidence 2 (jen když GPS chybí): cena na korunu stejná + stejná obec + shodná plocha.
+        // Evidence 2 (GPS chybí, nebo je jen geokódovaná z obce/PSČ): cena na korunu stejná,
+        // plochy si neodporují, a k tomu blízkost nebo stejná obec.
         // Přísnější než GPS větev, protože „7 490 000 Kč ve Znojmě" můžou být dva různé domy.
-        if (priceDiff == 0
-            && !string.IsNullOrWhiteSpace(a.Municipality)
-            && string.Equals(a.Municipality.Trim(), b.Municipality?.Trim(), StringComparison.OrdinalIgnoreCase))
-        {
-            if (AreasMatch(a.AreaBuiltUp, b.AreaBuiltUp) || AreasMatch(a.AreaLand, b.AreaLand))
-                return true;
-        }
+        if (priceDiff != 0 || !AreasAgree(a, b))
+            return false;
 
-        return false;
+        if (distance <= ApproxGpsMaxMeters)
+            return true;
+
+        return !string.IsNullOrWhiteSpace(a.Municipality)
+            && string.Equals(a.Municipality.Trim(), b.Municipality?.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Aspoň jedna plocha (zastavěná nebo pozemek) je známá u obou a shoduje se
+    /// a žádná plocha známá u obou si neodporuje.
+    /// </summary>
+    private static bool AreasAgree(DuplicateCandidate a, DuplicateCandidate b)
+    {
+        var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
+        var land = CompareAreas(a.AreaLand, b.AreaLand);
+        return builtUp != false && land != false && (builtUp == true || land == true);
     }
 
     /// <summary>
@@ -189,6 +211,9 @@ public sealed class DuplicateDetectionService(
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
-    private static bool AreasMatch(double? a, double? b)
-        => a is > 0 && b is > 0 && Math.Abs(a.Value - b.Value) <= Math.Max(a.Value, b.Value) * AreaTolerance;
+    /// <summary>true = shoda v toleranci 5 %, false = rozpor, null = u jednoho chybí.</summary>
+    private static bool? CompareAreas(double? a, double? b)
+        => a is > 0 && b is > 0
+            ? Math.Abs(a.Value - b.Value) <= Math.Max(a.Value, b.Value) * AreaTolerance
+            : null;
 }
