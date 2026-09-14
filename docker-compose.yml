@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/postgres.Dockerfile
-    platform: linux/arm64/v8
+
     image: realestate-postgres:postgis-pgvector
     container_name: realestate-db
     environment:
@@ -47,7 +47,8 @@ services:
       - DB_PASSWORD=${POSTGRES_PASSWORD:-dev}
       - SCRAPER_API_BASE_URL=http://realestate-scraper:8001
       - API_KEY=${API_KEY:-dev-key-change-me}
-      - Ollama__BaseUrl=http://host.docker.internal:11434
+      - Ollama__BaseUrl=http://192.168.11.199:11434
+      - Ollama__VisionModel=llama3.2-vision:11b
       - Embedding__Provider=ollama
       - OpenRouter__ApiKey=${OPENROUTER_API_KEY:-}
       - OpenRouter__BaseUrl=https://openrouter.ai/api/v1
@@ -63,10 +64,11 @@ services:
         condition: service_healthy
     networks:
       - realestate-network
+      - traefik-network
     volumes:
       - ./logs/api:/app/logs
       - ./secrets:/app/secrets      # Google Drive credentials (rw – callback píše token)
-      - uploads_data:/app/wwwroot/uploads  # ALL file uploads: listing photos + inspection photos
+      - /srv/realestate-uploads:/app/wwwroot/uploads  # ALL file uploads: listing photos + inspection photos
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
@@ -94,9 +96,16 @@ services:
         condition: service_healthy
     networks:
       - realestate-network
+      - traefik-network
     volumes:
-      - uploads_data:/app/wwwroot/uploads:ro  # Serve stored photos directly from App (API port may not be publicly accessible)
+      - /srv/realestate-uploads:/app/wwwroot/uploads:ro  # Serve stored photos directly from App (API port may not be publicly accessible)
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.realestate.rule=Host(`realestate.sudata.eu`)"
+      - "traefik.http.routers.realestate.entrypoints=websecure"
+      - "traefik.http.routers.realestate.tls=true"
+      - "traefik.http.services.realestate.loadbalancer.server.port=8080"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]
       interval: 20s
@@ -130,7 +139,7 @@ services:
     volumes:
       # ODSTRAŇ live mount v produkci - kód musí být v image
       - ./logs/scraper:/app/logs
-      - uploads_data:/app/uploads  # Sdílený volume: fotky stažené přímo při scraping
+      - /srv/realestate-uploads:/app/uploads  # Sdílený volume: fotky stažené přímo při scraping
     restart: unless-stopped
     # command se bere z Dockerfile
 
@@ -175,9 +184,9 @@ services:
 volumes:
   postgres_data:
     driver: local
-  uploads_data:
-    driver: local   # All file uploads: listing photos + inspection photos + exports
 
 networks:
   realestate-network:
     driver: bridge
+  traefik-network:
+    external: true

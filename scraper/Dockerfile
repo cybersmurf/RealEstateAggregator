@@ -10,9 +10,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Playwright browsers (pro JS-heavy weby jako Premia Reality)
+# Prohlížeč NESMÍ skončit v cache mountu — obsah cache mountu se do image
+# nedostane a Playwright pak za běhu nemá co spustit (tak to bylo 2026-09-14).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN playwright install chromium --with-deps
 
 COPY . .

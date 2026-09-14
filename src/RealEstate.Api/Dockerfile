@@ -1,12 +1,16 @@
 # Build stage
 # NOTE: src/ is copied BEFORE restore to avoid MSBuild glob cache bug (SDK 10.0.103)
 # Two-step build (restore → build → publish --no-build) bypasses **/*.cs literal-glob CSC error.
+# BuildKit cache mount for NuGet packages - survives layer cache invalidation
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY src/ .
-RUN dotnet restore "RealEstate.Api/RealEstate.Api.csproj"
-RUN dotnet build "RealEstate.Api/RealEstate.Api.csproj" -c Release --no-restore --no-incremental
-RUN dotnet publish "RealEstate.Api/RealEstate.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false --no-build
+RUN --mount=type=cache,target=/root/.nuget/packages \
+    dotnet restore "RealEstate.Api/RealEstate.Api.csproj"
+RUN --mount=type=cache,target=/root/.nuget/packages \
+    dotnet build "RealEstate.Api/RealEstate.Api.csproj" -c Release --no-restore --no-incremental
+RUN --mount=type=cache,target=/root/.nuget/packages \
+    dotnet publish "RealEstate.Api/RealEstate.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false --no-build
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
