@@ -257,9 +257,20 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
                     # Pokud vrátí 0 (síťová chyba, timeout), NESMÍME deaktivovat stávající
                     # inzeráty – způsobilo by to falešnou masovou deaktivaci celé DB.
                     if request.full_rescan and result > 0:
-                        deactivated = await db_manager.deactivate_unseen_listings(source_name, scrape_started_at)
-                        if deactivated > 0:
-                            logger.info(f"Job {job_id}: {source_name} deactivated {deactivated} expired listings")
+                        # ⚠️ OCHRANA 2: částečně rozbitý parser (vrátí 2 ze 100) by prošel
+                        # podmínkou result > 0 a deaktivoval zbytek. Proto nedeaktivuj víc
+                        # inzerátů, než kolik jich scraper v tomhle běhu viděl (result počítá
+                        # i inzeráty vyřazené filtrem). Minimum 10, ať malé zdroje fungují.
+                        unseen = await db_manager.count_unseen_listings(source_name, scrape_started_at)
+                        if unseen > max(result, 10):
+                            logger.warning(
+                                f"Job {job_id}: {source_name} saw only {result} listings but {unseen} "
+                                f"would be deactivated – skipping deactivation (likely broken parser)"
+                            )
+                        else:
+                            deactivated = await db_manager.deactivate_unseen_listings(source_name, scrape_started_at)
+                            if deactivated > 0:
+                                logger.info(f"Job {job_id}: {source_name} deactivated {deactivated} expired listings")
                     elif request.full_rescan and result == 0:
                         logger.warning(f"Job {job_id}: {source_name} returned 0 listings during full_rescan – skipping deactivation to prevent false mass-deactivation")
 

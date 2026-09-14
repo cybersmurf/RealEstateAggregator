@@ -487,6 +487,20 @@ class DatabaseManager:
                 logger.info(f"Deactivated sold/reserved listing: source={source_code} external_id={external_id}")
             return affected > 0
 
+    async def count_unseen_listings(self, source_code: str, seen_since: datetime) -> int:
+        """Kolik aktivních inzerátů by deactivate_unseen_listings deaktivoval (stejný WHERE)."""
+        async with self.acquire() as conn:
+            return await conn.fetchval(
+                """
+                SELECT count(*) FROM re_realestate.listings
+                WHERE source_code = $1
+                  AND is_active = true
+                  AND last_seen_at < $2
+                """,
+                source_code,
+                seen_since,
+            )
+
     async def deactivate_unseen_listings(self, source_code: str, seen_since: datetime) -> int:
         """
         Deaktivuje inzeráty ze zdroje source_code, které nebyly viděny od seen_since.
