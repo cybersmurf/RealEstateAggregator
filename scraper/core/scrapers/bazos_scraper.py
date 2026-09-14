@@ -87,6 +87,18 @@ _ROOM_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Slova, po kterých "X m²" je výměra POZEMKU. Reálný případ (Práče): "pozemky o celkové
+# výměře 820 m2" skončilo v zastavěné ploše a detekce duplikátů to vzala jako rozpor
+# se SREALITY (180 m² dům / 820 m² pozemek).
+_LAND_CONTEXT_RE = re.compile(r"pozem|zahrad|parcel", re.IGNORECASE)
+
+# Katastrální území v titulku: "…, k.ú. Práče", "v k.ú. Lednice na Moravě", "k.ú. Kyjovice, okr. Znojmo"
+_CADASTRE_RE = re.compile(
+    r"[kK]\.\s?[úÚ]\.\s*"
+    r"([A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][^\W\d_]+"
+    r"(?:\s+(?:(?:u|na|nad|pod|při|v|ve)\s+)?[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][^\W\d_]+)*)"
+)
+
 class BazosScraper:
     """Scraper pro reality.bazos.cz (Znojmo, 25 km okruh, max 8.5M Kč)."""
 
@@ -437,12 +449,25 @@ class BazosScraper:
 
     @classmethod
     def _extract_municipality(cls, title: str) -> Optional[str]:
-        """Obec z titulku – bazošská konvence je "Lechovice, prodej RD 5+1, …".
+        """Obec z titulku – bazošská konvence je "Lechovice, prodej RD 5+1, …",
+        případně katastrální území "…, k.ú. Práče".
 
         Bazoš neposílá GPS ani strukturovanou lokalitu (jen "PSČ Okresní-město"),
         takže bez tohohle nemá detekce duplikátů ani geo filtr u Bazoše co porovnávat.
         """
-        if not title or "," not in title:
+        if not title:
+            return None
+
+        leading = cls._leading_place(title)
+        if leading:
+            return leading
+
+        m = _CADASTRE_RE.search(title)
+        return m.group(1) if m and len(m.group(1)) <= 40 else None
+
+    @classmethod
+    def _leading_place(cls, title: str) -> Optional[str]:
+        if "," not in title:
             return None
 
         first = title.split(",", 1)[0].strip()
@@ -485,9 +510,9 @@ class BazosScraper:
         # Plocha pozemku: 'pozemek o výměře X m²' nebo 'zahrada X m²' apod.
         area_land: Optional[float] = None
         # pozem\w* / zahrad\w* pokrývá i 1. pád ("pozemek 800 m²") – původní
-        # pozemk(?:u|em|y|ů|a) na "pozemek" vůbec nesedělo
+        # pozemk(?:u|em|y|ů|a) na "pozemek" vůbec nesedělo; (?:\w+\s+)? = "o celkové výměře"
         m_land = re.search(
-            r"(?:pozem\w*|zahrad\w*|parcel\w*)\s+(?:o\s+(?:výměře|velikosti|ploše)\s+)?([\d][\d\s\.]+)\s*(?:m[²2]|㎡)",
+            r"(?:pozem\w*|zahrad\w*|parcel\w*)\s+(?:o\s+(?:\w+\s+)?(?:výměře|velikosti|ploše)\s+)?([\d][\d\s\.]+)\s*(?:m[²2]|㎡)",
             full_text,
             re.IGNORECASE,
         )
@@ -529,6 +554,12 @@ class BazosScraper:
                     val = float(m.group(1))
                 except ValueError:
                     continue
+                # Jen úsek od konce předchozí věty / předchozí plochy – "zahrada 450 m². Dům má 120 m²"
+                own_clause = re.split(r"[.;!?]\s|m[²2]|㎡", context)[-1]
+                if property_type != "Pozemek" and (val == area_land or _LAND_CONTEXT_RE.search(own_clause)):
+                    if area_land is None and 10 <= val <= 100000:
+                        area_land = val
+                    continue  # výměra pozemku, ne plocha domu
                 if not (10 <= val <= 5000):
                     continue
                 if property_type == "Pozemek":

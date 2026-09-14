@@ -673,6 +673,26 @@ class TestBazosExtractMunicipality:
     def test_lowercase_start(self):
         assert BazosScraper._extract_municipality("prodej domu, Lechovice") is None
 
+    def test_cadastre_at_end(self):
+        assert BazosScraper._extract_municipality(
+            "Vícegenerační rodinný dům 4+1 a 1+1 se zahradou, k.ú. Práče") == "Práče"
+
+    def test_cadastre_with_connector(self):
+        assert BazosScraper._extract_municipality(
+            "Prodej zahrady 879m2, voda i elektřina, k.ú. Dobšice u Znojma") == "Dobšice u Znojma"
+        assert BazosScraper._extract_municipality(
+            "Pozemek č.p. 1641 v k.ú. Lednice na Moravě") == "Lednice na Moravě"
+
+    def test_cadastre_stops_at_comma_and_lowercase(self):
+        assert BazosScraper._extract_municipality(
+            "Prodej orné půdy, 19.093 m² - k.ú. Kyjovice, okr. Znojmo") == "Kyjovice"
+        assert BazosScraper._extract_municipality(
+            "Prodej domu k.ú. Práče prodám rychle") == "Práče"
+
+    def test_leading_place_wins_over_cadastre(self):
+        assert BazosScraper._extract_municipality(
+            "Lechovice, prodej RD, k.ú. Lechovice u Znojma") == "Lechovice"
+
 
 # ---------------------------------------------------------------------------
 # BazosScraper – plochy (místnost vs. celý dům)
@@ -716,3 +736,14 @@ class TestBazosExtractAreas:
     def test_plain_area_without_room_context_is_used(self):
         desc = "Nabízíme dům. Celkem 150 m² plochy k dispozici."
         assert self.scraper._extract_areas("Titulek", desc, "Dům") == (150.0, None)
+
+    def test_land_with_adjective_is_not_house_area(self):
+        # Práče: pozemek skončil v zastavěné ploše → duplikát se SREALITY neprošel
+        desc = ("Dům nabízí dostatek prostoru a pozemky o celkové výměře 820 m and sup2;. "
+                "Jedinečné benefity: - pozemky o celkové výměře 820 m2 - rekonstruovaný interiér. "
+                "Dům stojí na pozemku o celkové výměře 820 m2.")
+        assert self.scraper._extract_areas("Vícegenerační rodinný dům", desc, "Dům") == (None, 820.0)
+
+    def test_land_context_in_fallback_goes_to_land(self):
+        desc = "Rodinný dům 4+1. Součástí je zahrada 450 m². Dům má 120 m² obytné plochy."
+        assert self.scraper._extract_areas("Titulek", desc, "Dům") == (120.0, 450.0)
