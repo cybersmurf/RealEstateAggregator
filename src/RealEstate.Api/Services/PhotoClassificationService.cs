@@ -228,7 +228,8 @@ public sealed class PhotoClassificationService(
                 photo.PhotoLabels = classification.Labels?.Count > 0
                     ? JsonSerializer.Serialize(classification.Labels)
                     : null;
-                photo.DamageDetected = classification.DamageDetected;
+                photo.DamageDetected = PhotoDamageValidator.IsConfirmed(
+                    classification.DamageDetected, classification.Labels, photo.PhotoCategory, photoDescription);
                 photo.ClassificationConfidence = Math.Clamp(
                     (decimal)(classification.Confidence ?? 0.0), 0m, 1m);
                 photo.ClassifiedAt = DateTime.UtcNow;
@@ -363,7 +364,8 @@ public sealed class PhotoClassificationService(
                 photo.PhotoCategory          = NormalizeCategory(classification.Category!);
                 photo.PhotoLabels            = classification.Labels?.Count > 0
                     ? JsonSerializer.Serialize(classification.Labels) : null;
-                photo.DamageDetected         = classification.DamageDetected;
+                photo.DamageDetected         = PhotoDamageValidator.IsConfirmed(
+                    classification.DamageDetected, classification.Labels, photo.PhotoCategory, description);
                 photo.ClassificationConfidence = Math.Clamp(
                     (decimal)(classification.Confidence ?? 0.0), 0m, 1m);
                 photo.ClassifiedAt           = DateTime.UtcNow;
@@ -598,10 +600,17 @@ public sealed class PhotoClassificationService(
             raw, @"""damage_detected""\s*:\s*(true|false)");
         var confMatch = System.Text.RegularExpressions.Regex.Match(
             raw, @"""confidence""\s*:\s*([0-9.]+)");
+        // Štítky potřebuje PhotoDamageValidator – bez nich by useknutý JSON poškození nikdy nepotvrdil
+        var labelsMatch = System.Text.RegularExpressions.Regex.Match(
+            raw, @"""labels""\s*:\s*\[([^\]]*)");
 
         return new PhotoClassificationJson
         {
             Category = categoryMatch.Groups[1].Value,
+            Labels = labelsMatch.Success
+                ? System.Text.RegularExpressions.Regex.Matches(labelsMatch.Groups[1].Value, @"""([^""]+)""")
+                    .Select(m => m.Groups[1].Value).ToList()
+                : null,
             // Popis může být zkrácený – to je OK, lepší než nic
             Description = descMatch.Success ? descMatch.Groups[1].Value.Trim() : null,
             DamageDetected = damageMatch.Success &&
