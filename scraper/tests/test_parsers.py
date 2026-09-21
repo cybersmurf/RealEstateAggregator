@@ -612,6 +612,38 @@ class TestLexamoExtractDistrict:
         assert LexamoScraper._extract_district(url) == "Kolin"
 
 
+class TestLexamoExtractPhotos:
+    """Portrét makléře (div.makler-photo-wrapper) končil jako poslední fotka
+    inzerátu a vision model ho pak popisoval jako „muže na terase"."""
+
+    CDN = "https://cdn.prod.website-files.com/66c4/"
+    GALLERY = (
+        '<div class="collection-image-wrapper">'
+        f'<img class="collection-image-item" src="{CDN}a_1920x1920wm-dum-1.jpeg"></div>'
+        '<div class="collection-image-wrapper">'
+        f'<img class="collection-image-item" src="{CDN}b_1920x1920wm-dum-2.jpeg"></div>'
+    )
+    BROKER = (
+        '<div class="makler-photo-wrapper">'
+        f'<img class="image-19" src="{CDN}c_1024x1024-tomas-svacina-lexamo-portrety.jpeg"></div>'
+    )
+
+    def _photos(self, html: str) -> list[str]:
+        from bs4 import BeautifulSoup
+        scraper = LexamoScraper.__new__(LexamoScraper)
+        return scraper._extract_photos(BeautifulSoup(html, "html.parser"))
+
+    def test_gallery_only_without_broker_portrait(self):
+        photos = self._photos(self.GALLERY + self.BROKER)
+        assert photos == [self.CDN + "a_1920x1920wm-dum-1.jpeg", self.CDN + "b_1920x1920wm-dum-2.jpeg"]
+
+    def test_fallback_without_gallery_class_still_skips_broker(self):
+        html = self.GALLERY.replace('class="collection-image-item" ', "") + self.BROKER
+        photos = self._photos(html)
+        assert len(photos) == 2
+        assert not any("portrety" in p for p in photos)
+
+
 # ---------------------------------------------------------------------------
 # SrealityScraper – plochy z titulku
 # ---------------------------------------------------------------------------

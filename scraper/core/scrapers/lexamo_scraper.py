@@ -311,9 +311,16 @@ class LexamoScraper:
         """Extract full-size Webflow CDN photo URLs."""
         photos = []
         seen: set = set()
-        for img in soup.select("img[src*='website-files.com']"):
+        # Galerie inzerátu; bez ní (změna šablony) bereme všechny CDN obrázky jako dřív
+        images = soup.select("img.collection-image-item[src*='website-files.com']")
+        if not images:
+            images = soup.select("img[src*='website-files.com']")
+        for img in images:
             src = img.get("src", "").strip()
             if not src or src in seen:
+                continue
+            # Portrét makléře není fotka nemovitosti – končil jako poslední fotka inzerátu
+            if img.find_parent(class_="makler-photo-wrapper"):
                 continue
             # Skip icons and tiny thumbnails (SVG icons, logos)
             if re.search(r"\.(svg)$", src, re.I):
