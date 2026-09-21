@@ -32,6 +32,7 @@ from PIL import Image
 from typing import Optional
 import httpx
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from mcp.types import ImageContent, TextContent
 
 
@@ -107,7 +108,7 @@ API_TIMEOUT = float(os.getenv("API_TIMEOUT_SECONDS", "30"))
 TRANSPORT = os.getenv("TRANSPORT", "stdio")   # "stdio" nebo "sse"
 PORT = int(os.getenv("PORT", "8002"))
 MISTRAL_API_KEY      = os.getenv("MISTRAL_API_KEY",      "Auf12P50gxnU6Py6l5qokYCBmYfWKtkU")
-MISTRAL_VISION_MODEL = os.getenv("MISTRAL_VISION_MODEL", "mistral-small-2506")
+MISTRAL_VISION_MODEL = os.getenv("MISTRAL_VISION_MODEL", "mistral-medium-latest")
 
 # Max znaků které jeden MCP tool vrátí – omezuje výši kontextu a kreditů Claude
 MAX_OUTPUT_CHARS = int(os.getenv("MCP_MAX_OUTPUT_CHARS", "200000"))
@@ -128,8 +129,8 @@ Dostupné nástroje:
 - get_listing: Detailní informace o konkrétním inzerátu (text + metadata + fotky jako URL)
 - get_listing_photos: 📸 Fotky Z INZERÁTU jako obrázky viditelné v chatu
 - get_inspection_photos: 📷 Fotky Z PROHLÍDKY jako obrázky viditelné v chatu
-- analyze_inspection_photos: 🔍 AI analýza fotek z prohlídky (Mistral Vision / llava) – místnost, stav, popis, nedostatky
-- analyze_listing_photos: 🔍 AI analýza fotek z inzerátu (Mistral Vision / llava) – přehled před prohlídkou
+- analyze_inspection_photos: 🔍 AI analýza fotek z prohlídky (Mistral Vision) – místnost, stav, popis, nedostatky
+- analyze_listing_photos: 🔍 AI analýza fotek z inzerátu (Mistral Vision) – přehled před prohlídkou
 - get_analyses: Zobrazení uložených analýz pro inzerát
 - save_analysis: Uložení nové analýzy textu (automaticky se vygeneruje embedding)
 - ask_listing: RAG dotaz nad analýzami konkrétního inzerátu
@@ -145,10 +146,19 @@ Dostupné nástroje:
 async def _call_api(method: str, path: str, **kwargs) -> dict | list:
     """Zavolá .NET API a vrátí JSON odpověď."""
     url = f"{API_BASE_URL}{path}"
-    async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
-        resp = await getattr(client, method)(url, **kwargs)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+            resp = await getattr(client, method)(url, **kwargs)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.TransportError as e:
+        # Bez tohohle dostal model 40řádkový traceback a hádal příčinu. Na macOS je
+        # okamžitý ConnectError do LAN typicky chybějící oprávnění „Místní síť" pro Python.
+        raise ToolError(
+            f"API {API_BASE_URL} je nedostupné ({type(e).__name__}: {e}). "
+            "Server nejspíš běží – zkontroluj síť, VPN a na macOS oprávnění "
+            "Soukromí a zabezpečení → Místní síť pro Python, který spouští tento MCP server."
+        ) from e
 
 
 def _fmt_listing(l: dict) -> str:
@@ -476,7 +486,7 @@ async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 5)
 @mcp.tool()
 async def analyze_inspection_photos(listing_id: str, page: int = 1, page_size: int = 10, force: bool = False) -> str:
     """
-    🔍 Analyzuje fotky z prohlídky pomocí AI vision modelu (llava:7b).
+    🔍 Analyzuje fotky z prohlídky pomocí AI vision modelu (Mistral Vision).
     Výsledky jsou ULOŽENY DO DB – příště se načtou z cache (rychlé).
     Fotky zpracovává po stránkách (default 10 fotek/stránka).
 
@@ -574,7 +584,7 @@ async def analyze_inspection_photos(listing_id: str, page: int = 1, page_size: i
 @mcp.tool()
 async def analyze_listing_photos(listing_id: str, page: int = 1, page_size: int = 10, force: bool = False) -> str:
     """
-    🔍 Analyzuje fotky Z INZERÁTU pomocí AI vision modelu (llava:7b).
+    🔍 Analyzuje fotky Z INZERÁTU pomocí AI vision modelu (Mistral Vision).
     Výsledky jsou ULOŽENY DO DB – příště se načtou z cache (rychlé).
     Hodí se pro rychlý přehled nemovitosti ještě před prohlídkou.
 

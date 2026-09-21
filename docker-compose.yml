@@ -169,7 +169,7 @@ services:
       - TRANSPORT=sse
       - PORT=8002
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
-      - "MISTRAL_VISION_MODEL=${MISTRAL_VISION_MODEL:-mistral-small-2506}"
+      - "MISTRAL_VISION_MODEL=${MISTRAL_VISION_MODEL:-mistral-medium-latest}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
