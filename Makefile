@@ -166,9 +166,16 @@ scrape-full:
 # ---- Deploy (server) ----------------------------------------------------------
 
 # Předpoklad: lokální změny jsou commitnuty a pushnuty na master.
-# Server provede git stash + pull + stash pop pro zachování lokálních override (Ollama URL atd.).
+# --autostash zachová případné lokální override na serveru (Ollama URL atd.). Dřívější
+# `git stash && git pull && git stash pop` spadlo na "No stash entries found", jakmile
+# na serveru nebylo co stashovat, a deploy skončil ještě před buildem.
 
-DEPLOY_BASE = cd $(REMOTE_DIR) && git stash && git pull && git stash pop
+DEPLOY_BASE = cd $(REMOTE_DIR) && git pull --autostash
+
+# Ověření běží na serveru, kde se doména překládá na veřejný relay a Traefik tam chce
+# heslo (401). --resolve pošle požadavek na LAN adresu: stejná cesta přes Traefik a TLS,
+# jakou jdou klienti z domácí sítě.
+CURL_PROD := curl -sf --resolve realestate.sudata.eu:443:192.168.11.2
 
 # Na serveru MUSÍ jít oba compose soubory dohromady. Samotné `docker compose -p realestate`
 # vezme jen docker-compose.yml, kde je ASPNETCORE_ENVIRONMENT=Development natvrdo –
@@ -193,14 +200,14 @@ deploy-api:
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build api && $(COMPOSE_SRV) up -d --no-deps api && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY API OK"'
 	$(call wait_healthy,realestate-api)
 	@echo ">>> Ověření..."
-	@ssh $(SERVER) "curl -sf -o /dev/null -w 'API HTTP %{http_code}\n' https://realestate.sudata.eu/api/sources"
+	@ssh $(SERVER) "$(CURL_PROD) -o /dev/null -w 'API HTTP %{http_code}\n' https://realestate.sudata.eu/api/sources"
 
 deploy-app:
 	@echo ">>> Deploy App na $(SERVER)..."
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build app && $(COMPOSE_SRV) up -d --no-deps app && echo "DEPLOY APP OK"'
 	$(call wait_healthy,realestate-app)
 	@echo ">>> Ověření..."
-	@ssh $(SERVER) "curl -sf -o /dev/null -w 'App HTTP %{http_code}\n' https://realestate.sudata.eu/"
+	@ssh $(SERVER) "$(CURL_PROD) -o /dev/null -w 'App HTTP %{http_code}\n' https://realestate.sudata.eu/"
 
 deploy-scraper:
 	@echo ">>> Deploy scraperu na $(SERVER)..."
@@ -216,8 +223,8 @@ deploy-both:
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build api app && $(COMPOSE_SRV) up -d --no-deps api app && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY OK"'
 	$(call wait_healthy,realestate-api)
 	@echo ">>> Ověření..."
-	@ssh $(SERVER) "curl -sf -o /dev/null -w 'API HTTP %{http_code}\n' https://realestate.sudata.eu/api/sources"
-	@ssh $(SERVER) "curl -sf -o /dev/null -w 'App HTTP %{http_code}\n' https://realestate.sudata.eu/"
+	@ssh $(SERVER) "$(CURL_PROD) -o /dev/null -w 'API HTTP %{http_code}\n' https://realestate.sudata.eu/api/sources"
+	@ssh $(SERVER) "$(CURL_PROD) -o /dev/null -w 'App HTTP %{http_code}\n' https://realestate.sudata.eu/"
 
 # ---- Server monitoring ---------------------------------------------------------
 
@@ -226,10 +233,10 @@ server-status:
 	@ssh $(SERVER) "sudo docker ps --filter 'name=realestate' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 	@echo ""
 	@echo "=== API health ==="
-	@ssh $(SERVER) "curl -sf https://realestate.sudata.eu/api/sources | python3 -m json.tool | head -5" || echo "  nereaguje"
+	@ssh $(SERVER) "$(CURL_PROD) https://realestate.sudata.eu/api/sources | python3 -m json.tool | head -5" || echo "  nereaguje"
 	@echo ""
 	@echo "=== App ==="
-	@ssh $(SERVER) "curl -sf -o /dev/null -w '  HTTPS %{http_code}\n' https://realestate.sudata.eu/" || echo "  nereaguje"
+	@ssh $(SERVER) "$(CURL_PROD) -o /dev/null -w '  HTTPS %{http_code}\n' https://realestate.sudata.eu/" || echo "  nereaguje"
 
 server-logs-api:
 	ssh $(SERVER) "sudo docker logs -f --tail=100 realestate-api"
