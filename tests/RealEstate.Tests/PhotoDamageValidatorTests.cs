@@ -60,6 +60,27 @@ public class PhotoDamageValidatorTests
         Assert.False(PhotoDamageValidator.IsConfirmed(true, ["renovation_needed"], "exterior", description));
     }
 
+    [Theory]
+    [InlineData("peeling and missing plaster on the exterior wall")]
+    [InlineData("exposed brickwork on the gable")]
+    public void NamedEvidence_ConfirmsFlag_EvenWithCzechDescription(string evidence)
+    {
+        Assert.True(PhotoDamageValidator.IsConfirmed(
+            true, ["renovation_needed"], "exterior", "Na fasádě je patrné poškození omítky.", evidence));
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("N/A")]
+    [InlineData("null")]
+    [InlineData("  ")]
+    [InlineData("no visible damage")]
+    public void PlaceholderEvidence_IsNotEvidence(string evidence)
+    {
+        Assert.False(PhotoDamageValidator.IsConfirmed(
+            true, ["renovation_needed"], "exterior", "Dům je v dobrém stavu.", evidence));
+    }
+
     [Fact]
     public void FlagWithoutAnyEvidence_IsRejected()
     {

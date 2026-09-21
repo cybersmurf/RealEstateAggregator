@@ -366,7 +366,7 @@ Soubory: `test_parsers.py` (62), `test_filters.py` (28), `test_enrichment.py` (7
 | `DB_HOST/PORT/NAME/USER/PASSWORD` | PostgreSQL connection |
 | `SCRAPER_API_BASE_URL` | Python scraper URL (`http://scraper:8001` v Dockeru) |
 | `Ollama__BaseUrl` | Ollama (`http://host.docker.internal:11434`) |
-| `Ollama__VisionModel` | Vision model (`llama3.2-vision:11b`) |
+| `OPENROUTER_VISION_MODEL` / `MISTRAL_VISION_MODEL` | Vision modely klasifikace fotek (Gemini Flash Lite → záloha Mistral medium) |
 | `PHOTOS_PUBLIC_BASE_URL` | Base URL pro stored fotky |
 
 ### Key Environment Variables (Scraper)

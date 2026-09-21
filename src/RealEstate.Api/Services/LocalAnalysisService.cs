@@ -788,7 +788,7 @@ public sealed class LocalAnalysisService(
 
         var requestBody = new
         {
-            model = config["Mistral:VisionModel"] ?? "mistral-small-2506",
+            model = config["Mistral:VisionModel"] ?? "mistral-medium-latest",
             messages = new[]
             {
                 new

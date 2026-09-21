@@ -174,7 +174,7 @@ public sealed class CadastreService(
             ?? throw new InvalidOperationException("MISTRAL_API_KEY není nakonfigurován");
         var visionModel = Environment.GetEnvironmentVariable("MISTRAL_VISION_MODEL")
             ?? configuration["Mistral:VisionModel"]
-            ?? "mistral-small-2506";
+            ?? "mistral-medium-latest";
 
         const string ocrPrompt = """
             You are analyzing a screenshot from the Czech cadastre system (nahlizeni.cuzk.cz / nahlizenidokn.cuzk.cz).

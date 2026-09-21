@@ -87,7 +87,7 @@ Each scraper is a class in `scraper/core/scrapers/`. The runner (`scraper/core/r
 1. `OllamaEmbeddingService` (or `OpenAIEmbeddingService`) generates 768-dim vectors.
 2. Vectors stored in `listings.description_embedding` and `listing_analyses.embedding`.
 3. `RagService` performs cosine similarity search via pgvector IVFFlat index.
-4. `PhotoClassificationService` uses `llama3.2-vision:11b` to classify listing photos into 13 categories.
+4. `PhotoClassificationService` classifies listing photos into 13 categories with a cloud vision model: `google/gemini-3.1-flash-lite` via OpenRouter, falling back to Mistral (`mistral-medium-latest`). `PhotoDamageValidator` keeps `damage_detected` only when the model backed it with a damage label, `damage_evidence`, or the description. Model choice comes from a 9-model benchmark (Sept 2026); local Ollama vision models were too slow (~20 s/photo).
 5. Embedding provider is selected at startup: `Embedding:Provider=ollama` → Ollama, otherwise OpenAI.
 
 ## Code Conventions
@@ -133,7 +133,9 @@ Environment variables used by API (set in `docker-compose.yml` or `.env`):
 | `DB_HOST/PORT/NAME/USER/PASSWORD` | PostgreSQL connection |
 | `SCRAPER_API_BASE_URL` | Python scraper URL (default: `http://localhost:8001`) |
 | `Ollama__BaseUrl` | Ollama endpoint (Docker: `http://host.docker.internal:11434`) |
-| `Ollama__VisionModel` | Vision model for photo classification (default: `llama3.2-vision:11b`) |
+| `OPENROUTER_VISION_MODEL` | Primary photo classification model (default: `google/gemini-3.1-flash-lite`) |
+| `MISTRAL_VISION_MODEL` | Fallback photo classification + cadastre OCR model (default: `mistral-medium-latest`) |
+| `PHOTO_VISION_PROVIDER` | `mistral` / `openrouter` = force a single provider for photo classification |
 | `PHOTOS_PUBLIC_BASE_URL` | Base URL for serving stored photos |
 | `PUBLIC_API_URL` | Externí URL API – plní `PHOTOS_PUBLIC_BASE_URL` a `ApiPublicUrl` |
 | `OpenRouter__ApiKey` / `Groq__ApiKey` / `Mistral__ApiKey` | Cloud LLM fallback |

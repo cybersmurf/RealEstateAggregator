@@ -9,7 +9,9 @@ using RealEstate.Infrastructure.Storage;
 namespace RealEstate.Api.Services;
 
 /// <summary>
-/// Klasifikuje fotky nemovitostí přes Mistral Vision API (mistral-small-2506).
+/// Klasifikuje fotky nemovitostí vision modelem: primárně Gemini Flash Lite přes OpenRouter,
+/// záloha Mistral. Výběr vzešel ze srovnání 9 modelů na 23 ručně ověřených fotkách (září 2026):
+/// mistral-small přehlédl 2 ze 3 skutečných poškození a 2× si ho vymyslel, Gemini 0/0.
 /// Čte soubory z lokálního storage (wwwroot/uploads/...) a posílá jako base64.
 /// Výsledky ukládá do sloupců photo_category, photo_labels, damage_detected, classified_at.
 /// </summary>
@@ -27,24 +29,52 @@ public sealed class PhotoClassificationService(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    // Mistral Vision API
-    private string MistralApiKey =>
-        Environment.GetEnvironmentVariable("MISTRAL_API_KEY")
-        ?? configuration["Mistral:ApiKey"]
-        ?? throw new InvalidOperationException("MISTRAL_API_KEY není nakonfigurován");
+    private sealed record VisionEndpoint(string Name, string Url, string ApiKey, string Model);
 
-    private string MistralVisionModel =>
-        Environment.GetEnvironmentVariable("MISTRAL_VISION_MODEL")
-        ?? configuration["Mistral:VisionModel"]
-        ?? "mistral-small-2506";
+    /// <summary>
+    /// Poskytovatelé v pořadí, v jakém se zkouší. Oba mluví OpenAI-kompatibilním chat API.
+    /// PHOTO_VISION_PROVIDER=mistral vynutí jen Mistral (např. při výpadku OpenRouteru).
+    /// </summary>
+    private List<VisionEndpoint> VisionEndpoints
+    {
+        get
+        {
+            var endpoints = new List<VisionEndpoint>();
+            var forced = Environment.GetEnvironmentVariable("PHOTO_VISION_PROVIDER")
+                         ?? configuration["Photos:VisionProvider"];
 
-    private const string MistralApiUrl = "https://api.mistral.ai/v1/chat/completions";
+            var openRouterKey = configuration["OpenRouter:ApiKey"];
+            if (!string.IsNullOrWhiteSpace(openRouterKey)
+                && !string.Equals(forced, "mistral", StringComparison.OrdinalIgnoreCase))
+            {
+                var baseUrl = (configuration["OpenRouter:BaseUrl"] ?? "https://openrouter.ai/api/v1").TrimEnd('/');
+                endpoints.Add(new VisionEndpoint("OpenRouter", $"{baseUrl}/chat/completions", openRouterKey,
+                    Environment.GetEnvironmentVariable("OPENROUTER_VISION_MODEL")
+                    ?? configuration["OpenRouter:VisionModel"]
+                    ?? "google/gemini-3.1-flash-lite"));
+            }
+
+            var mistralKey = Environment.GetEnvironmentVariable("MISTRAL_API_KEY") ?? configuration["Mistral:ApiKey"];
+            if (!string.IsNullOrWhiteSpace(mistralKey)
+                && !string.Equals(forced, "openrouter", StringComparison.OrdinalIgnoreCase))
+            {
+                endpoints.Add(new VisionEndpoint("Mistral", "https://api.mistral.ai/v1/chat/completions", mistralKey,
+                    Environment.GetEnvironmentVariable("MISTRAL_VISION_MODEL")
+                    ?? configuration["Mistral:VisionModel"]
+                    ?? "mistral-medium-latest"));
+            }
+
+            return endpoints.Count > 0
+                ? endpoints
+                : throw new InvalidOperationException("Není nakonfigurován OpenRouter:ApiKey ani MISTRAL_API_KEY");
+        }
+    }
 
     // Prodlevy před opakováním po HTTP 429; po vyčerpání se dávka ukončí
     private static readonly TimeSpan[] _rateLimitRetryDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5)];
 
     private const string RateLimitedMessage =
-        "Mistral Vision API odmítá požadavky (HTTP 429 – rate limit / vyčerpaná kvóta).";
+        "Vision API odmítá požadavky (HTTP 429 – rate limit / vyčerpaná kvóta).";
 
     // Public base URL odstraníme ze stored_url abychom dostali relativní cestu k souboru
     private string PublicBaseUrl =>
@@ -52,33 +82,27 @@ public sealed class PhotoClassificationService(
         ?? configuration["Photos:PublicBaseUrl"]
         ?? "http://localhost:5001";
 
-    // ── 1. Prompt: strukturovaný JSON klasifikace (category + labels + damage) ──
-    // format: "json" zaručuje valid JSON výstup, ale omezuje délku → neklást dlouhé texty
+    // Jeden prompt pro kategorii, štítky, poškození i popis. Dřív to byla dvě nezávislá volání,
+    // která si protiřečila (damage_detected=true + popis „no visible defects").
     private const string ClassificationPrompt = """
-        Analyze this real estate property photo.
-        Respond ONLY with valid JSON, nothing else:
-        {"category":"...","labels":[...],"damage_detected":false,"confidence":0.9}
+        You label one photo from a Czech real-estate listing. Report only what is clearly visible in THIS photo. Never guess, never embellish, never invent objects. Ignore watermarks and agency logos.
 
-        "category" must be exactly one of:
-        exterior, interior, kitchen, bathroom, living_room, bedroom,
-        attic, basement, garage, land, floor_plan, damage, other
+        Respond with JSON only:
+        {"category":"...","labels":[...],"damage_detected":false,"damage_evidence":null,"description":"...","confidence":0.9}
 
-        "labels": array of 0-5 tags from:
-        mold, water_damage, crack, broken_windows, damaged_roof, renovation_needed,
-        garden, pool, fireplace, wooden_beams, new_construction, renovated,
-        brick_walls, wooden_construction, panel_building
+        "category" - exactly one of:
+        exterior, interior, kitchen, bathroom, living_room, bedroom, attic, basement, garage, land, floor_plan, damage, other
+        (drone/aerial shots of the house -> exterior; gardens, plots, maps of plots -> land; drawings of room layout -> floor_plan)
 
-        "damage_detected": true if ANY visible damage (mold, water stains, cracks, rot, peeling)
-        "confidence": 0.0 to 1.0
+        "labels" - 0-5 tags, ONLY those you can actually see, from:
+        mold, water_damage, crack, broken_windows, damaged_roof, renovation_needed, garden, pool, fireplace, wooden_beams, new_construction, renovated, brick_walls, wooden_construction, panel_building
+        An empty array is a good answer. Do not add a tag because it is on the list.
+
+        "damage_detected" - true ONLY for a visible physical defect: missing or peeling plaster, cracks, mold, water stains, rot, broken windows, damaged roof. A dated, unfinished, cluttered or modest room is NOT damage.
+        "damage_evidence" - if damage_detected, a short English phrase naming the defect and where it is; otherwise null.
+        "description" - 1-2 factual sentences in Czech: what the photo shows, materials, visible condition. No marketing language.
+        "confidence" - 0.0 to 1.0
         """;
-
-    // ── 2. Prompt: volný text popis česky (bez format:json, jinak se seká) ─────
-    // Jednoduchý anglický prompt – model pracuje lépe v angličtině,
-    // výsledek uložen tak jak přijde (EN), v UI bude přeložen nebo zobrazen i anglicky
-    private const string DescriptionPrompt =
-        "Describe what you see in this real estate property photo in 1-2 sentences." +
-        " Focus on materials, condition, size impression, and any notable features or defects." +
-        " Be specific and concise.";
 
     public async Task<PhotoClassificationResultDto> ClassifyBatchAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool onlyMyListings = false)
     {
@@ -128,8 +152,6 @@ public sealed class PhotoClassificationService(
         string? error = null;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         using var httpClient = httpClientFactory.CreateClient("MistralVision");
-        httpClient.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", MistralApiKey);
 
         foreach (var photo in photos)
         {
@@ -213,7 +235,7 @@ public sealed class PhotoClassificationService(
                     continue;
                 }
 
-                var (classification, photoDescription) = await RunMistralClassificationAsync(
+                var (classification, photoDescription) = await RunClassificationAsync(
                     httpClient, imageBytes, photo.ListingId, photo.Id, CancellationToken.None);
 
                 if (classification == null || string.IsNullOrWhiteSpace(classification.Category))
@@ -229,7 +251,8 @@ public sealed class PhotoClassificationService(
                     ? JsonSerializer.Serialize(classification.Labels)
                     : null;
                 photo.DamageDetected = PhotoDamageValidator.IsConfirmed(
-                    classification.DamageDetected, classification.Labels, photo.PhotoCategory, photoDescription);
+                    classification.DamageDetected, classification.Labels, photo.PhotoCategory,
+                    photoDescription, classification.DamageEvidence);
                 photo.ClassificationConfidence = Math.Clamp(
                     (decimal)(classification.Confidence ?? 0.0), 0m, 1m);
                 photo.ClassifiedAt = DateTime.UtcNow;
@@ -242,7 +265,7 @@ public sealed class PhotoClassificationService(
 
                 succeeded++;
             }
-            catch (MistralRateLimitedException ex)
+            catch (VisionRateLimitedException ex)
             {
                 logger.LogWarning("{Message} Dávka ukončena po {Done} fotkách.", ex.Message, succeeded + failed);
                 error = ex.Message;
@@ -333,8 +356,6 @@ public sealed class PhotoClassificationService(
         string? error = null;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         using var httpClient = httpClientFactory.CreateClient("MistralVision");
-        httpClient.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", MistralApiKey);
 
         foreach (var photo in photos)
         {
@@ -352,7 +373,7 @@ public sealed class PhotoClassificationService(
                 }
 
                 var imageBytes = await File.ReadAllBytesAsync(localPath, ct);
-                var (classification, description) = await RunMistralClassificationAsync(
+                var (classification, description) = await RunClassificationAsync(
                     httpClient, imageBytes, photo.ListingId, photo.Id, CancellationToken.None);
 
                 if (classification == null)
@@ -365,7 +386,8 @@ public sealed class PhotoClassificationService(
                 photo.PhotoLabels            = classification.Labels?.Count > 0
                     ? JsonSerializer.Serialize(classification.Labels) : null;
                 photo.DamageDetected         = PhotoDamageValidator.IsConfirmed(
-                    classification.DamageDetected, classification.Labels, photo.PhotoCategory, description);
+                    classification.DamageDetected, classification.Labels, photo.PhotoCategory,
+                    description, classification.DamageEvidence);
                 photo.ClassificationConfidence = Math.Clamp(
                     (decimal)(classification.Confidence ?? 0.0), 0m, 1m);
                 photo.ClassifiedAt           = DateTime.UtcNow;
@@ -379,7 +401,7 @@ public sealed class PhotoClassificationService(
 
                 succeeded++;
             }
-            catch (MistralRateLimitedException ex)
+            catch (VisionRateLimitedException ex)
             {
                 logger.LogWarning("{Message} Dávka ukončena po {Done} fotkách.", ex.Message, succeeded + failed);
                 error = ex.Message;
@@ -424,19 +446,18 @@ public sealed class PhotoClassificationService(
     }
 
     /// <summary>
-    /// Sdílená Mistral Vision logika pro oba typy fotek (listing + inspection).
+    /// Sdílená vision logika pro oba typy fotek (listing + inspection).
     /// Vrátí (classification, description) nebo (null, null) při selhání.
     /// </summary>
-    private async Task<(PhotoClassificationJson? Classification, string? Description)> RunMistralClassificationAsync(
+    private async Task<(PhotoClassificationJson? Classification, string? Description)> RunClassificationAsync(
         HttpClient httpClient, byte[] imageBytes, Guid listingId, Guid photoId, CancellationToken ct)
     {
         var base64 = Convert.ToBase64String(imageBytes);
 
-        // 1. JSON klasifikace
-        var classifyRaw = await CallMistralVisionAsync(httpClient, base64, ClassificationPrompt, 256, 0.1, ct);
+        var classifyRaw = await CallVisionAsync(httpClient, base64, ClassificationPrompt, 400, 0, jsonMode: true, ct);
         if (classifyRaw is null)
         {
-            logger.LogWarning("Mistral classify call failed for {ListingId}/{PhotoId}", listingId, photoId);
+            logger.LogWarning("Vision classify call failed for {ListingId}/{PhotoId}", listingId, photoId);
             return (null, null);
         }
 
@@ -451,33 +472,55 @@ public sealed class PhotoClassificationService(
             return (null, null);
         }
 
-        // 2. Volný text popis
-        string? description = null;
-        try
-        {
-            var descRaw = await CallMistralVisionAsync(httpClient, base64, DescriptionPrompt, 200, 0.3, ct);
-            if (!string.IsNullOrWhiteSpace(descRaw))
-                description = TrimToSentence(descRaw.Trim(), maxLength: 400);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogDebug(ex, "Description call failed for {ListingId}/{PhotoId}, skipping", listingId, photoId);
-        }
+        var description = string.IsNullOrWhiteSpace(classification.Description)
+            ? null
+            : TrimToSentence(classification.Description.Trim(), maxLength: 400);
 
         return (classification, description);
     }
 
     /// <summary>
-    /// Jeden Mistral Vision API call – vrátí surový text odpovědi (code fences odstraněny).
+    /// Jeden vision call – vrátí surový text odpovědi (code fences odstraněny).
+    /// Poskytovatele zkouší v pořadí z <see cref="VisionEndpoints"/>; na dalšího přejde při chybě
+    /// i při vyčerpaném rate limitu. Teprve když 429 vrátí poslední, dávka končí.
     /// </summary>
-    private async Task<string?> CallMistralVisionAsync(
+    private async Task<string?> CallVisionAsync(
         HttpClient httpClient, string base64, string prompt,
-        int maxTokens, double temperature, CancellationToken ct)
+        int maxTokens, double temperature, bool jsonMode, CancellationToken ct)
     {
-        var requestBody = new
+        var endpoints = VisionEndpoints;
+        for (var i = 0; i < endpoints.Count; i++)
         {
-            model = MistralVisionModel,
-            messages = new[]
+            var isLast = i == endpoints.Count - 1;
+            try
+            {
+                var result = await CallVisionEndpointAsync(
+                    httpClient, endpoints[i], base64, prompt, maxTokens, temperature, jsonMode, ct);
+                if (result is not null || isLast) return result;
+            }
+            catch (VisionRateLimitedException) when (!isLast)
+            {
+                // přejdeme na zálohu
+            }
+            catch (HttpRequestException ex) when (!isLast)
+            {
+                logger.LogWarning("{Provider} Vision nedostupné: {Message}", endpoints[i].Name, ex.Message);
+            }
+
+            logger.LogInformation("Vision: {Provider} selhal, zkouším {Next}", endpoints[i].Name, endpoints[i + 1].Name);
+        }
+
+        return null;
+    }
+
+    private async Task<string?> CallVisionEndpointAsync(
+        HttpClient httpClient, VisionEndpoint endpoint, string base64, string prompt,
+        int maxTokens, double temperature, bool jsonMode, CancellationToken ct)
+    {
+        var requestBody = new Dictionary<string, object>
+        {
+            ["model"] = endpoint.Model,
+            ["messages"] = new[]
             {
                 new
                 {
@@ -489,16 +532,24 @@ public sealed class PhotoClassificationService(
                     }
                 }
             },
-            max_tokens = maxTokens,
-            temperature = temperature
+            ["max_tokens"] = maxTokens,
+            ["temperature"] = temperature,
         };
+        if (jsonMode)
+            requestBody["response_format"] = new { type = "json_object" };
 
         var json = JsonSerializer.Serialize(requestBody);
         HttpResponseMessage response;
         for (var attempt = 0; ; attempt++)
         {
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            response = await httpClient.PostAsync(MistralApiUrl, content, ct);
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint.Url)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+            request.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", endpoint.ApiKey);
+
+            response = await httpClient.SendAsync(request, ct);
             if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests)
                 break;
 
@@ -507,10 +558,11 @@ public sealed class PhotoClassificationService(
 
             // Krátký limit (req/s) přejde po pár sekundách; vyčerpaná kvóta ne → dávku ukončíme
             if (attempt >= _rateLimitRetryDelays.Length)
-                throw new MistralRateLimitedException();
+                throw new VisionRateLimitedException();
 
             var delay = retryAfter is { } ra && ra <= TimeSpan.FromSeconds(10) ? ra : _rateLimitRetryDelays[attempt];
-            logger.LogInformation("Mistral Vision HTTP 429, retry {Attempt} za {Delay}s", attempt + 1, delay.TotalSeconds);
+            logger.LogInformation("{Provider} Vision HTTP 429, retry {Attempt} za {Delay}s",
+                endpoint.Name, attempt + 1, delay.TotalSeconds);
             await Task.Delay(delay, ct);
         }
 
@@ -518,8 +570,8 @@ public sealed class PhotoClassificationService(
         if (!response.IsSuccessStatusCode)
         {
             var errBody = await response.Content.ReadAsStringAsync(CancellationToken.None);
-            logger.LogWarning("Mistral Vision HTTP {Status}: {Body}",
-                (int)response.StatusCode, errBody[..Math.Min(300, errBody.Length)]);
+            logger.LogWarning("{Provider} Vision HTTP {Status}: {Body}",
+                endpoint.Name, (int)response.StatusCode, errBody[..Math.Min(300, errBody.Length)]);
             return null;
         }
 
@@ -607,6 +659,9 @@ public sealed class PhotoClassificationService(
         return new PhotoClassificationJson
         {
             Category = categoryMatch.Groups[1].Value,
+            DamageEvidence = System.Text.RegularExpressions.Regex.Match(
+                raw, @"""damage_evidence""\s*:\s*""((?:[^""\\]|\\.)*)") is { Success: true } ev
+                ? ev.Groups[1].Value : null,
             Labels = labelsMatch.Success
                 ? System.Text.RegularExpressions.Regex.Matches(labelsMatch.Groups[1].Value, @"""([^""]+)""")
                     .Select(m => m.Groups[1].Value).ToList()
@@ -725,8 +780,6 @@ public sealed class PhotoClassificationService(
         string? error = null;
         var sw = System.Diagnostics.Stopwatch.StartNew();
         using var httpClient = httpClientFactory.CreateClient("MistralVision");
-        httpClient.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", MistralApiKey);
 
         foreach (var photo in photos)
         {
@@ -774,7 +827,7 @@ public sealed class PhotoClassificationService(
                 else { failed++; continue; }
 
                 var base64 = Convert.ToBase64String(imageBytes);
-                var altRaw = await CallMistralVisionAsync(httpClient, base64, AltTextPrompt, 80, 0.2, ct);
+                var altRaw = await CallVisionAsync(httpClient, base64, AltTextPrompt, 80, 0.2, jsonMode: false, ct);
 
                 if (string.IsNullOrWhiteSpace(altRaw)) { failed++; continue; }
 
@@ -787,7 +840,7 @@ public sealed class PhotoClassificationService(
                 logger.LogDebug("AltText listing {ListingId} photo {Order}: {Alt}",
                     photo.ListingId, photo.Order, altText[..Math.Min(80, altText.Length)]);
             }
-            catch (MistralRateLimitedException ex)
+            catch (VisionRateLimitedException ex)
             {
                 logger.LogWarning("{Message} Dávka ukončena po {Done} fotkách.", ex.Message, succeeded + failed);
                 error = ex.Message;
@@ -817,7 +870,7 @@ public sealed class PhotoClassificationService(
 
     // ── Interní deserialization modely ───────────────────────────────────────
 
-    private sealed class MistralRateLimitedException() : Exception(RateLimitedMessage);
+    private sealed class VisionRateLimitedException() : Exception(RateLimitedMessage);
 
     private sealed class MistralChatResponse
     {
@@ -866,6 +919,9 @@ public sealed class PhotoClassificationService(
 
         [JsonPropertyName("damage_detected")]
         public bool DamageDetected { get; set; }
+
+        [JsonPropertyName("damage_evidence")]
+        public string? DamageEvidence { get; set; }
 
         [JsonPropertyName("confidence")]
         public double? Confidence { get; set; }

@@ -4,7 +4,8 @@ namespace RealEstate.Api.Services;
 
 /// <summary>
 /// Potvrzuje příznak damage_detected z vision modelu jen tehdy, když ho model
-/// něčím doložil: štítkem poškození, kategorií "damage", nebo zmínkou v popisu.
+/// něčím doložil: štítkem poškození, kategorií "damage", pojmenovanou vadou (damage_evidence),
+/// nebo zmínkou v popisu.
 ///
 /// Reálný případ (LEXAMO, RD 4+kk Dyje): tři fotky dvora a leteckého snímku dostaly
 /// damage_detected=true se štítky ["renovation_needed","brick_walls","wooden_beams"],
@@ -30,8 +31,17 @@ public static partial class PhotoDamageValidator
         RegexOptions.IgnoreCase)]
     private static partial Regex DamageWord();
 
+    /// <summary>Výplň místo null – slabší modely ji do damage_evidence píšou i bez nálezu.</summary>
+    [GeneratedRegex(@"^\W*(none|null|n/?a|nothing|not applicable)?\W*$", RegexOptions.IgnoreCase)]
+    private static partial Regex EmptyEvidence();
+
+    /// <param name="evidence">
+    /// damage_evidence z promptu: model musí vadu pojmenovat a říct, kde je. Popisy jsou nově česky,
+    /// takže anglický slovník v <see cref="DamageWord"/> platí už jen pro starší záznamy.
+    /// </param>
     public static bool IsConfirmed(
-        bool damageFlag, IEnumerable<string>? labels, string? category, string? description)
+        bool damageFlag, IEnumerable<string>? labels, string? category, string? description,
+        string? evidence = null)
     {
         if (!damageFlag) return false;
 
@@ -39,6 +49,9 @@ public static partial class PhotoDamageValidator
             return true;
 
         if (labels is not null && labels.Any(l => DamageLabels.Contains(l.Trim())))
+            return true;
+
+        if (evidence is not null && !EmptyEvidence().IsMatch(NegatedClause().Replace(evidence, " ")))
             return true;
 
         return !string.IsNullOrWhiteSpace(description)
