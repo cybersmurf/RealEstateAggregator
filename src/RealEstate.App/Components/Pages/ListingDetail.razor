@@ -523,6 +523,12 @@
             <!-- Cena vs. lokalita (medián Kč/m²) a výnos z nájmu – tarify Hledač/Profi -->
             <MarketComparisonSection ListingId="_listing.Id" OfferType="@_listing.OfferType" PropertyType="@_listing.PropertyType" />
 
+            <!-- Hypoteční kalkulačka + partner / lead -->
+            @if (_listing.OfferType != "Rent" && _listing.Price is > 0)
+            {
+                <MortgageCalculator Price="_listing.Price" ListingId="_listing.Id" ListingTitle="@_listing.Title" />
+            }
+
             <!-- Katastr nemovitosti -->
             <SectionCard Title="Katastr nemovitosti" Icon="@Icons.Material.Filled.AccountBalance" IconColor="Color.Info">
                 <HeaderActions>

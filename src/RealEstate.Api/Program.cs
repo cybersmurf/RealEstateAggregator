@@ -284,6 +284,8 @@ app.MapHealthChecks("/health/scraper", new Microsoft.AspNetCore.Diagnostics.Heal
 });
 
 app.MapAuthEndpoints();
+app.MapBillingEndpoints();
+app.MapLeadEndpoints();
 app.MapMarketEndpoints();
 app.MapSavedSearchEndpoints();
 app.MapListingEndpoints();

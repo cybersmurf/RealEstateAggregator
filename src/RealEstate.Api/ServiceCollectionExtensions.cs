@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Pgvector.EntityFrameworkCore;
 using RealEstate.Api.Services;
 using RealEstate.Api.Services.Auth;
+using RealEstate.Api.Services.Billing;
+using RealEstate.Api.Services.Leads;
 using RealEstate.Api.Services.Market;
 using RealEstate.Api.Services.Notifications;
 using RealEstate.Api.Services.SavedSearches;
@@ -34,6 +36,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITelegramSender, TelegramSender>();
         services.AddHttpClient("Telegram");
         services.AddHostedService<SavedSearchHostedService>();
+
+        // Platby (Stripe REST) a leady (hypotéka)
+        services.AddHttpClient("Stripe", client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddScoped<IStripeBillingService, StripeBillingService>();
+        services.AddScoped<ILeadService, LeadService>();
         services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddScoped<ISourceService, SourceService>();
         services.AddScoped<IAnalysisService, AnalysisService>();
