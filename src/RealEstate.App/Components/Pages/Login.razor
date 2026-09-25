@@ -1,0 +1,61 @@
+@page "/login"
+@inject NavigationManager Navigation
+
+<PageTitle>Přihlášení – Real Estate Aggregator</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraSmall" Class="mt-8">
+    <AuthorizeView>
+        <Authorized>
+            <MudAlert Severity="Severity.Info" Class="mb-4">
+                Už jste přihlášeni jako <b>@context.User.Identity?.Name</b>.
+                <MudLink Href="/account">Přejít na účet</MudLink>
+            </MudAlert>
+        </Authorized>
+        <NotAuthorized>
+            <MudPaper Class="pa-6" Elevation="2">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h5">Přihlášení</MudText>
+
+                    @if (!string.IsNullOrEmpty(Error))
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true">@Error</MudAlert>
+                    }
+
+                    <form method="post" action="/account/login">
+                        <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+                        <MudStack Spacing="2">
+                            <MudTextField T="string" Label="E-mail" name="email" InputType="InputType.Email"
+                                          Required="true" Variant="Variant.Outlined" autocomplete="username" />
+                            <MudTextField T="string" Label="Heslo" name="password" InputType="InputType.Password"
+                                          Required="true" Variant="Variant.Outlined" autocomplete="current-password" />
+                            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                                       FullWidth="true" StartIcon="@Icons.Material.Filled.Login">
+                                Přihlásit se
+                            </MudButton>
+                        </MudStack>
+                    </form>
+
+                    <MudDivider />
+                    <MudText Typo="Typo.body2" Align="Align.Center">
+                        Nemáte účet? <MudLink Href="@RegisterHref">Zaregistrujte se zdarma</MudLink>
+                    </MudText>
+                    <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary">
+                        Účet Zdarma umožňuje ukládat oblíbené inzeráty a poznámky.
+                        Uložená hledání s upozorněním jsou v tarifu <MudLink Href="/pricing">Hledač</MudLink>.
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </NotAuthorized>
+    </AuthorizeView>
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private string RegisterHref =>
+        string.IsNullOrEmpty(ReturnUrl) ? "/register" : $"/register?returnUrl={Uri.EscapeDataString(ReturnUrl)}";
+}

@@ -20,6 +20,39 @@
             <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                            Color="Color.Inherit" OnClick="@ToggleDarkMode" />
         </MudTooltip>
+        <AuthorizeView>
+            <Authorized Context="authCtx">
+                <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true">
+                    <ActivatorContent Context="menuCtx">
+                        <MudChip T="string" Color="Color.Default" Variant="Variant.Text"
+                                 Icon="@Icons.Material.Filled.AccountCircle"
+                                 Style="color:inherit; cursor:pointer;">
+                            @authCtx.User.Identity?.Name
+                            <MudChip T="string" Size="Size.Small" Class="ml-1"
+                                     Color="@PlanColor(authCtx.User.FindFirst("plan")?.Value)">
+                                @PlanLabel(authCtx.User.FindFirst("plan")?.Value, authCtx.User.HasClaim("is_admin", "true"))
+                            </MudChip>
+                        </MudChip>
+                    </ActivatorContent>
+                    <ChildContent>
+                        <MudMenuItem Href="/account" Icon="@Icons.Material.Filled.ManageAccounts">Můj účet</MudMenuItem>
+                        <MudMenuItem Href="/saved-searches" Icon="@Icons.Material.Filled.NotificationsActive">Uložená hledání</MudMenuItem>
+                        <MudMenuItem Href="/my-listings" Icon="@Icons.Material.Filled.Bookmarks">Moje inzeráty</MudMenuItem>
+                        <MudMenuItem Href="/pricing" Icon="@Icons.Material.Filled.WorkspacePremium">Tarify</MudMenuItem>
+                        <MudDivider />
+                        <MudMenuItem Href="/account/logout" ForceLoad="true" Icon="@Icons.Material.Filled.Logout">Odhlásit se</MudMenuItem>
+                    </ChildContent>
+                </MudMenu>
+            </Authorized>
+            <NotAuthorized>
+                <MudButton Href="/login" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Login" Class="ml-2">
+                    Přihlásit
+                </MudButton>
+                <MudButton Href="/register" Variant="Variant.Outlined" Color="Color.Inherit" Class="ml-1 d-none d-sm-inline-flex">
+                    Registrace
+                </MudButton>
+            </NotAuthorized>
+        </AuthorizeView>
     </MudAppBar>
 
     <MudDrawer @bind-Open="_drawerOpen" Elevation="2" Variant="@DrawerVariant.Responsive"
@@ -106,4 +139,18 @@
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
     private void ToggleDarkMode() => _isDarkMode = !_isDarkMode;
+
+    private static string PlanLabel(string? plan, bool isAdmin) => isAdmin ? "Admin" : plan switch
+    {
+        "profi" => "Profi",
+        "hledac" => "Hledač",
+        _ => "Zdarma",
+    };
+
+    private static Color PlanColor(string? plan) => plan switch
+    {
+        "profi" => Color.Secondary,
+        "hledac" => Color.Primary,
+        _ => Color.Default,
+    };
 }

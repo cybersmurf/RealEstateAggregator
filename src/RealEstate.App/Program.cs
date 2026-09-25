@@ -1,5 +1,8 @@
-using RealEstate.App.Components;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Components.Authorization;
 using MudBlazor.Services;
+using RealEstate.App.Components;
+using RealEstate.App.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,25 +16,60 @@ builder.Services.AddMudServices();
 // Sdílené UI services
 builder.Services.AddSingleton<RealEstate.App.Services.SourceLogoProvider>();
 
-// Add HttpClient for API communication
+// ─── Účty: cookie přihlášení, stav do komponent, politika Admin ───────────────
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/login";
+        options.LogoutPath = "/account/logout";
+        options.AccessDeniedPath = "/login";
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = false;   // platnost kopíruje bearer token z API
+        options.Cookie.Name = "realestate.auth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    });
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("Admin", policy => policy.RequireClaim(ApiAuthHandler.AdminClaim, "true"));
+builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddHttpContextAccessor();
+
+var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "http://localhost:5001";
+var scrapingApiKey = builder.Configuration["ScrapingApiKey"] ?? "dev-key-change-me";
+
+// Pojmenovaný klient bez identity – používají ho form-post endpointy /account/* (login, registrace)
 builder.Services.AddHttpClient("RealEstateApi", client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["ApiBaseUrl"] ?? "http://localhost:5001");
+    client.BaseAddress = new Uri(apiBaseUrl);
     client.Timeout = TimeSpan.FromMinutes(10); // velký multipart upload fotek z prohlídky
-    var scrapingApiKey = builder.Configuration["ScrapingApiKey"] ?? "dev-key-change-me";
-    client.DefaultRequestHeaders.Add("X-Api-Key", scrapingApiKey);
 });
 
 // Veřejná URL API pro sestavení absoluntích URL fotek v prohlížeči
 // V Dockeru: ApiPublicUrl=${PUBLIC_API_URL:-http://localhost:5001}
 builder.Services.AddSingleton<PhotosBaseUrl>(_ =>
-    new PhotosBaseUrl(builder.Configuration["ApiPublicUrl"] ?? "http://localhost:5001"));
+    new PhotosBaseUrl(
+        builder.Configuration["ApiPublicUrl"] ?? "http://localhost:5001",
+        builder.Configuration.GetValue<bool?>("Photos:PreferOriginal") ?? true));
 
-// Register HttpClient as singleton for DI
+// HttpClient pro komponenty: per okruh, s ApiAuthHandler (Bearer přihlášeného uživatele).
+// Sdílený SocketsHttpHandler drží connection pool – nový HttpClient na okruh nevyčerpá sockety.
+var sharedHandler = new SocketsHttpHandler
+{
+    PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+    AutomaticDecompression = System.Net.DecompressionMethods.All,
+};
 builder.Services.AddScoped(sp =>
 {
-    var factory = sp.GetRequiredService<IHttpClientFactory>();
-    return factory.CreateClient("RealEstateApi");
+    var handler = new ApiAuthHandler(sp.GetRequiredService<AuthenticationStateProvider>(), scrapingApiKey)
+    {
+        InnerHandler = sharedHandler,
+    };
+    return new HttpClient(handler, disposeHandler: false)
+    {
+        BaseAddress = new Uri(apiBaseUrl),
+        Timeout = TimeSpan.FromMinutes(10),
+    };
 });
 
 var app = builder.Build();
@@ -47,24 +85,35 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.UseStaticFiles(); // Serves runtime-uploaded files from wwwroot (e.g. /uploads/)
 app.MapStaticAssets();
+app.MapAccountEndpoints();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
 
 /// <summary>Veřejná base URL API pro sestavení URL fotek v prohlížeči.</summary>
-public sealed record PhotosBaseUrl(string Value)
+/// <param name="PreferOriginal">
+/// true = zobrazovat fotky přímo ze zdrojového portálu (odkaz), ne ze stažených kopií.
+/// Stažené soubory slouží jen ke klasifikaci a po ní se mažou; veřejně je nešíříme.
+/// </param>
+public sealed record PhotosBaseUrl(string Value, bool PreferOriginal = true)
 {
     /// <summary>
     /// Převede stored_url (relativní /uploads/... nebo absolutní http://...) na použitelnou URL.
+    /// Při <see cref="PreferOriginal"/> vrací původní URL ze zdroje, kdykoli je k dispozici.
     /// Pokud je konfigurace ApiPublicUrl omylem localhost, použije se browser origin.
     /// </summary>
     public string Resolve(string? storedUrl, string? fallbackOriginalUrl = null, string? browserBaseUrl = null)
     {
+        if (PreferOriginal && !string.IsNullOrWhiteSpace(fallbackOriginalUrl))
+            return fallbackOriginalUrl;
+
         if (string.IsNullOrWhiteSpace(storedUrl))
             return fallbackOriginalUrl ?? string.Empty;
 

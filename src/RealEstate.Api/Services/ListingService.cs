@@ -606,9 +606,10 @@ public class ListingService : IListingService
             IsActive = entity.IsActive,
             DeactivatedAt = entity.DeactivatedAt,
             DaysOnMarket = DaysOnMarket(entity),
+            // Původní URL ze zdroje má přednost – stažené kopie slouží jen klasifikaci a veřejně se nešíří
             ThumbnailUrl = entity.Photos
                 .OrderBy(p => p.Order)
-                .Select(p => p.StoredUrl ?? p.OriginalUrl)
+                .Select(p => string.IsNullOrWhiteSpace(p.OriginalUrl) ? p.StoredUrl : p.OriginalUrl)
                 .FirstOrDefault(),
             UserStatus = userState?.Status.ToString() ?? "New",
             HasNotes = !string.IsNullOrWhiteSpace(userState?.Notes),

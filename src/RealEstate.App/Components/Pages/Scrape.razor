@@ -330,6 +330,17 @@
                 if (dto?.RemainingUnprocessed == 0) break;
             }
 
+            // AI shrnutí – veřejná náhrada původního popisu
+            _aiStatus = "Generuji shrnutí…";
+            StateHasChanged();
+            for (int i = 0; i < 40; i++)
+            {
+                var r = await Http.PostAsync($"api/ollama/bulk-summary?batchSize=20", null, _cts.Token);
+                if (!r.IsSuccessStatusCode) break;
+                var dto = await r.Content.ReadFromJsonAsync<BulkJobResultDto>(cancellationToken: _cts.Token);
+                if (dto?.RemainingUnprocessed == 0) break;
+            }
+
             // Price opinion
             _aiStatus = "Vyhodnocuji ceny…";
             StateHasChanged();

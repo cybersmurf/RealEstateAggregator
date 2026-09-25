@@ -21,10 +21,24 @@
                 Icon="@Icons.Material.Filled.Map">
         Mapa
     </MudNavLink>
-    <MudNavLink Href="scrape"
-                Icon="@Icons.Material.Filled.CloudSync">
-        Scrapování
+    <MudNavLink Href="market"
+                Icon="@Icons.Material.Filled.Insights">
+        Tržní report
     </MudNavLink>
+    <MudNavLink Href="saved-searches"
+                Icon="@Icons.Material.Filled.NotificationsActive">
+        Uložená hledání
+    </MudNavLink>
+    <MudNavLink Href="pricing"
+                Icon="@Icons.Material.Filled.WorkspacePremium">
+        Tarify
+    </MudNavLink>
+    <AuthorizeView Policy="Admin">
+        <MudNavLink Href="scrape"
+                    Icon="@Icons.Material.Filled.CloudSync">
+            Scrapování
+        </MudNavLink>
+    </AuthorizeView>
     <MudDivider Class="my-2" />
     <MudNavGroup Title="Zdroje dat" Icon="@Icons.Material.Filled.Source" Expanded="false">
         @if (_sources.Count == 0)

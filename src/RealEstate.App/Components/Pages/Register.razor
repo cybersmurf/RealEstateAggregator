@@ -1,0 +1,59 @@
+@page "/register"
+
+<PageTitle>Registrace – Real Estate Aggregator</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraSmall" Class="mt-8">
+    <AuthorizeView>
+        <Authorized>
+            <MudAlert Severity="Severity.Info" Class="mb-4">
+                Už jste přihlášeni. <MudLink Href="/account">Přejít na účet</MudLink>
+            </MudAlert>
+        </Authorized>
+        <NotAuthorized>
+            <MudPaper Class="pa-6" Elevation="2">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h5">Registrace</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Účet Zdarma: oblíbené inzeráty, poznámky, sloučené karty duplicit a AI shrnutí.
+                        Tarify Hledač a Profi lze aktivovat kdykoli později v <MudLink Href="/pricing">ceníku</MudLink>.
+                    </MudText>
+
+                    @if (!string.IsNullOrEmpty(Error))
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true">@Error</MudAlert>
+                    }
+
+                    <form method="post" action="/account/register">
+                        <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+                        <MudStack Spacing="2">
+                            <MudTextField T="string" Label="Jméno (nepovinné)" name="displayName" Variant="Variant.Outlined" autocomplete="name" />
+                            <MudTextField T="string" Label="E-mail" name="email" InputType="InputType.Email"
+                                          Required="true" Variant="Variant.Outlined" autocomplete="username" />
+                            <MudTextField T="string" Label="Heslo (min. 8 znaků)" name="password" InputType="InputType.Password"
+                                          Required="true" Variant="Variant.Outlined" autocomplete="new-password" />
+                            <MudTextField T="string" Label="Heslo znovu" name="password2" InputType="InputType.Password"
+                                          Required="true" Variant="Variant.Outlined" autocomplete="new-password" />
+                            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                                       FullWidth="true" StartIcon="@Icons.Material.Filled.PersonAdd">
+                                Vytvořit účet
+                            </MudButton>
+                        </MudStack>
+                    </form>
+
+                    <MudDivider />
+                    <MudText Typo="Typo.body2" Align="Align.Center">
+                        Už máte účet? <MudLink Href="/login">Přihlaste se</MudLink>
+                    </MudText>
+                </MudStack>
+            </MudPaper>
+        </NotAuthorized>
+    </AuthorizeView>
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+}
