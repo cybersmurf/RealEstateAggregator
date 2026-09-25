@@ -20,6 +20,7 @@ from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
 from ..http_utils import http_retry
 from ..area_parsing import parse_title_areas
+from ..auction_parsing import parse_auction_date, parse_auction_deposit, parse_auction_starting_price
 
 logger = logging.getLogger(__name__)
 
@@ -506,6 +507,10 @@ class SrealityScraper:
         if description and isinstance(description, str):
             normalized["description"] = description[:5000]
 
+        # Dražba: strukturované položky detailu (items[] = {name, value}) mají přednost
+        # před regexem v _enrich_auction_fields, který doběhne jako fallback při upsertu.
+        self._merge_auction_items(normalized, detail.get("items"))
+
         # Fotky z detailu (lepší kvalita)
         detail_photos = self._extract_photos(detail)
         if detail_photos:
@@ -553,6 +558,47 @@ class SrealityScraper:
             normalized["url"] = self._build_detail_url(hash_id, seo)
 
         return normalized
+
+    @staticmethod
+    def _merge_auction_items(normalized: Dict[str, Any], items: Any) -> None:
+        """
+        Dražební parametry ze strukturovaných položek detailu (items[] = [{name, value}, …]).
+        U v1 API bývá items[] prázdné – pak zůstane regex fallback při upsertu.
+        Hodnoty jsou často řetězce ("1 250 000 Kč", "12. 10. 2026 v 10:00"), proto je
+        protahujeme stejnými parsery jako volný text; číselné value bereme přímo.
+        """
+        if not isinstance(items, list):
+            return
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").lower()
+            value = item.get("value")
+            if value is None or value == "":
+                continue
+            value_text = f"{name}: {value}" if not isinstance(value, (int, float)) else None
+
+            if "dražb" in name and ("datum" in name or "termín" in name or "konání" in name or "zahájení" in name):
+                if normalized.get("auction_date") is None and value_text:
+                    dt = parse_auction_date(f"dražba {value}")
+                    if dt is not None:
+                        normalized["auction_date"] = dt
+            elif "vyvolávací" in name or "podání" in name:
+                if normalized.get("auction_starting_price") is None:
+                    amount = float(value) if isinstance(value, (int, float)) else parse_auction_starting_price(f"vyvolávací cena {value}")
+                    if amount and amount >= 1_000:
+                        normalized["auction_starting_price"] = amount
+            elif "jistota" in name:
+                if normalized.get("auction_deposit") is None:
+                    amount = float(value) if isinstance(value, (int, float)) else parse_auction_deposit(f"dražební jistota {value}")
+                    if amount and amount >= 1_000:
+                        normalized["auction_deposit"] = amount
+            elif "dražb" in name and normalized.get("auction_date") is None and value_text:
+                # Obecná položka o dražbě – zkusíme z ní vytáhnout aspoň datum
+                dt = parse_auction_date(f"dražba {value}")
+                if dt is not None:
+                    normalized["auction_date"] = dt
 
     # SReality CDN vyžaduje tento transformační parametr pro přímý přístup k obrázkům.
     # Bez něj CDN vrací 401 Unauthorized.

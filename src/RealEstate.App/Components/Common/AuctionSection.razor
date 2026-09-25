@@ -1,0 +1,110 @@
+@using RealEstate.Api.Contracts.Listings
+@using MudBlazor
+
+@*
+    AuctionSection – parametry dražby (termín, vyvolávací cena, jistota).
+    Zobrazí se u nabídek typu Auction nebo když scraper vytáhl aspoň jeden dražební údaj.
+    Bez volání API – vše je v ListingDetailDto.
+*@
+
+@if (ShouldShow)
+{
+    <SectionCard Title="Dražba"
+                 Icon="@Icons.Material.Filled.Gavel"
+                 IconColor="Color.Warning"
+                 Class="mb-3">
+        <HeaderActions>
+            @if (Listing.AuctionDate.HasValue)
+            {
+                <MudChip T="string" Size="Size.Small"
+                         Color="@CountdownColor"
+                         Icon="@CountdownIcon">
+                    @CountdownLabel(DaysUntilAuction)
+                </MudChip>
+            }
+        </HeaderActions>
+        <ChildContent>
+            <MudSimpleTable Dense="true">
+                <tbody>
+                    <tr>
+                        <td style="width: 40%">Termín dražby</td>
+                        <td style="font-weight:600">
+                            @AuctionDateLabel
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Vyvolávací cena (nejnižší podání)</td>
+                        <td style="font-weight:600">@FormatPrice(Listing.AuctionStartingPrice)</td>
+                    </tr>
+                    <tr>
+                        <td>Dražební jistota</td>
+                        <td style="font-weight:600">@FormatPrice(Listing.AuctionDeposit)</td>
+                    </tr>
+                    @if (Listing.Price.HasValue && Listing.AuctionStartingPrice.HasValue && Listing.Price.Value > 0 && Listing.Price != Listing.AuctionStartingPrice)
+                    {
+                        <tr>
+                            <td>Odhadní / uvedená cena</td>
+                            <td>@FormatPrice(Listing.Price)</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary mt-2">
+                Údaje jsou převzaty z textu inzerátu – před účastí v dražbě je ověřte v dražební vyhlášce.
+            </MudText>
+        </ChildContent>
+    </SectionCard>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ListingDetailDto Listing { get; set; } = default!;
+
+    private bool ShouldShow =>
+        string.Equals(Listing.OfferType, "Auction", StringComparison.OrdinalIgnoreCase)
+        || Listing.AuctionDate is not null
+        || Listing.AuctionStartingPrice is not null
+        || Listing.AuctionDeposit is not null;
+
+    private string AuctionDateLabel => Listing.AuctionDate.HasValue
+        ? Listing.AuctionDate.Value.ToLocalTime().ToString("d. M. yyyy 'v' H:mm")
+        : "neuveden";
+
+    private int DaysUntilAuction
+    {
+        get
+        {
+            if (!Listing.AuctionDate.HasValue) return 0;
+            var local = Listing.AuctionDate.Value.ToLocalTime().Date;
+            return (int)(local - DateTime.Now.Date).TotalDays;
+        }
+    }
+
+    private bool AuctionIsPast => DaysUntilAuction < 0;
+
+    private Color CountdownColor
+    {
+        get
+        {
+            if (AuctionIsPast) return Color.Default;
+            if (DaysUntilAuction <= 7) return Color.Error;
+            return Color.Warning;
+        }
+    }
+
+    private string CountdownIcon => AuctionIsPast
+        ? Icons.Material.Filled.EventBusy
+        : Icons.Material.Filled.Event;
+
+    private static string CountdownLabel(int days)
+    {
+        if (days < 0) return "proběhla";
+        if (days == 0) return "dnes";
+        if (days == 1) return "zítra";
+        if (days <= 4) return $"za {days} dny";
+        return $"za {days} dní";
+    }
+
+    private static string FormatPrice(decimal? value) =>
+        value.HasValue && value.Value > 0 ? $"{value.Value:N0} Kč" : "neuvedena";
+}
