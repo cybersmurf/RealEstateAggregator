@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Api.Contracts.UserPhotos;
+using RealEstate.Api.Helpers;
 using RealEstate.Domain.Entities;
 using RealEstate.Infrastructure;
 using RealEstate.Infrastructure.Storage;
@@ -13,13 +14,16 @@ public static class UserPhotoEndpoints
     public static RouteGroupBuilder MapUserPhotoEndpoints(this RouteGroupBuilder group)
     {
         group.MapPost("/{listingId:guid}/my-photos", UploadPhotosAsync)
+            .RequireAdmin()
             .WithName("UploadUserPhotos")
             .DisableAntiforgery();  // Required for file uploads
 
         group.MapGet("/{listingId:guid}/my-photos", GetUserPhotosAsync)
+            .RequireAdmin()
             .WithName("GetUserPhotos");
 
         group.MapDelete("/{listingId:guid}/my-photos/{photoId:guid}", DeleteUserPhotoAsync)
+            .RequireAdmin()
             .WithName("DeleteUserPhoto");
 
         return group;

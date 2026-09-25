@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using RealEstate.Api.Contracts.Analysis;
 using RealEstate.Api.Services;
 
+using RealEstate.Api.Helpers;
+
 namespace RealEstate.Api.Endpoints;
 
 public static class AnalysisEndpoints
@@ -12,7 +14,7 @@ public static class AnalysisEndpoints
         var group = app.MapGroup("/api/analysis")
             .WithTags("Analysis");
 
-        group.MapPost("/listing/{listingId:guid}", CreateAnalysisJob)
+        group.MapPost("/listing/{listingId:guid}", CreateAnalysisJob).RequireAuth()
             .WithName("CreateAnalysisJob");
 
         group.MapGet("/{jobId:guid}", GetAnalysisJobById)

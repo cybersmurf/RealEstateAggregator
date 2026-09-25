@@ -105,6 +105,9 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:5001")
 # Výchozí = stejná jako API_BASE_URL, ale na produkci nastav na veřejně dostupnou URL (port App).
 PHOTOS_BASE_URL = os.getenv("PHOTOS_BASE_URL", API_BASE_URL)
 API_TIMEOUT = float(os.getenv("API_TIMEOUT_SECONDS", "30"))
+# Hlavní API klíč: od zavedení účtů API bez něj jedná jako anonym (bez poznámek z prohlídek,
+# bez plného popisu). MCP vystupuje jako správce.
+API_KEY = os.getenv("API_KEY", "dev-key-change-me")
 TRANSPORT = os.getenv("TRANSPORT", "stdio")   # "stdio" nebo "sse"
 PORT = int(os.getenv("PORT", "8002"))
 MISTRAL_API_KEY      = os.getenv("MISTRAL_API_KEY",      "Auf12P50gxnU6Py6l5qokYCBmYfWKtkU")
@@ -125,7 +128,9 @@ Jsi asistent specializovaný na analýzu nemovitostí z České republiky.
 Máš přístup k databázi realitních inzerátů (1 200+ aktivních) a uloženým analýzám.
 
 Dostupné nástroje:
-- search_listings: Vyhledávání inzerátů (text + filtry ceny, typu, nabídky)
+- search_listings: Vyhledávání inzerátů – fulltext (AND) + any_keywords (OR), cena, plocha,
+  pozemek, cena/m², obec/okres/GPS oblast, dispozice, stav domu, můj stav (i vyloučení),
+  nové za N dní, řazení vč. ceny/m². Obec hledá i bez diakritiky.
 - get_listing: Detailní informace o konkrétním inzerátu (text + metadata + fotky jako URL)
 - get_listing_photos: 📸 Fotky Z INZERÁTU jako obrázky viditelné v chatu
 - get_inspection_photos: 📷 Fotky Z PROHLÍDKY jako obrázky viditelné v chatu
@@ -146,8 +151,10 @@ Dostupné nástroje:
 async def _call_api(method: str, path: str, **kwargs) -> dict | list:
     """Zavolá .NET API a vrátí JSON odpověď."""
     url = f"{API_BASE_URL}{path}"
+    headers = dict(kwargs.pop("headers", None) or {})
+    headers.setdefault("X-Api-Key", API_KEY)
     try:
-        async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=API_TIMEOUT, headers=headers) as client:
             resp = await getattr(client, method)(url, **kwargs)
             resp.raise_for_status()
             return resp.json()
@@ -180,56 +187,334 @@ def _fmt_listing(l: dict) -> str:
 # ─── NÁSTROJE ─────────────────────────────────────────────────────────────────
 
 
+# ─── Vyhledávání – pomocné funkce ────────────────────────────────────────────
+# Pozor: dřív MCP posílal searchQuery/minPrice/maxPrice, ale ListingFilterDto čeká
+# searchText/priceMin/priceMax → ASP.NET neznámé klíče tiše zahodil a text i cena
+# se vůbec nefiltrovaly. Názvy níže MUSÍ odpovídat ListingFilterDto.cs.
+
+import unicodedata as _ud
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# API vrací max 200 záznamů na stránku (MaxSearchPageSize v ListingService).
+_API_PAGE = 200
+# Strop pro režim „stáhni vše a dofiltruj lokálně“ (OR klíčová slova, vyloučení stavů,
+# cena/m², řazení dle ceny/m², obec bez diakritiky).
+_CLIENT_SIDE_CAP = int(os.getenv("SEARCH_CLIENT_SIDE_CAP", "3000"))
+
+# Pojmenované oblasti pro bbox (lat_min, lat_max, lon_min, lon_max).
+# Pozor: funguje jen pro inzeráty, které mají GPS – ty bez souřadnic bbox vyřadí.
+AREA_PRESETS: dict[str, tuple[float, float, float, float]] = {
+    # Znojmo – Miroslav – Pohořelice (koridor I/53 + okolí Hrušovan)
+    "znojmo-miroslav-pohorelice": (48.76, 49.02, 15.98, 16.56),
+    "znojmo-okoli": (48.78, 48.93, 15.92, 16.20),
+}
+
+_STATUS_ALIASES = {
+    "new": "New", "nove": "New", "novy": "New",
+    "liked": "Liked", "zajimave": "Liked", "libi": "Liked",
+    "disliked": "Disliked", "nezajimave": "Disliked",
+    "tovisit": "ToVisit", "k_navsteve": "ToVisit", "knavsteve": "ToVisit",
+    "visited": "Visited", "navstiveno": "Visited",
+}
+
+_SORTS_API = {"price", "area", "land", "date", "title", "location"}
+_SORTS_LOCAL = {"price_per_m2", "land_per_price"}
+
+
+def _strip_diacritics(s: str) -> str:
+    return "".join(c for c in _ud.normalize("NFD", s) if _ud.category(c) != "Mn")
+
+
+def _norm_status(s: str) -> str:
+    key = _strip_diacritics(s).lower().replace(" ", "").replace("-", "")
+    return _STATUS_ALIASES.get(key, s)
+
+
+def _as_list(v) -> list[str]:
+    """Přijme list i čárkami oddělený string (modely často pošlou string)."""
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [x.strip() for x in v.split(",") if x.strip()]
+    return [str(x).strip() for x in v if str(x).strip()]
+
+
+def _price_per_m2(l: dict) -> Optional[float]:
+    p, a = l.get("price"), l.get("areaBuiltUp")
+    if p and a and a > 0:
+        return p / a
+    return None
+
+
+async def _fetch_all(payload: dict, cap: int) -> tuple[list[dict], int]:
+    """Stáhne všechny stránky pro daný payload (max cap položek)."""
+    items: list[dict] = []
+    total = 0
+    page = 1
+    while True:
+        body = dict(payload, page=page, pageSize=_API_PAGE)
+        res = await _call_api("post", "/api/listings/search", json=body)
+        batch = res.get("items", [])
+        total = res.get("totalCount", 0)
+        items.extend(batch)
+        if len(batch) < _API_PAGE or len(items) >= total or len(items) >= cap:
+            break
+        page += 1
+    return items[:cap], total
+
+
+def _fmt_listing_v2(l: dict) -> str:
+    price = f"{l['price']:,.0f} Kč".replace(",", " ") if l.get("price") else "cena neuvedena"
+    parts = []
+    if l.get("disposition"):
+        parts.append(l["disposition"])
+    if l.get("areaBuiltUp"):
+        parts.append(f"{l['areaBuiltUp']:.0f} m²")
+    if l.get("areaLand"):
+        parts.append(f"pozemek {l['areaLand']:.0f} m²")
+    ppm = _price_per_m2(l)
+    if ppm:
+        parts.append(f"{ppm / 1000:.1f} tis./m²")
+    meta = []
+    if l.get("condition"):
+        meta.append(str(l["condition"]))
+    if l.get("constructionType"):
+        meta.append(str(l["constructionType"]))
+    status = l.get("userStatus") or "New"
+    status_txt = "" if status == "New" else f"  |  ⭐ {status}"
+    if l.get("hasNotes"):
+        status_txt += " 📝"
+    seen = (l.get("firstSeenAt") or "")[:10]
+    dups = l.get("otherSourceCodes") or []
+    dup_txt = f" (+{', '.join(dups)})" if dups else ""
+    signal = f"  |  cena: {l['priceSignal']}" if l.get("priceSignal") else ""
+    return (
+        f"🏠 **{l.get('title', '')}**\n"
+        f"   ID: `{l['id']}`  |  od {seen}{status_txt}\n"
+        f"   📍 {l.get('locationText', 'N/A')}  |  💰 {price}  |  {' · '.join(parts)}\n"
+        f"   {l.get('propertyType')} / {l.get('offerType')}"
+        f"{'  |  ' + ', '.join(meta) if meta else ''}{signal}"
+        f"  |  {l.get('sourceName', l.get('sourceCode', ''))}{dup_txt}"
+    )
+
+
 @mcp.tool()
 async def search_listings(
     query: str = "",
+    any_keywords: Optional[list[str] | str] = None,
     property_type: Optional[str] = None,
     offer_type: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
+    min_area: Optional[float] = None,
+    max_area: Optional[float] = None,
+    min_land: Optional[float] = None,
+    max_land: Optional[float] = None,
+    max_price_per_m2: Optional[float] = None,
     municipality: Optional[str] = None,
+    district: Optional[str] = None,
+    region: Optional[str] = None,
+    area_preset: Optional[str] = None,
+    disposition: Optional[str] = None,
+    rooms_min: Optional[int] = None,
+    rooms_max: Optional[int] = None,
+    conditions: Optional[list[str] | str] = None,
+    construction_types: Optional[list[str] | str] = None,
+    sources: Optional[list[str] | str] = None,
+    user_status: Optional[str] = None,
+    exclude_statuses: Optional[list[str] | str] = None,
+    new_in_days: Optional[int] = None,
+    include_duplicates: bool = False,
+    sort_by: Optional[str] = None,
+    sort_desc: bool = False,
     page: int = 1,
-    page_size: int = 10,
+    page_size: int = 20,
 ) -> str:
     """
-    Vyhledá realitní inzeráty v databázi.
+    Vyhledá realitní inzeráty v databázi. Všechny filtry se kombinují přes AND.
 
-    Args:
-        query: Volný textový dotaz (např. "rodinný dům Znojmo s bazénem")
-        property_type: Typ nemovitosti: House | Apartment | Land | Cottage | Commercial | Garage | Other
-        offer_type: Typ nabídky: Sale | Rent | Auction
-        min_price: Minimální cena v Kč
-        max_price: Maximální cena v Kč
-        municipality: Obec (např. "Znojmo", "Štítary")
-        page: Číslo stránky (default 1)
-        page_size: Počet výsledků (max 50, default 10)
+    Text:
+        query: Fulltext – VŠECHNA slova musí být v inzerátu (AND). Bez skloňování,
+               tj. „bazén“ nenajde „bazénem“. Pro varianty použij any_keywords.
+        any_keywords: Seznam slov/frází, stačí JEDNO z nich (OR), např.
+               ["podkroví", "podkrovím", "výminek", "dvougenerační", "vícegenerační"].
+    Typ:
+        property_type: House | Apartment | Land | Cottage | Commercial | Garage | Other
+        offer_type: Sale | Rent | Auction
+    Čísla:
+        min_price / max_price: cena v Kč (inzeráty bez ceny vypadnou)
+        min_area / max_area: plocha domu v m² (pole „areaBuiltUp“ – u různých zdrojů
+               je to zastavěná i užitná plocha!)
+        min_land / max_land: pozemek v m²
+        max_price_per_m2: max cena za m² plochy domu (počítá se lokálně)
+    Lokalita (ILIKE přes obec i text lokality):
+        municipality: obec, např. "Hrušovany" (hledá i bez diakritiky – iDnes píše bez ní)
+        district: okres, např. "Znojmo" (chytí i PSČ adresy typu „671 40 Znojmo“)
+        region: kraj
+        area_preset: "znojmo-miroslav-pohorelice" | "znojmo-okoli" – GPS obdélník,
+               vyřadí inzeráty bez souřadnic
+    Parametry domu:
+        disposition: přesná dispozice, např. "4+kk"
+        rooms_min / rooms_max: počet pokojů
+        conditions: stav, např. ["Po rekonstrukci", "Velmi dobrý", "Novostavba"]
+        construction_types: např. ["Cihla", "Smíšená"]
+        sources: kódy zdrojů, např. ["SREALITY", "REMAX"]
+    Můj stav:
+        user_status: jen daný stav: New | Liked | Disliked | ToVisit | Visited
+        exclude_statuses: vyřadit stavy, např. ["Disliked", "Visited"]
+        new_in_days: jen inzeráty poprvé viděné za posledních N dní
+        include_duplicates: ukázat i kopie téhož domu z dalších realitek (default ne)
+    Řazení a stránky:
+        sort_by: price | area | land | date | title | location | price_per_m2 | land_per_price
+        sort_desc: sestupně
+        page, page_size: stránkování (page_size max 100)
     """
-    payload = {
-        "searchQuery": query or None,
+    # ── 1) Payload pro .NET API (názvy musí sedět na ListingFilterDto!) ──
+    payload: dict = {
+        "searchText": query.strip() or None,
         "propertyType": property_type,
         "offerType": offer_type,
-        "minPrice": min_price,
-        "maxPrice": max_price,
-        "municipality": municipality,
-        "page": page,
-        "pageSize": min(page_size, 50),
+        "priceMin": min_price,
+        "priceMax": max_price,
+        "areaBuiltUpMin": min_area,
+        "areaBuiltUpMax": max_area,
+        "areaLandMin": min_land,
+        "areaLandMax": max_land,
+        "district": district,
+        "region": region,
+        "disposition": disposition,
+        "roomsMin": rooms_min,
+        "roomsMax": rooms_max,
+        "includeDuplicates": include_duplicates,
     }
-    # Odstraň None hodnoty
+    if (c := _as_list(conditions)):
+        payload["conditions"] = c
+    if (ct := _as_list(construction_types)):
+        payload["constructionTypes"] = ct
+    if (src := [s.upper() for s in _as_list(sources)]):
+        payload["sourceCodes"] = src
+    excluded = {_norm_status(s) for s in _as_list(exclude_statuses)}
+    if user_status:
+        st = _norm_status(user_status)
+        if st == "New":
+            # „Nové“ nemá v DB vlastní řádek stavu – API by vrátilo prázdno.
+            excluded |= {"Liked", "Disliked", "ToVisit", "Visited"}
+        else:
+            payload["userStatus"] = st
+    if new_in_days:
+        payload["onlyNewSince"] = (_dt.now(_tz.utc) - _td(days=new_in_days)).isoformat()
+    if area_preset:
+        key = area_preset.strip().lower()
+        if key not in AREA_PRESETS:
+            raise ToolError(f"Neznámý area_preset '{area_preset}'. Dostupné: {', '.join(AREA_PRESETS)}")
+        la0, la1, lo0, lo1 = AREA_PRESETS[key]
+        payload.update(bboxLatMin=la0, bboxLatMax=la1, bboxLonMin=lo0, bboxLonMax=lo1)
+
+    sort = (sort_by or "").strip().lower() or None
+    if sort and sort not in _SORTS_API | _SORTS_LOCAL:
+        raise ToolError(f"Neznámé sort_by '{sort_by}'. Povolené: {', '.join(sorted(_SORTS_API | _SORTS_LOCAL))}")
+    if sort in _SORTS_API:
+        payload["sortBy"] = sort
+        payload["sortDescending"] = sort_desc
+
     payload = {k: v for k, v in payload.items() if v is not None}
 
-    result = await _call_api("post", "/api/listings/search", json=payload)
+    keywords = _as_list(any_keywords)
+    muni_variants: list[str] = []
+    if municipality and municipality.strip():
+        m = municipality.strip()
+        muni_variants = [m]
+        plain = _strip_diacritics(m)
+        if plain != m:
+            muni_variants.append(plain)
 
-    items = result.get("items", [])
-    total = result.get("totalCount", 0)
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+
+    needs_local = bool(
+        keywords or excluded or max_price_per_m2 or len(muni_variants) > 1
+        or sort in _SORTS_LOCAL
+    )
+
+    # ── 2) Jednoduchý případ: vše umí API, stránkuje server ──
+    if not needs_local:
+        body = dict(payload, page=page, pageSize=page_size)
+        if muni_variants:
+            body["municipality"] = muni_variants[0]
+        res = await _call_api("post", "/api/listings/search", json=body)
+        items, total = res.get("items", []), res.get("totalCount", 0)
+        header = f"**Nalezeno {total} inzerátů** (strana {page}/{max(1, -(-total // page_size))})"
+    else:
+        # ── 3) Lokální režim: sjednocení variant (OR), dofiltrování, řazení, stránkování ──
+        variants: list[dict] = []
+        for kw in (keywords or [None]):
+            for mv in (muni_variants or [None]):
+                v = dict(payload)
+                if kw:
+                    # query (AND) + klíčové slovo (OR mezi variantami)
+                    v["searchText"] = f"{payload.get('searchText', '')} {kw}".strip()
+                if mv:
+                    v["municipality"] = mv
+                variants.append(v)
+
+        merged: dict[str, dict] = {}
+        truncated = False
+        for v in variants:
+            got, tot = await _fetch_all(v, _CLIENT_SIDE_CAP)
+            if tot > len(got):
+                truncated = True
+            for it in got:
+                merged.setdefault(it["id"], it)
+
+        items = list(merged.values())
+        if excluded:
+            items = [i for i in items if (i.get("userStatus") or "New") not in excluded]
+        if max_price_per_m2:
+            items = [i for i in items if (p := _price_per_m2(i)) is not None and p <= max_price_per_m2]
+
+        if sort == "price_per_m2":
+            known = sorted([i for i in items if _price_per_m2(i) is not None],
+                           key=_price_per_m2, reverse=sort_desc)
+            items = known + [i for i in items if _price_per_m2(i) is None]
+        elif sort == "land_per_price":
+            def lpp(i):
+                return (i.get("areaLand") or 0) / i["price"] if i.get("price") else None
+            known = sorted([i for i in items if lpp(i)], key=lpp, reverse=not sort_desc)
+            items = known + [i for i in items if not lpp(i)]
+        elif sort in _SORTS_API and len(variants) > 1:
+            keymap = {"price": "price", "area": "areaBuiltUp", "land": "areaLand",
+                      "date": "firstSeenAt", "title": "title", "location": "locationText"}
+            f = keymap[sort]
+            known = sorted([i for i in items if i.get(f) is not None], key=lambda i: i[f], reverse=sort_desc)
+            items = known + [i for i in items if i.get(f) is None]
+        elif not sort:
+            items.sort(key=lambda i: i.get("firstSeenAt") or "", reverse=True)
+
+        total = len(items)
+        start = (page - 1) * page_size
+        items = items[start:start + page_size]
+        header = f"**Nalezeno {total} inzerátů** (strana {page}/{max(1, -(-total // page_size))})"
+        if truncated:
+            header += f"\n⚠️ Některá varianta dotazu měla přes {_CLIENT_SIDE_CAP} výsledků – zúži filtry."
 
     if not items:
         return "Nenalezeny žádné inzeráty odpovídající kritériím."
 
-    lines = [f"**Nalezeno {total} inzerátů** (strana {page}):\n"]
-    for listing in items:
-        lines.append(_fmt_listing(listing))
+    applied = {k: v for k, v in payload.items() if k not in ("includeDuplicates",)}
+    if keywords:
+        applied["anyKeywords"] = keywords
+    if muni_variants:
+        applied["municipality"] = muni_variants
+    if excluded:
+        applied["excludeStatuses"] = sorted(excluded)
+    if max_price_per_m2:
+        applied["maxPricePerM2"] = max_price_per_m2
+    if sort:
+        applied["sort"] = f"{sort}{' desc' if sort_desc else ''}"
+    lines = [header, f"_Filtry: {json.dumps(applied, ensure_ascii=False, default=str)}_\n"]
+    for it in items:
+        lines.append(_fmt_listing_v2(it))
         lines.append("")
-
     return _cap_output("\n".join(lines))
 
 

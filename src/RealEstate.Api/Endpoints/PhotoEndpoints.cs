@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using RealEstate.Api.Helpers;
 using RealEstate.Api.Services;
 using RealEstate.Infrastructure;
 
@@ -9,7 +10,8 @@ public static class PhotoEndpoints
     public static IEndpointRouteBuilder MapPhotoEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/photos")
-            .WithTags("Photos");
+            .WithTags("Photos")
+            .RequireAdmin();
 
         group.MapPost("/bulk-download", BulkDownload)
             .WithName("BulkDownloadPhotos")

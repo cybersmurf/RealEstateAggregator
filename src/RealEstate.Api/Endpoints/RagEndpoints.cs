@@ -5,6 +5,8 @@ using RealEstate.Api.Services;
 using RealEstate.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 
+using RealEstate.Api.Helpers;
+
 namespace RealEstate.Api.Endpoints;
 
 public static class RagEndpoints
@@ -20,36 +22,36 @@ public static class RagEndpoints
             .WithSummary("Vrátí všechny uložené analýzy pro inzerát");
 
         // ── POST: uložení nové analýzy (+ embedding) ──────────────────────────
-        group.MapPost("/analyses", SaveAnalysis)
+        group.MapPost("/analyses", SaveAnalysis).RequireAdmin()
             .WithName("SaveListingAnalysis")
             .WithSummary("Uloží analýzu textu + vygeneruje embedding");
 
         // ── DELETE: smazání analýzy ────────────────────────────────────────────
-        group.MapDelete("/analyses/{analysisId:guid}", DeleteAnalysis)
+        group.MapDelete("/analyses/{analysisId:guid}", DeleteAnalysis).RequireAdmin()
             .WithName("DeleteListingAnalysis")
             .WithSummary("Smaže analýzu");
 
         // ── POST: RAG dotaz nad konkrétním inzerátem ──────────────────────────
-        group.MapPost("/ask", AskListing)
+        group.MapPost("/ask", AskListing).RequireAuth()
             .WithName("AskListing")
             .WithSummary("RAG dotaz nad analýzami konkrétního inzerátu")
             .RequireRateLimiting("rag-ask");
 
         // ── POST: RAG dotaz přes všechny inzeráty ──────────────────────────────
-        app.MapPost("/api/rag/ask", AskGeneral)
+        app.MapPost("/api/rag/ask", AskGeneral).RequireAuth()
             .WithTags("RAG / Analyses")
             .WithName("AskGeneral")
             .WithSummary("RAG dotaz přes všechny uložené analýzy")
             .RequireRateLimiting("rag-ask");
 
         // ── POST: embed popis jednoho inzerátu ────────────────────────────────
-        group.MapPost("/embed-description", EmbedDescription)
+        group.MapPost("/embed-description", EmbedDescription).RequireAdmin()
             .WithName("EmbedListingDescription")
             .WithSummary("Embeduje popis inzerátu jako 'auto' analýzu (idempotentní)")
             .RequireRateLimiting("rag-embed");
 
         // ── POST: bulk embed popisů inzerátů ──────────────────────────────────
-        app.MapPost("/api/rag/embed-descriptions", BulkEmbedDescriptions)
+        app.MapPost("/api/rag/embed-descriptions", BulkEmbedDescriptions).RequireAdmin()
             .WithTags("RAG / Analyses")
             .WithName("BulkEmbedDescriptions")
             .WithSummary("Batch embed popisů inzerátů bez 'auto' analýzy")

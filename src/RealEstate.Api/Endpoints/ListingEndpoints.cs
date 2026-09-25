@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using RealEstate.Api.Contracts.Common;
 using RealEstate.Api.Contracts.Listings;
+using RealEstate.Api.Helpers;
 using RealEstate.Api.Services;
 
 namespace RealEstate.Api.Endpoints;
@@ -20,6 +21,7 @@ public static class ListingEndpoints
             .WithName("GetListingStats");
 
         group.MapGet("/my-listings", GetMyListings)
+            .RequireAuth()
             .WithName("GetMyListings")
             .WithSummary("Vrátí inzeráty tagované uživatelem, seskupené dle stavu");
 
@@ -32,6 +34,7 @@ public static class ListingEndpoints
             .WithName("GetListingById");
 
         group.MapPost("/{id:guid}/state", UpdateListingUserState)
+            .RequireAuth()
             .WithName("UpdateListingUserState");
 
         group.MapGet("/{id:guid}/price-history", GetPriceHistory)
@@ -43,12 +46,14 @@ public static class ListingEndpoints
             .WithSummary("Ověří, zda je inzerát stále aktivní na zdrojovém portálu (HEAD request na SourceUrl)");
 
         group.MapPost("/deactivate-dead", DeactivateDead)
+            .RequireAdmin()
             .WithName("DeactivateDead")
             .WithSummary("HTTP-HEAD zkontroluje aktivní inzeráty starší než daysOld dní a deaktivuje ty s HTTP 404/410");
 
         // Jméno musí být globálně unikátní napříč VŠEMI endpointy – /api/ollama/detect-duplicates
         // už "DetectDuplicates" zabralo a kolize shodí routing až za běhu (500 na každý request).
         group.MapPost("/detect-duplicates", DetectDuplicates)
+            .RequireAdmin()
             .WithName("ScanListingDuplicates")
             .WithSummary("Najde stejnou nemovitost napříč zdroji (cena + GPS/obec/plocha) a označí duplikáty; primární = nejstarší záznam");
 

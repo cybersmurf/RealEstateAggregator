@@ -280,6 +280,9 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             # Detekci vlastní .NET API; selhání nesmí shodit scrape job.
             await _trigger_duplicate_detection(job_id)
 
+            # Uložená hledání uživatelů – nové inzeráty a zlevnění (e-mail / Telegram)
+            await _trigger_saved_search_notifications(job_id)
+
             # Slack notifikace – pošle jen pokud něco selhalo nebo vrátilo 0
             job_results = {name: res for (name, _), res in zip(tasks, results)}
             await notifications.notify_job_summary(
@@ -316,6 +319,33 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         )
 
 
+def _api_key_headers() -> Dict[str, str]:
+    """Hlavní API klíč pro volání správcovských endpointů .NET API po scrapu."""
+    api_key = os.environ.get("API_KEY")
+    return {"X-Api-Key": api_key} if api_key else {}
+
+
+async def _trigger_saved_search_notifications(job_id: UUID) -> None:
+    """Po scrapu nechá API vyhodnotit uložená hledání (nové inzeráty, zlevnění) a rozeslat upozornění."""
+    api_base_url = os.environ.get("API_BASE_URL", "http://realestate-api:8080")
+    url = f"{api_base_url.rstrip('/')}/api/saved-searches/run"
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(url, headers=_api_key_headers())
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info(
+                "Job %s: Saved searches – %s hledání, %s nových, %s zlevnění, %s doručeno",
+                job_id,
+                data.get("searchesEvaluated"),
+                data.get("newListings"),
+                data.get("priceDrops"),
+                data.get("notificationsSent"),
+            )
+    except Exception as exc:  # noqa: BLE001 – upozornění jsou best-effort, job už uspěl
+        logger.warning("Job %s: Saved search notification call failed: %s", job_id, exc)
+
+
 async def _trigger_duplicate_detection(job_id: UUID) -> None:
     """Po scrapu požádá API o přepočet duplicate_of_listing_id.
 
@@ -324,9 +354,11 @@ async def _trigger_duplicate_detection(job_id: UUID) -> None:
     """
     api_base_url = os.environ.get("API_BASE_URL", "http://realestate-api:8080")
     url = f"{api_base_url.rstrip('/')}/api/listings/detect-duplicates"
+    # Endpoint je od zavedení účtů jen pro správce – hlavní API klíč (API_KEY) ho identifikuje.
+    headers = _api_key_headers()
     try:
         async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(url)
+            resp = await client.post(url, headers=headers)
             resp.raise_for_status()
             data = resp.json()
             logger.info(

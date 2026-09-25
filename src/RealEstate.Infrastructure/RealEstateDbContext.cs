@@ -25,6 +25,11 @@ public sealed class RealEstateDbContext : DbContext
     public DbSet<ListingAnalysis> ListingAnalyses => Set<ListingAnalysis>();
     public DbSet<ListingCadastreData> ListingCadastreData => Set<ListingCadastreData>();
     public DbSet<ListingPriceHistory> ListingPriceHistories => Set<ListingPriceHistory>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<SavedSearch> SavedSearches => Set<SavedSearch>();
+    public DbSet<SavedSearchNotification> SavedSearchNotifications => Set<SavedSearchNotification>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<Lead> Leads => Set<Lead>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -115,6 +120,12 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.FirstSeenAt).HasColumnName("first_seen_at").HasColumnType("timestamptz");
             entity.Property(e => e.LastSeenAt).HasColumnName("last_seen_at").HasColumnType("timestamptz");
             entity.Property(e => e.IsActive).HasColumnName("is_active");
+            entity.Property(e => e.DeactivatedAt).HasColumnName("deactivated_at").HasColumnType("timestamptz");
+            entity.Property(e => e.AuctionDate).HasColumnName("auction_date").HasColumnType("timestamptz");
+            entity.Property(e => e.AuctionStartingPrice).HasColumnName("auction_starting_price").HasColumnType("numeric(15,2)");
+            entity.Property(e => e.AuctionDeposit).HasColumnName("auction_deposit").HasColumnType("numeric(15,2)");
+            entity.Property(e => e.Summary).HasColumnName("summary");
+            entity.Property(e => e.SummaryAt).HasColumnName("summary_at").HasColumnType("timestamptz");
             entity.Property(e => e.DescriptionEmbedding).HasColumnName("description_embedding").HasColumnType("vector(768)");
 
             // 📍 GPS souřadnice
@@ -431,6 +442,135 @@ public sealed class RealEstateDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(e => new { e.ListingId, e.RecordedAt });
+        });
+
+        // =====================================================================
+        // User – účty, tarify, Stripe, Telegram
+        // =====================================================================
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.ToTable("users", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Email).HasColumnName("email").HasMaxLength(320).IsRequired();
+            entity.Property(e => e.PasswordHash).HasColumnName("password_hash");
+            entity.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(200);
+            entity.Property(e => e.Plan).HasColumnName("plan").HasMaxLength(20).HasDefaultValue("free");
+            entity.Property(e => e.PlanValidUntil).HasColumnName("plan_valid_until").HasColumnType("timestamptz");
+            entity.Property(e => e.IsAdmin).HasColumnName("is_admin").HasDefaultValue(false);
+            entity.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+            entity.Property(e => e.StripeCustomerId).HasColumnName("stripe_customer_id").HasMaxLength(100);
+            entity.Property(e => e.StripeSubscriptionId).HasColumnName("stripe_subscription_id").HasMaxLength(100);
+            entity.Property(e => e.TelegramChatId).HasColumnName("telegram_chat_id").HasMaxLength(50);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+            entity.Property(e => e.LastLoginAt).HasColumnName("last_login_at").HasColumnType("timestamptz");
+            entity.HasIndex(e => e.Email).IsUnique().HasDatabaseName("ux_users_email");
+            entity.HasIndex(e => e.StripeCustomerId).HasDatabaseName("ix_users_stripe_customer");
+        });
+
+        // =====================================================================
+        // SavedSearch + SavedSearchNotification – uložená hledání a upozornění
+        // =====================================================================
+        modelBuilder.Entity<SavedSearch>(entity =>
+        {
+            entity.ToTable("saved_searches", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            entity.Property(e => e.FilterJson).HasColumnName("filter_json").HasColumnType("jsonb").IsRequired();
+            entity.Property(e => e.NotifyEmail).HasColumnName("notify_email").HasDefaultValue(true);
+            entity.Property(e => e.NotifyTelegram).HasColumnName("notify_telegram").HasDefaultValue(false);
+            entity.Property(e => e.NotifyNewListings).HasColumnName("notify_new_listings").HasDefaultValue(true);
+            entity.Property(e => e.NotifyPriceDrops).HasColumnName("notify_price_drops").HasDefaultValue(true);
+            entity.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+            entity.Property(e => e.LastRunAt).HasColumnName("last_run_at").HasColumnType("timestamptz");
+            entity.Property(e => e.LastNotifiedAt).HasColumnName("last_notified_at").HasColumnType("timestamptz");
+            entity.Property(e => e.TotalNotified).HasColumnName("total_notified").HasDefaultValue(0);
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.SavedSearches)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.UserId, e.IsActive }).HasDatabaseName("ix_saved_searches_user_active");
+        });
+
+        modelBuilder.Entity<SavedSearchNotification>(entity =>
+        {
+            entity.ToTable("saved_search_notifications", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.SavedSearchId).HasColumnName("saved_search_id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(20).IsRequired();
+            entity.Property(e => e.OldPrice).HasColumnName("old_price").HasColumnType("numeric(15,2)");
+            entity.Property(e => e.NewPrice).HasColumnName("new_price").HasColumnType("numeric(15,2)");
+            entity.Property(e => e.SentAt).HasColumnName("sent_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+
+            entity.HasOne(e => e.SavedSearch)
+                .WithMany(s => s.Notifications)
+                .HasForeignKey(e => e.SavedSearchId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.SavedSearchId, e.ListingId, e.Kind })
+                .IsUnique()
+                .HasDatabaseName("ux_saved_search_notifications_once");
+        });
+
+        // =====================================================================
+        // ApiKey – klíče zákazníků s denní kvótou
+        // =====================================================================
+        modelBuilder.Entity<ApiKey>(entity =>
+        {
+            entity.ToTable("api_keys", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            entity.Property(e => e.KeyHash).HasColumnName("key_hash").HasMaxLength(64).IsRequired();
+            entity.Property(e => e.KeyPrefix).HasColumnName("key_prefix").HasMaxLength(16).IsRequired();
+            entity.Property(e => e.DailyQuota).HasColumnName("daily_quota").HasDefaultValue(1000);
+            entity.Property(e => e.UsedToday).HasColumnName("used_today").HasDefaultValue(0);
+            entity.Property(e => e.QuotaDay).HasColumnName("quota_day");
+            entity.Property(e => e.TotalRequests).HasColumnName("total_requests").HasDefaultValue(0L);
+            entity.Property(e => e.LastUsedAt).HasColumnName("last_used_at").HasColumnType("timestamptz");
+            entity.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.ApiKeys)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.KeyHash).IsUnique().HasDatabaseName("ux_api_keys_hash");
+            entity.HasIndex(e => e.UserId).HasDatabaseName("ix_api_keys_user");
+        });
+
+        // =====================================================================
+        // Lead – poptávky (hypotéka / kontakt)
+        // =====================================================================
+        modelBuilder.Entity<Lead>(entity =>
+        {
+            entity.ToTable("leads", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(30).IsRequired();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Email).HasColumnName("email").HasMaxLength(320).IsRequired();
+            entity.Property(e => e.Phone).HasColumnName("phone").HasMaxLength(50);
+            entity.Property(e => e.Message).HasColumnName("message");
+            entity.Property(e => e.PropertyPrice).HasColumnName("property_price").HasColumnType("numeric(15,2)");
+            entity.Property(e => e.LoanAmount).HasColumnName("loan_amount").HasColumnType("numeric(15,2)");
+            entity.Property(e => e.LoanYears).HasColumnName("loan_years");
+            entity.Property(e => e.Source).HasColumnName("source").HasMaxLength(200);
+            entity.Property(e => e.Consent).HasColumnName("consent").HasDefaultValue(false);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+            entity.Property(e => e.ForwardedAt).HasColumnName("forwarded_at").HasColumnType("timestamptz");
+            entity.HasIndex(e => e.CreatedAt).HasDatabaseName("ix_leads_created");
         });
     }
 }

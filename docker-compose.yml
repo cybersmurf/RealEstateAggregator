@@ -59,6 +59,25 @@ services:
       - Anthropic__ApiKey=${ANTHROPIC_API_KEY:-}
       - Embedding__VectorDimensions=768
       - PHOTOS_PUBLIC_BASE_URL=${PUBLIC_API_URL:-http://localhost:5001}  # URL přístupná z prohlížeče pro stažené fotky
+      # ── Účty a placená vrstva ──
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@realestate.local}   # přihlášení vlastníka (výchozí admin účet)
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}                    # při každém startu se heslo admina srovná s touto hodnotou
+      - AUTH_SECRET=${AUTH_SECRET:-}                          # podpis bearer tokenů (prázdné = odvozeno z API_KEY)
+      - APP_PUBLIC_URL=${APP_PUBLIC_URL:-http://localhost:5002}  # odkazy v e-mailech, návrat ze Stripe
+      - Stripe__SecretKey=${STRIPE_SECRET_KEY:-}
+      - Stripe__WebhookSecret=${STRIPE_WEBHOOK_SECRET:-}
+      - Stripe__PriceHledacMonthly=${STRIPE_PRICE_HLEDAC_MONTHLY:-}
+      - Stripe__PriceHledacYearly=${STRIPE_PRICE_HLEDAC_YEARLY:-}
+      - Stripe__PriceProfiMonthly=${STRIPE_PRICE_PROFI_MONTHLY:-}
+      - Stripe__PriceProfiYearly=${STRIPE_PRICE_PROFI_YEARLY:-}
+      - Smtp__Host=${SMTP_HOST:-}
+      - Smtp__Port=${SMTP_PORT:-587}
+      - Smtp__User=${SMTP_USER:-}
+      - Smtp__Password=${SMTP_PASSWORD:-}
+      - Smtp__From=${SMTP_FROM:-}
+      - Telegram__BotToken=${TELEGRAM_BOT_TOKEN:-}
+      - Leads__NotifyEmail=${LEADS_NOTIFY_EMAIL:-}
+      - Photos__DeleteStoredAfterClassification=${PHOTOS_DELETE_STORED_AFTER_CLASSIFICATION:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,6 +110,8 @@ services:
       - ApiBaseUrl=http://realestate-api:8080
       - ApiPublicUrl=${PUBLIC_API_URL:-http://localhost:5001}
       - ScrapingApiKey=${API_KEY:-dev-key-change-me}
+      - MortgagePartnerUrl=${MORTGAGE_PARTNER_URL:-}         # odkaz na hypotečního partnera (UTM se doplní)
+      - MortgageDefaultRate=${MORTGAGE_DEFAULT_RATE:-4.79}
     depends_on:
       api:
         condition: service_healthy
@@ -128,7 +149,8 @@ services:
       - DOCKER=1                  # ← vypne uvicorn --reload (způsobuje hang na macOS Docker)
       - UPLOADS_BASE_PATH=/app/uploads  # Sdílený volume s API pro inline photo download
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
-      - API_BASE_URL=http://realestate-api:8080  # Po scrapu volá detekci duplikátů v API
+      - API_BASE_URL=http://realestate-api:8080  # Po scrapu volá detekci duplikátů a uložená hledání v API
+      - API_KEY=${API_KEY:-dev-key-change-me}    # Hlavní klíč – správcovské endpointy API
     ports:
       - "127.0.0.1:8001:8001"
     depends_on:
@@ -166,6 +188,7 @@ services:
     container_name: realestate-mcp
     environment:
       - API_BASE_URL=http://realestate-api:8080
+      - API_KEY=${API_KEY:-dev-key-change-me}    # MCP jedná jako správce (poznámky z prohlídek, plný popis)
       - TRANSPORT=sse
       - PORT=8002
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}

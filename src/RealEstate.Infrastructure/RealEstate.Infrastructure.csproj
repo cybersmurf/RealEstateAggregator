@@ -43,6 +43,7 @@
     <Compile Include="Scraping/*.cs" />
     <Compile Include="Scraping/Remax/*.cs" />
     <Compile Include="Storage/*.cs" />
+    <Compile Include="Security/*.cs" />
   </ItemGroup>
 
 </Project>

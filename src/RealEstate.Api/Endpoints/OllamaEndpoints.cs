@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using RealEstate.Api.Helpers;
 using RealEstate.Api.Services;
 
 namespace RealEstate.Api.Endpoints;
@@ -7,8 +8,10 @@ public static class OllamaEndpoints
 {
     public static IEndpointRouteBuilder MapOllamaEndpoints(this IEndpointRouteBuilder app)
     {
+        // Hromadné AI joby – jen správce (drahé, mění data všem)
         var group = app.MapGroup("/api/ollama")
-            .WithTags("Ollama Text");
+            .WithTags("Ollama Text")
+            .RequireAdmin();
 
         // ── Smart Tags ──────────────────────────────────────────────────────────
         group.MapPost("/bulk-smart-tags", BulkSmartTags)

@@ -23,6 +23,9 @@ public sealed class ListingSummaryDto
     public DateTime FirstSeenAt { get; set; }
     public DateTime? UpdatedAtSource { get; set; }
     public bool IsActive { get; set; }
+    public DateTime? DeactivatedAt { get; set; }
+    /// <summary>Dny na trhu (aktivní: do teď; stažený: do deaktivace).</summary>
+    public int DaysOnMarket { get; set; }
 
     // Thumbnail pro kartový pohled
     public string? ThumbnailUrl { get; set; }

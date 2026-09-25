@@ -8,13 +8,16 @@ using RealEstate.Domain.Entities;
 using RealEstate.Infrastructure;
 using RealEstate.Infrastructure.Storage;
 
+using RealEstate.Api.Helpers;
+
 namespace RealEstate.Api.Endpoints;
 
 public static class ExportEndpoints
 {
     public static IEndpointRouteBuilder MapExportEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/listings");
+        // Export na Drive, fotky z prohlídky, AI brief – nástroje vlastníka
+        var group = app.MapGroup("/api/listings").RequireAdmin();
 
         group.MapPost("/{id:guid}/export-drive", ExportToDrive)
             .WithName("ExportListingToDrive")

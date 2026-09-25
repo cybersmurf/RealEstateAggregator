@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using NpgsqlTypes;
 using RealEstate.Api.Contracts.Common;
 using RealEstate.Api.Contracts.Listings;
+using RealEstate.Api.Services.Auth;
 using RealEstate.Domain.Entities;
 using RealEstate.Domain.Enums;
 using RealEstate.Domain.Repositories;
@@ -19,7 +20,10 @@ public class ListingService : IListingService
 {
     private readonly IListingRepository _repository;
     private readonly RealEstateDbContext _dbContext;
-    private static readonly Guid DefaultUserId = new("00000000-0000-0000-0000-000000000001");
+    private readonly ICurrentUser _currentUser;
+
+    /// <summary>Id pro dotazy na user_listing_state – anonym dostane Guid.Empty (žádné řádky).</summary>
+    private Guid UserId => _currentUser.EffectiveUserId;
 
     /// <summary>Strop stránky pro veřejné vyhledávání – brání tomu, aby si klient vyžádal celou DB naráz.</summary>
     private const int MaxSearchPageSize = 200;
@@ -27,10 +31,11 @@ public class ListingService : IListingService
     /// <summary>Strop pro CSV export (dokumentovaný limit endpointu).</summary>
     private const int MaxExportPageSize = 5_000;
 
-    public ListingService(IListingRepository repository, RealEstateDbContext dbContext)
+    public ListingService(IListingRepository repository, RealEstateDbContext dbContext, ICurrentUser currentUser)
     {
         _repository = repository;
         _dbContext = dbContext;
+        _currentUser = currentUser;
     }
 
     public Task<PagedResultDto<ListingSummaryDto>> SearchAsync(
@@ -146,7 +151,7 @@ public class ListingService : IListingService
         if (entity is null)
             return null;
 
-        var userState = entity.UserStates.FirstOrDefault(s => s.UserId == DefaultUserId);
+        var userState = entity.UserStates.FirstOrDefault(s => s.UserId == UserId);
 
         // Duplikát napříč zdroji – načti minimální info o primárním inzerátu
         string? duplicateOfTitle = null;
@@ -170,7 +175,7 @@ public class ListingService : IListingService
                 var primaryState = await _dbContext.UserListingStates
                     .AsNoTracking()
                     .FirstOrDefaultAsync(
-                        s => s.ListingId == dupId && s.UserId == DefaultUserId,
+                        s => s.ListingId == dupId && s.UserId == UserId,
                         cancellationToken);
                 userState = primaryState;
             }
@@ -183,7 +188,11 @@ public class ListingService : IListingService
             SourceCode = entity.Source.Code,
             SourceUrl = entity.Url,
             Title = entity.Title,
-            Description = entity.Description ?? string.Empty,
+            // Původní text inzerátu je autorské dílo zdroje – veřejně zobrazujeme jen AI shrnutí.
+            // Plný popis dostane jen správce (MCP, export, RAG běží pod hlavním klíčem).
+            Description = _currentUser.IsAdmin ? entity.Description ?? string.Empty : string.Empty,
+            Summary = entity.Summary,
+            HasDescription = !string.IsNullOrWhiteSpace(entity.Description),
             LocationText = entity.LocationText ?? string.Empty,
             Region = entity.Region,
             District = entity.District,
@@ -204,6 +213,11 @@ public class ListingService : IListingService
             UpdatedAtSource = entity.UpdatedAtSource,
             IsActive = entity.IsActive,
             LastSeenAt = entity.LastSeenAt,
+            DeactivatedAt = entity.DeactivatedAt,
+            DaysOnMarket = DaysOnMarket(entity),
+            AuctionDate = entity.AuctionDate,
+            AuctionStartingPrice = entity.AuctionStartingPrice,
+            AuctionDeposit = entity.AuctionDeposit,
             Photos = entity.Photos
                 .OrderBy(p => p.Order)
                 .Select(p => new ListingPhotoDto
@@ -260,7 +274,7 @@ public class ListingService : IListingService
         var normalizedStatus = NormalizeStatus(request.Status);
         var userState = await _dbContext.UserListingStates
             .FirstOrDefaultAsync(
-                s => s.ListingId == listingId && s.UserId == DefaultUserId,
+                s => s.ListingId == listingId && s.UserId == UserId,
                 cancellationToken);
 
         if (userState is null)
@@ -269,7 +283,7 @@ public class ListingService : IListingService
             {
                 Id = Guid.NewGuid(),
                 ListingId = listingId,
-                UserId = DefaultUserId,
+                UserId = UserId,
                 Status = normalizedStatus,
                 Notes = request.Notes,
                 LastUpdated = DateTime.UtcNow
@@ -350,7 +364,7 @@ public class ListingService : IListingService
             predicate = predicate.And(searchPredicate);
         }
 
-        var query = _repository.Query().Where(predicate); // Query() je AsExpandable()
+        var query = _repository.Query(UserId).Where(predicate); // Query() je AsExpandable()
 
         // 3) Duplikáty z jiných zdrojů skryté – stejný dům se jinak zobrazí 2–3×,
         //    pokaždé s jinými SmartTags a jiným cenovým signálem (AI hodnotí každou kopii zvlášť).
@@ -370,7 +384,7 @@ public class ListingService : IListingService
     /// <summary>
     /// Staví základní predikát s AND kombinací filtrů pomocí PredicateBuilder.
     /// </summary>
-    private static ExpressionStarter<Listing> BuildBasePredicate(ListingFilterDto filter)
+    private ExpressionStarter<Listing> BuildBasePredicate(ListingFilterDto filter)
     {
         // true = začínáme s "vše je povoleno" (identita AND)
         var predicate = PredicateBuilder.New<Listing>(true);
@@ -507,8 +521,9 @@ public class ListingService : IListingService
         // User Status - přes navigační vlastnost UserStates
         if (!string.IsNullOrWhiteSpace(filter.UserStatus))
         {
+            var userId = UserId;
             predicate = predicate.And(x =>
-                x.UserStates.Any(s => s.UserId == DefaultUserId && s.Status == filter.UserStatus));
+                x.UserStates.Any(s => s.UserId == userId && s.Status == filter.UserStatus));
         }
 
         // Jen aktivní inzeráty
@@ -562,9 +577,9 @@ public class ListingService : IListingService
         return predicate;
     }
 
-    private static ListingSummaryDto MapToSummaryDto(Listing entity)
+    private ListingSummaryDto MapToSummaryDto(Listing entity)
     {
-        var userState = entity.UserStates.FirstOrDefault(s => s.UserId == DefaultUserId);
+        var userState = entity.UserStates.FirstOrDefault(s => s.UserId == UserId);
 
         return new ListingSummaryDto
         {
@@ -589,6 +604,8 @@ public class ListingService : IListingService
             FirstSeenAt = entity.FirstSeenAt,
             UpdatedAtSource = entity.UpdatedAtSource,
             IsActive = entity.IsActive,
+            DeactivatedAt = entity.DeactivatedAt,
+            DaysOnMarket = DaysOnMarket(entity),
             ThumbnailUrl = entity.Photos
                 .OrderBy(p => p.Order)
                 .Select(p => p.StoredUrl ?? p.OriginalUrl)
@@ -699,13 +716,13 @@ public class ListingService : IListingService
         // Inzeráty kde uživatel explicitně nastavil stav (!=New)
         var taggedStatuses = new[] { "Liked", "Disliked", "ToVisit", "Visited" };
 
-        var listings = await _repository.Query()
+        var listings = await _repository.Query(UserId)
             .Where(l => l.IsActive)
             .Where(l => l.UserStates.Any(s =>
-                s.UserId == DefaultUserId && taggedStatuses.Contains(s.Status)))
+                s.UserId == UserId && taggedStatuses.Contains(s.Status)))
             .OrderByDescending(l =>
                 l.UserStates
-                    .Where(s => s.UserId == DefaultUserId)
+                    .Where(s => s.UserId == UserId)
                     .Select(s => s.LastUpdated)
                     .FirstOrDefault())
             .ThenBy(l => l.Title)
@@ -814,11 +831,18 @@ public class ListingService : IListingService
                 .Where(l => ids.Contains(l.Id))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(l => l.IsActive, false)
-                    .SetProperty(l => l.LastSeenAt, DateTime.UtcNow),
+                    .SetProperty(l => l.DeactivatedAt, DateTime.UtcNow),
                     cancellationToken);
         }
 
         return new DeactivateDeadResult(candidates.Count, toDeactivate.Count);
+    }
+
+    /// <summary>Doba na trhu ve dnech: aktivní = do teď, stažený = do deaktivace.</summary>
+    public static int DaysOnMarket(Listing l)
+    {
+        var end = l.IsActive ? DateTime.UtcNow : (l.DeactivatedAt ?? l.LastSeenAt ?? DateTime.UtcNow);
+        return Math.Max(0, (int)(end - l.FirstSeenAt).TotalDays);
     }
 
     // Internal projection type for raw SQL query

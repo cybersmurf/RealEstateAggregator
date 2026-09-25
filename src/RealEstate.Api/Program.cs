@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
 using RealEstate.Api;
 using RealEstate.Api.Endpoints;
+using RealEstate.Api.Helpers;
+using RealEstate.Api.Services.Auth;
 using RealEstate.Infrastructure;
 using Serilog;
 using Serilog.Formatting.Compact;
@@ -157,6 +159,26 @@ builder.Services.AddRateLimiter(options =>
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
         }));
+
+    // Login/registrace: 10 pokusů/min na IP – brzda proti hádání hesel
+    options.AddPolicy("auth", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        RateLimitPartitionKey(ctx),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+
+    // Leady (hypotéka): 5/min na IP
+    options.AddPolicy("leads", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        RateLimitPartitionKey(ctx),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
 });
 
 // ─── Forwarded Headers ───────────────────────────────────────────────────────
@@ -202,7 +224,7 @@ if (app.Environment.IsDevelopment())
             {
                 // 🔥 Use EnsureCreatedAsync instead of MigrateAsync to avoid column naming conflicts
                 await dbContext.Database.EnsureCreatedAsync();
-                await DbInitializer.SeedAsync(dbContext);
+                await DbInitializer.SeedAsync(dbContext, logger: scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
                 break;
             }
             catch (Exception ex) when (attempt < maxDbRetries)
@@ -238,6 +260,9 @@ app.UseSerilogRequestLogging();
 // Rate limiter musí být před endpointy
 app.UseRateLimiter();
 
+// Identita volajícího (Bearer / X-Api-Key / anonym) – plní scoped ICurrentUser
+app.UseMiddleware<CurrentUserMiddleware>(apiKey);
+
 // ─── Endpoints ────────────────────────────────────────────────────────────────
 // Health check – veřejně přístupný (používá Docker healthcheck a monitoring)
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
@@ -258,6 +283,7 @@ app.MapHealthChecks("/health/scraper", new Microsoft.AspNetCore.Diagnostics.Heal
     Predicate = r => r.Tags.Contains("scraper"),
 });
 
+app.MapAuthEndpoints();
 app.MapListingEndpoints();
 app.MapSourceEndpoints();
 app.MapAnalysisEndpoints();

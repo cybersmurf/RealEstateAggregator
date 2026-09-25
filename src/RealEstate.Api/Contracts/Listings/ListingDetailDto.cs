@@ -8,7 +8,12 @@ public sealed class ListingDetailDto
     public string SourceUrl { get; set; } = string.Empty;
 
     public string Title { get; set; } = string.Empty;
+    /// <summary>Původní text inzerátu – vyplněný jen pro správce; veřejně prázdný (autorská práva zdroje).</summary>
     public string Description { get; set; } = string.Empty;
+    /// <summary>Neutrální AI shrnutí popisu – veřejná náhrada původního textu.</summary>
+    public string? Summary { get; set; }
+    /// <summary>Zdroj má popis (i když ho DTO nevrací) – UI ví, že shrnutí teprve vznikne.</summary>
+    public bool HasDescription { get; set; }
 
     public string LocationText { get; set; } = string.Empty;
     public string? Region { get; set; }
@@ -34,6 +39,15 @@ public sealed class ListingDetailDto
     public DateTime? CreatedAtSource { get; set; }
     public DateTime? UpdatedAtSource { get; set; }
     public bool IsActive { get; set; }
+    /// <summary>Kdy inzerát zmizel ze zdroje (null u aktivních).</summary>
+    public DateTime? DeactivatedAt { get; set; }
+    /// <summary>Dny na trhu: aktivní od prvního spatření do teď, stažený do deaktivace.</summary>
+    public int DaysOnMarket { get; set; }
+
+    // Dražba
+    public DateTime? AuctionDate { get; set; }
+    public decimal? AuctionStartingPrice { get; set; }
+    public decimal? AuctionDeposit { get; set; }
 
     public IReadOnlyList<ListingPhotoDto> Photos { get; set; } = Array.Empty<ListingPhotoDto>();
 

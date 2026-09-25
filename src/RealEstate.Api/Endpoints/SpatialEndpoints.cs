@@ -42,7 +42,7 @@ public static class SpatialEndpoints
             .WithName("GetGeocodeStats")
             .WithSummary("Statistika GPS kódování inzerátů");
 
-        group.MapPost("/bulk-geocode", BulkGeocode)
+        group.MapPost("/bulk-geocode", BulkGeocode).RequireAdmin()
             .WithName("BulkGeocode")
             .WithSummary("Geokóduje dávku inzerátů bez GPS přes Nominatim (max batchSize, ~1.1s/req)");
 

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Api.Contracts.Listings;
 using RealEstate.Api.Services;
+using RealEstate.Api.Services.Auth;
 using RealEstate.Infrastructure;
 using RealEstate.Infrastructure.Repositories;
 
@@ -19,7 +20,7 @@ public class ListingDuplicateFilterTests
             .UseSnakeCaseNamingConvention()
             .Options;
         var ctx = new RealEstateDbContext(options);
-        return new ListingService(new ListingRepository(ctx), ctx);
+        return new ListingService(new ListingRepository(ctx), ctx, new CurrentUser());
     }
 
     private static string WhereClause(ListingFilterDto filter)

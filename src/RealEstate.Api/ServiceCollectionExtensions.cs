@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Pgvector.EntityFrameworkCore;
 using RealEstate.Api.Services;
+using RealEstate.Api.Services.Auth;
 using RealEstate.Domain.Repositories;
 using RealEstate.Infrastructure;
 using RealEstate.Infrastructure.Repositories;
@@ -12,6 +13,12 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddRealEstateServices(this IServiceCollection services, IConfiguration config)
     {
+        // Identita volajícího – plní CurrentUserMiddleware, čtou služby přes ICurrentUser
+        services.AddScoped<CurrentUser>();
+        services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<CurrentUser>());
+        services.AddSingleton<AuthTokenService>();
+        services.AddScoped<IAuthService, AuthService>();
+
         services.AddScoped<IListingService, ListingService>();
         services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddScoped<ISourceService, SourceService>();

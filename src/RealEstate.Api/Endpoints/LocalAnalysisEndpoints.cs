@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using RealEstate.Api.Helpers;
 using RealEstate.Api.Services;
 
 namespace RealEstate.Api.Endpoints;
@@ -9,7 +10,8 @@ public static class LocalAnalysisEndpoints
     public static IEndpointRouteBuilder MapLocalAnalysisEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/listings/{listingId:guid}/analyze-local")
-            .WithTags("LocalAnalysis");
+            .WithTags("LocalAnalysis")
+            .RequireAdmin();
 
         // POST /api/listings/{id}/analyze-local[?model=qwen3.5:9b]
         // Spustí lokální analýzu (llama3.2-vision + text model) a uloží výsledek do DB

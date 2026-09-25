@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Api.Contracts.Analysis;
+using RealEstate.Api.Services.Auth;
 using RealEstate.Domain.Entities;
 using RealEstate.Infrastructure;
 
@@ -11,12 +12,13 @@ namespace RealEstate.Api.Services;
 /// </summary>
 public class AnalysisService : IAnalysisService
 {
-    private static readonly Guid DefaultUserId = new("00000000-0000-0000-0000-000000000001");
     private readonly RealEstateDbContext _dbContext;
+    private readonly ICurrentUser _currentUser;
 
-    public AnalysisService(RealEstateDbContext dbContext)
+    public AnalysisService(RealEstateDbContext dbContext, ICurrentUser currentUser)
     {
         _dbContext = dbContext;
+        _currentUser = currentUser;
     }
 
     public async Task<AnalysisJobDto?> CreateJobForListingAsync(
@@ -36,7 +38,7 @@ public class AnalysisService : IAnalysisService
         {
             Id = Guid.NewGuid(),
             ListingId = listingId,
-            UserId = DefaultUserId,
+            UserId = _currentUser.UserId ?? UserPlans.DefaultAdminId,
             Status = Domain.Enums.AnalysisStatus.Pending,
             StorageProvider = request.StorageProvider,
             RequestedAt = DateTime.UtcNow

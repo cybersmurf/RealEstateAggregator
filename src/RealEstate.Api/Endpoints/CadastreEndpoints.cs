@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using RealEstate.Api.Contracts.Cadastre;
 using RealEstate.Api.Services;
 
+using RealEstate.Api.Helpers;
+
 namespace RealEstate.Api.Endpoints;
 
 public static class CadastreEndpoints
@@ -19,22 +21,22 @@ public static class CadastreEndpoints
             .WithSummary("Vrátí uložená katastrální data pro inzerát");
 
         // ── RUIAN fetch ───────────────────────────────────────────────────────
-        group.MapPost("/listings/{listingId:guid}/fetch", FetchCadastreData)
+        group.MapPost("/listings/{listingId:guid}/fetch", FetchCadastreData).RequireAuth()
             .WithName("FetchCadastreData")
             .WithSummary("Spustí RUIAN vyhledávání pro jeden inzerát a výsledek uloží do DB");
 
         // ── Manuální data ─────────────────────────────────────────────────────
-        group.MapPut("/listings/{listingId:guid}", SaveManualData)
+        group.MapPut("/listings/{listingId:guid}", SaveManualData).RequireAdmin()
             .WithName("SaveCadastreManualData")
             .WithSummary("Uloží manuálně zadaná katastrální data (LV, břemena, výměra)");
 
         // ── Hromadný fetch ────────────────────────────────────────────────────
-        group.MapPost("/bulk-fetch", BulkFetch)
+        group.MapPost("/bulk-fetch", BulkFetch).RequireAdmin()
             .WithName("BulkFetchCadastre")
             .WithSummary("Spustí hromadné RUIAN vyhledávání pro inzeráty bez katastrálních dat");
 
         // ── OCR screenshot ────────────────────────────────────────────────────
-        group.MapPost("/listings/{listingId:guid}/ocr-screenshot", OcrScreenshot)
+        group.MapPost("/listings/{listingId:guid}/ocr-screenshot", OcrScreenshot).RequireAdmin()
             .WithName("OcrCadastreScreenshot")
             .WithSummary("OCR screenshot z nahlíženídokn.cuzk.cz – extrahuje parcelní číslo, LV, výměru, břemena přes Ollama Vision")
             .DisableAntiforgery()
@@ -43,7 +45,7 @@ public static class CadastreEndpoints
             .Produces(500);
 
         // ── OCR PDF (Mistral OCR API) ──────────────────────────────────────────
-        group.MapPost("/listings/{listingId:guid}/ocr-pdf", OcrPdf)
+        group.MapPost("/listings/{listingId:guid}/ocr-pdf", OcrPdf).RequireAdmin()
             .WithName("OcrCadastrePdf")
             .WithSummary("OCR PDF dokumentu z KN přes Mistral OCR API – vyžaduje MISTRAL_API_KEY")
             .DisableAntiforgery()

@@ -372,6 +372,7 @@ class DatabaseManager:
                     date_created_source = COALESCE(re_realestate.listings.date_created_source, EXCLUDED.date_created_source),
                     last_seen_at = EXCLUDED.last_seen_at,
                     is_active    = true,
+                    deactivated_at = NULL,
                     district     = COALESCE(EXCLUDED.district,     re_realestate.listings.district),
                     municipality = COALESCE(EXCLUDED.municipality, re_realestate.listings.municipality)
                 RETURNING id
@@ -474,7 +475,8 @@ class DatabaseManager:
             status = await conn.execute(
                 """
                 UPDATE re_realestate.listings
-                SET is_active = false
+                SET is_active = false,
+                    deactivated_at = now()
                 WHERE source_code = $1
                   AND external_id = $2
                   AND is_active = true
@@ -512,7 +514,8 @@ class DatabaseManager:
             status = await conn.execute(
                 """
                 UPDATE re_realestate.listings
-                SET is_active = false
+                SET is_active = false,
+                    deactivated_at = now()
                 WHERE source_code = $1
                   AND is_active = true
                   AND last_seen_at < $2

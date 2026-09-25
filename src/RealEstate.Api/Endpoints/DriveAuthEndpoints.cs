@@ -2,6 +2,8 @@ using System.Text.Json;
 using Google.Apis.Auth.OAuth2.Flows;
 using RealEstate.Api.Services;
 
+using RealEstate.Api.Helpers;
+
 namespace RealEstate.Api.Endpoints;
 
 /// <summary>
@@ -18,7 +20,7 @@ public static class DriveAuthEndpoints
 
     public static IEndpointRouteBuilder MapDriveAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/auth/drive/setup", SetupDriveAuth)
+        app.MapGet("/api/auth/drive/setup", SetupDriveAuth).RequireAdmin()
             .WithName("DriveAuthSetup")
             .WithSummary("Vrátí (nebo přesměruje na) URL pro OAuth povolení Drive přístupu");
 
@@ -26,7 +28,7 @@ public static class DriveAuthEndpoints
             .WithName("DriveAuthCallback")
             .WithSummary("Zpracuje OAuth callback a uloží token");
 
-        app.MapGet("/api/auth/drive/status", GetDriveAuthStatus)
+        app.MapGet("/api/auth/drive/status", GetDriveAuthStatus).RequireAdmin()
             .WithName("DriveAuthStatus")
             .WithSummary("Ověří platnost uloženého OAuth tokenu");
 

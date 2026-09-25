@@ -39,6 +39,20 @@ public class Listing
     public DateTime FirstSeenAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastSeenAt { get; set; }
     public bool IsActive { get; set; } = true;
+    /// <summary>Kdy inzerát zmizel ze zdroje (deaktivace scraperem / HTTP 404). Doba na trhu = DeactivatedAt − FirstSeenAt.</summary>
+    public DateTime? DeactivatedAt { get; set; }
+
+    // ── Aukce / dražba ─────────────────────────────────────────────────────────
+    public DateTime? AuctionDate { get; set; }
+    /// <summary>Vyvolávací (nejnižší) podání.</summary>
+    public decimal? AuctionStartingPrice { get; set; }
+    /// <summary>Dražební jistota.</summary>
+    public decimal? AuctionDeposit { get; set; }
+
+    // ── AI shrnutí ─────────────────────────────────────────────────────────────
+    /// <summary>Neutrální AI shrnutí popisu (3–5 vět). Veřejně se zobrazuje místo původního textu.</summary>
+    public string? Summary { get; set; }
+    public DateTime? SummaryAt { get; set; }
     // 🔥 SReality-specific: počet zobrazení a datum vložení inzerátu
     public int? ViewCount { get; set; }
     public DateTimeOffset? DateCreatedSource { get; set; }    
