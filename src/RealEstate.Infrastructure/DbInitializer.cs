@@ -317,7 +317,7 @@ public static class DbInitializer
             id                  UUID PRIMARY KEY,
             user_id             UUID NOT NULL REFERENCES re_realestate.users(id) ON DELETE CASCADE,
             name                VARCHAR(200) NOT NULL,
-            filter_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+            filter_json         JSONB NOT NULL DEFAULT jsonb_build_object(),
             notify_email        BOOLEAN NOT NULL DEFAULT true,
             notify_telegram     BOOLEAN NOT NULL DEFAULT false,
             notify_new_listings BOOLEAN NOT NULL DEFAULT true,
