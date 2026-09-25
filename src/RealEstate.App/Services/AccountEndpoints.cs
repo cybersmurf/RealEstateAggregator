@@ -20,7 +20,7 @@ public static class AccountEndpoints
         app.MapPost("/account/login", LoginAsync).DisableAntiforgery();
         app.MapPost("/account/register", RegisterAsync).DisableAntiforgery();
         // Odhlášení i přes GET – odkaz z menu; riziko „cizího odhlášení" je zanedbatelné
-        app.MapMethods("/account/logout", ["GET", "POST"], LogoutAsync).DisableAntiforgery();
+        app.MapMethods("/account/sign-out", ["GET", "POST"], LogoutAsync).DisableAntiforgery();
         return app;
     }
 
@@ -70,10 +70,12 @@ public static class AccountEndpoints
         return Results.LocalRedirect(returnUrl == "/" ? "/account?welcome=1" : returnUrl);
     }
 
-    private static async Task<IResult> LogoutAsync(HttpContext ctx)
+    private static async Task LogoutAsync(HttpContext ctx)
     {
+        // Cookie handler při SignOut zapíše hlavičky sám; návratový IResult s redirectem se
+        // v praxi neprojevil (200 bez Location), proto přesměrování nastavíme přímo na Response.
         await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        return Results.LocalRedirect("/");
+        ctx.Response.Redirect("/");
     }
 
     private static async Task SignInAsync(HttpContext ctx, AuthResponseDto auth)

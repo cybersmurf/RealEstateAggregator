@@ -21,7 +21,6 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     .AddCookie(options =>
     {
         options.LoginPath = "/login";
-        options.LogoutPath = "/account/logout";
         options.AccessDeniedPath = "/login";
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
         options.SlidingExpiration = false;   // platnost kopíruje bearer token z API
