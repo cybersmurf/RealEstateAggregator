@@ -25,6 +25,12 @@ public static class OllamaEndpoints
             .WithSummary("Extrahuje strukturovaná data z popisu: rok stavby, patro, výtah, sklep, zahrada... (llama3.2 text).")
             .Produces<OllamaTextBatchResultDto>(200);
 
+        // ── AI shrnutí (veřejná náhrada popisu) ─────────────────────────────────
+        group.MapPost("/bulk-summary", BulkSummary)
+            .WithName("BulkSummary")
+            .WithSummary("Generuje neutrální AI shrnutí popisu (3–5 vět česky), které se veřejně zobrazuje místo původního textu.")
+            .Produces<OllamaTextBatchResultDto>(200);
+
         // ── Price opinion ───────────────────────────────────────────────────────
         group.MapPost("/bulk-price-opinion", BulkPriceOpinion)
             .WithName("BulkPriceOpinion")
@@ -87,6 +93,24 @@ public static class OllamaEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
 
         var result = await service.BulkNormalizeAsync(batchSize, ct, listingId, force, orderDesc);
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> BulkSummary(
+        [FromQuery] int batchSize = 20,
+        [FromQuery] Guid? listingId = null,
+        [FromQuery] bool force = false,
+        [FromQuery] bool orderDesc = false,
+        [FromServices] IOllamaTextService service = default!,
+        CancellationToken ct = default)
+    {
+        if (batchSize < 1 || batchSize > 50)
+            return Results.Problem(
+                title: "Neplatný batchSize",
+                detail: "batchSize musí být 1–50.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        var result = await service.BulkSummaryAsync(batchSize, ct, listingId, force, orderDesc);
         return Results.Ok(result);
     }
 

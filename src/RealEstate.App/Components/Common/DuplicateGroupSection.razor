@@ -1,0 +1,163 @@
+@using RealEstate.Api.Contracts.Listings
+@using MudBlazor
+@implements IDisposable
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+@*
+    DuplicateGroupSection – „Stejná nemovitost v dalších zdrojích“.
+    Načte GET /api/listings/{id}/duplicates a zobrazí primární inzerát + duplikáty
+    (aktivní i stažené). Skryto, dokud skupina nemá alespoň 2 položky.
+*@
+
+@if (_group is { Items.Count: > 1 })
+{
+    <SectionCard Title="Stejná nemovitost v dalších zdrojích"
+                 Icon="@Icons.Material.Filled.ContentCopy"
+                 IconColor="Color.Info"
+                 Class="mb-3">
+        <HeaderActions>
+            <MudChip T="string" Size="Size.Small" Color="Color.Info" Icon="@Icons.Material.Filled.Layers">
+                @SourceCountLabel
+            </MudChip>
+            <MudChip T="string" Size="Size.Small" Color="Color.Default" Icon="@Icons.Material.Filled.History">
+                nejstarší od @_group.OldestFirstSeenAt.ToLocalTime().ToString("d. M. yyyy")
+            </MudChip>
+            @if (PriceRangeLabel is not null)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.Payments">
+                    @PriceRangeLabel
+                </MudChip>
+            }
+        </HeaderActions>
+        <ChildContent>
+            <MudSimpleTable Dense="true" Hover="true" Striped="true">
+                <thead>
+                    <tr>
+                        <th>Zdroj</th>
+                        <th>Inzerát</th>
+                        <th style="text-align:right">Cena (Kč)</th>
+                        <th>Poprvé</th>
+                        <th>Stav</th>
+                        <th aria-label="Odkaz na zdroj"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _group.Items)
+                    {
+                        <tr style="@(item.IsCurrent ? "background: var(--mud-palette-primary-hover);" : null)">
+                            <td>
+                                <SourceLogoBadge Code="@item.SourceCode" Name="@item.SourceName" />
+                            </td>
+                            <td>
+                                @if (item.IsCurrent)
+                                {
+                                    <MudText Typo="Typo.body2" Style="font-weight:600">@item.Title</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">tento inzerát</MudText>
+                                }
+                                else
+                                {
+                                    <MudLink Href="@($"/listings/{item.Id}")" Typo="Typo.body2">@item.Title</MudLink>
+                                }
+                                @if (item.IsPrimary)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default" Class="ms-1">primární</MudChip>
+                                }
+                            </td>
+                            <td style="text-align:right;font-weight:600">@(item.Price is > 0 ? item.Price.Value.ToString("N0") : "—")</td>
+                            <td>@item.FirstSeenAt.ToLocalTime().ToString("d. M. yyyy")</td>
+                            <td>
+                                @if (item.IsActive)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Aktivní</MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">
+                                        @DeactivatedLabel(item)
+                                    </MudChip>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(item.Url))
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                                   Size="Size.Small"
+                                                   Href="@item.Url"
+                                                   Target="_blank"
+                                                   rel="noopener"
+                                                   aria-label="@($"Otevřít inzerát na {item.SourceName}")" />
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </ChildContent>
+    </SectionCard>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public Guid ListingId { get; set; }
+
+    private DuplicateGroupDto? _group;
+    private Guid _loadedFor;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ListingId == Guid.Empty || ListingId == _loadedFor)
+            return;
+
+        _loadedFor = ListingId;
+        _group = null;
+
+        try
+        {
+            _group = await Http.GetFromJsonAsync<DuplicateGroupDto>(
+                $"api/listings/{ListingId}/duplicates", _cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // komponenta se zavírá
+        }
+        catch (Exception)
+        {
+            // Karta duplicit je doplňková – při chybě API se prostě nezobrazí
+            _group = null;
+        }
+    }
+
+    private string SourceCountLabel => _group is null
+        ? string.Empty
+        : _group.SourceCount switch
+        {
+            1 => "1 zdroj",
+            >= 2 and <= 4 => $"{_group.SourceCount} zdroje",
+            _ => $"{_group.SourceCount} zdrojů"
+        };
+
+    private string? PriceRangeLabel
+    {
+        get
+        {
+            if (_group?.MinPrice is null || _group.MaxPrice is null)
+                return null;
+            return _group.MinPrice == _group.MaxPrice
+                ? $"{_group.MinPrice.Value:N0} Kč"
+                : $"od {_group.MinPrice.Value:N0} do {_group.MaxPrice.Value:N0} Kč";
+        }
+    }
+
+    private static string DeactivatedLabel(DuplicateGroupItemDto item) =>
+        item.DeactivatedAt is { } d
+            ? $"Staženo {d.ToLocalTime():d. M.}"
+            : "Staženo";
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

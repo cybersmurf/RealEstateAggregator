@@ -154,6 +154,71 @@ public sealed class OllamaTextService(
         }, "normalize");
     }
 
+    // ─── AI shrnutí (náhrada popisu na veřejném webu) ────────────────────────
+
+    private const string SummarySystem = """
+        You are a neutral real estate data assistant. You write a short factual summary of a Czech
+        property listing IN CZECH. The summary replaces the original advertisement text on a public
+        website, so it must be your OWN wording – never copy sentences or phrases from the source.
+
+        Rules:
+        - 3 to 5 sentences, at most about 600 characters in total.
+        - Neutral, factual tone. No marketing superlatives (no "krásný", "úžasný", "jedinečný", "nepřehlédnutelný"...).
+        - No contact information: no phone numbers, no e-mails, no URLs, no agency or agent names, no listing IDs.
+        - No invented facts. Use only what the listing states. If something is unknown, leave it out.
+        - Include when stated: property type, disposition (e.g. 3+kk), usable/land area, floor, condition,
+          construction type, location (municipality / area), notable features (garden, garage, cellar, terrace,
+          heating, energy class, transport, services nearby), and price-related notes only if they are in the text.
+        - Do not address the reader, do not invite to a viewing, do not mention the seller.
+
+        Respond ONLY with valid JSON, no explanation:
+        {"summary": "..."}
+        """;
+
+    public async Task<OllamaTextBatchResultDto> BulkSummaryAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false)
+    {
+        batchSize = Math.Clamp(batchSize, 1, 50);
+
+        var query = db.Listings
+            .Where(l => l.IsActive && l.DuplicateOfListingId == null)
+            .Where(l => (force ? true : l.Summary == null) && l.Description != null && l.Description.Length > 80)
+            .Where(l => listingId == null || l.Id == listingId);
+
+        var listings = await (orderDesc
+            ? query.OrderByDescending(l => l.FirstSeenAt)
+            : query.OrderBy(l => l.FirstSeenAt))
+            .Take(batchSize)
+            .ToListAsync(ct);
+
+        return await ProcessBatchAsync(listings, ct, async (listing, c) =>
+        {
+            var userMsg =
+                $"Název: {listing.Title}\n" +
+                $"Typ: {listing.PropertyType} | Nabídka: {listing.OfferType}\n" +
+                $"Lokalita: {listing.LocationText}\n" +
+                (listing.Disposition is not null ? $"Dispozice: {listing.Disposition}\n" : "") +
+                (listing.AreaBuiltUp is not null ? $"Užitná plocha: {listing.AreaBuiltUp:0} m²\n" : "") +
+                (listing.AreaLand is not null ? $"Plocha pozemku: {listing.AreaLand:0} m²\n" : "") +
+                $"Popis: {listing.Description![..Math.Min(3000, listing.Description.Length)]}";
+
+            var response = await embedding.ChatAsync(SummarySystem, userMsg, c, jsonMode: true);
+
+            var parsed = TryParseJsonObject<SummaryJson>(response);
+            var summary = parsed?.Summary?.Trim();
+
+            if (!SummaryValidator.IsValid(summary, out var reason))
+            {
+                logger.LogWarning("Summary rejected for listing {Id} ({Reason}): {Raw}", listing.Id, reason,
+                    response[..Math.Min(200, response.Length)]);
+                return false;
+            }
+
+            listing.Summary = summary;
+            listing.SummaryAt = DateTime.UtcNow;
+            return true;
+        }, "summary");
+    }
+
     // ─── Price Opinion ────────────────────────────────────────────────────────
 
     private const string PriceOpinionSystem = """
@@ -465,8 +530,9 @@ public sealed class OllamaTextService(
         var low     = await db.Listings.CountAsync(l => l.PriceSignal == "low", ct);
         var fair    = await db.Listings.CountAsync(l => l.PriceSignal == "fair", ct);
         var high    = await db.Listings.CountAsync(l => l.PriceSignal == "high", ct);
+        var summary = await db.Listings.CountAsync(l => l.Summary != null, ct);
 
-        return new OllamaTextStatsDto(total, tags, norm, price, low, fair, high);
+        return new OllamaTextStatsDto(total, tags, norm, price, low, fair, high, summary);
     }
 
     // ─── Shared batch runner ──────────────────────────────────────────────────
@@ -510,6 +576,8 @@ public sealed class OllamaTextService(
         {
             "smart_tags"    => await db.Listings.CountAsync(l => l.SmartTags == null && l.Description != null && l.Description.Length > 50, ct),
             "normalize"     => await db.Listings.CountAsync(l => l.AiNormalizedData == null && l.Description != null && l.Description.Length > 100, ct),
+            // Stejný filtr jako výběr kandidátů (aktivní, ne duplikát) – hosted service podle toho usíná
+            "summary"       => await db.Listings.CountAsync(l => l.IsActive && l.DuplicateOfListingId == null && l.Summary == null && l.Description != null && l.Description.Length > 80, ct),
             // Stejný filtr jako výběr kandidátů – jinak by tu navždy viselo N nespočitatelných
             "price_opinion" => await WithPlausiblePricePerM2(db.Listings.Where(l => l.PriceSignal == null)).CountAsync(ct),
             _ => 0
@@ -571,6 +639,11 @@ public sealed class OllamaTextService(
     {
         [JsonPropertyName("signal")] public string? Signal { get; set; }
         [JsonPropertyName("reason")] public string? Reason { get; set; }
+    }
+
+    private sealed class SummaryJson
+    {
+        [JsonPropertyName("summary")] public string? Summary { get; set; }
     }
 
     private sealed class DuplicateJson

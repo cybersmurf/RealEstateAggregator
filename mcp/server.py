@@ -168,6 +168,22 @@ async def _call_api(method: str, path: str, **kwargs) -> dict | list:
         ) from e
 
 
+def _fmt_auction_date(value: str | None) -> str:
+    """ISO datum dražby z API (UTC) → místní čas Europe/Prague, nebo 'neuveden'."""
+    if not value:
+        return "neuveden"
+    try:
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo
+
+        dt = _dt.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(ZoneInfo("Europe/Prague"))
+        return dt.strftime("%-d. %-m. %Y %H:%M")
+    except (ValueError, TypeError):
+        return value[:16]
+
+
 def _fmt_listing(l: dict) -> str:
     """Formátuje inzerát do čitelného textu."""
     price = f"{l.get('price', 0):,.0f} Kč" if l.get("price") else "Cena neuvedena"
@@ -578,7 +594,58 @@ async def get_listing(listing_id: str) -> str:
     if listing.get("condition"):
         result_lines.append(f"**Stav:** {listing['condition']}")
 
+    # ── Doba na trhu ─────────────────────────────────────────────────────────
+    days_on_market = listing.get("daysOnMarket")
+    if days_on_market is not None:
+        first_seen = (listing.get("firstSeenAt") or "")[:10]
+        if listing.get("isActive", True):
+            result_lines.append(f"**Na trhu:** {days_on_market} dní (od {first_seen})")
+        else:
+            deactivated = (listing.get("deactivatedAt") or "")[:10]
+            result_lines.append(
+                f"**Na trhu:** {days_on_market} dní (od {first_seen}) – "
+                f"**STAŽENO** {deactivated or 'neznámo kdy'}"
+            )
+
+    # ── Dražba ───────────────────────────────────────────────────────────────
+    auction_date = listing.get("auctionDate")
+    auction_price = listing.get("auctionStartingPrice")
+    auction_deposit = listing.get("auctionDeposit")
+    if auction_date or auction_price or auction_deposit or listing.get("offerType") == "Auction":
+        result_lines += ["", "## ⚖️ Dražba"]
+        result_lines.append(f"**Termín dražby:** {_fmt_auction_date(auction_date)}")
+        result_lines.append(
+            f"**Vyvolávací cena (nejnižší podání):** {auction_price:,.0f} Kč" if auction_price else
+            "**Vyvolávací cena (nejnižší podání):** neuvedena"
+        )
+        result_lines.append(
+            f"**Dražební jistota:** {auction_deposit:,.0f} Kč" if auction_deposit else
+            "**Dražební jistota:** neuvedena"
+        )
+
     result_lines.append(f"**URL:** {listing.get('sourceUrl') or listing.get('url', '')}")
+
+    # ── Stejná nemovitost v dalších zdrojích ─────────────────────────────────
+    try:
+        group = await _call_api("get", f"/api/listings/{listing_id}/duplicates")
+        items = (group or {}).get("items") or []
+        if len(items) > 1:
+            result_lines += ["", f"## 🔁 Stejná nemovitost v dalších zdrojích ({group.get('sourceCount', len(items))} zdrojů)"]
+            oldest = (group.get("oldestFirstSeenAt") or "")[:10]
+            if oldest:
+                result_lines.append(f"**Nejstarší inzerce:** od {oldest}")
+            if group.get("minPrice") and group.get("maxPrice"):
+                result_lines.append(f"**Rozpětí cen:** {group['minPrice']:,.0f} – {group['maxPrice']:,.0f} Kč")
+            for it in items:
+                price = f"{it['price']:,.0f} Kč" if it.get("price") else "cena neuvedena"
+                state = "aktivní" if it.get("isActive") else f"staženo {(it.get('deactivatedAt') or '')[:10]}".strip()
+                marker = " ← tento" if it.get("isCurrent") else (" (primární)" if it.get("isPrimary") else "")
+                result_lines.append(
+                    f"- **{it.get('sourceName') or it.get('sourceCode')}**: {price}, "
+                    f"od {(it.get('firstSeenAt') or '')[:10]}, {state}{marker} – `{it.get('id')}`"
+                )
+    except Exception as e:
+        logger.warning(f"Failed to fetch duplicate group: {e}")
 
     # ── Google Drive ──────────────────────────────────────────────────────────
     # OneDrive byl odstraněn (commit b7d7596) – API už hasOneDriveExport nevrací.
@@ -632,14 +699,23 @@ async def get_listing(listing_id: str) -> str:
         logger.warning(f"Failed to fetch inspection photos: {e}")
         pass  # endpoint neexistuje nebo vrátil chybu – ignoruj
 
-    # ── Popis ────────────────────────────────────────────────────────────────
-    result_lines += [
-        "",
-        "## Popis",
-        listing.get("description", "Bez popisu")[:3000],
-    ]
-    if listing.get("description", "") and len(listing["description"]) > 3000:
-        result_lines.append("_[popis zkrácen na 3000 znaků]_")
+    # ── AI shrnutí (veřejná náhrada původního popisu) ────────────────────────
+    summary = listing.get("summary")
+    if summary:
+        result_lines += ["", "## Shrnutí (AI)", summary]
+
+    # ── Popis (původní text – API ho vrací jen správci) ──────────────────────
+    description = listing.get("description") or ""
+    if description:
+        result_lines += ["", "## Popis", description[:3000]]
+        if len(description) > 3000:
+            result_lines.append("_[popis zkrácen na 3000 znaků]_")
+    elif not summary:
+        result_lines += [
+            "",
+            "## Popis",
+            "_Zdroj má popis, AI shrnutí teprve vznikne._" if listing.get("hasDescription") else "Bez popisu",
+        ]
 
     return _cap_output("\n".join(result_lines))
 

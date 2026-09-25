@@ -23,6 +23,13 @@ public static class PhotoEndpoints
             .WithSummary("Vrátí statistiku stažených vs. nestažených fotek.")
             .Produces<PhotoDownloadStatsDto>(200);
 
+        // ── Mazání lokálních kopií (fotky zdrojů nesmí zůstat na veřejném webu) ──
+        group.MapPost("/purge-stored", PurgeStored)
+            .WithName("PurgeStoredPhotos")
+            .WithSummary("Smaže lokální kopie fotek inzerátů a vynuluje stored_url. Fotky z prohlídky se nemažou.")
+            .Produces<PhotoPurgeResultDto>(200)
+            .Produces(400);
+
         // ── Mistral Vision klasifikace ────────────────────────────────────
         group.MapPost("/bulk-classify", BulkClassify)
             .WithName("BulkClassifyPhotos")
@@ -85,6 +92,29 @@ public static class PhotoEndpoints
     {
         var stats = await service.GetStatsAsync(cancellationToken);
         return Results.Ok(stats);
+    }
+
+    private static async Task<IResult> PurgeStored(
+        [FromQuery] bool onlyClassified = true,
+        [FromQuery] int olderThanDays = 0,
+        [FromQuery] int batchSize = 500,
+        [FromServices] IPhotoPurgeService service = default!,
+        CancellationToken cancellationToken = default)
+    {
+        if (batchSize < 1 || batchSize > 5000)
+            return Results.Problem(
+                title: "Neplatný batchSize",
+                detail: "batchSize musí být v rozmezí 1–5000.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        if (olderThanDays < 0)
+            return Results.Problem(
+                title: "Neplatný olderThanDays",
+                detail: "olderThanDays nesmí být záporné (0 = bez omezení stáří).",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        var result = await service.PurgeStoredAsync(onlyClassified, olderThanDays, batchSize, cancellationToken);
+        return Results.Ok(result);
     }
 
     private static async Task<IResult> BulkClassify(

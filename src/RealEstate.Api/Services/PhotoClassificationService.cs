@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using RealEstate.Domain.Entities;
 using RealEstate.Infrastructure;
 using RealEstate.Infrastructure.Storage;
 
@@ -75,6 +76,11 @@ public sealed class PhotoClassificationService(
 
     private const string RateLimitedMessage =
         "Vision API odmítá požadavky (HTTP 429 – rate limit / vyčerpaná kvóta).";
+
+    // Po klasifikaci lokální kopii fotky smažeme – fotky zdrojů nesmí zůstat na veřejném webu
+    // (autorská práva). Metadata (kategorie, popis, štítky) zůstávají, náhledy jdou z original_url.
+    private bool DeleteStoredAfterClassification =>
+        configuration.GetValue("Photos:DeleteStoredAfterClassification", true);
 
     // Public base URL odstraníme ze stored_url abychom dostali relativní cestu k souboru
     private string PublicBaseUrl =>
@@ -262,6 +268,9 @@ public sealed class PhotoClassificationService(
                     photo.ListingId, photo.Order, photo.PhotoCategory,
                     photo.DamageDetected,
                     photo.PhotoDescription is { } d ? d[..Math.Min(80, d.Length)] : "–");
+
+                // Klasifikace hotová → lokální kopie už není potřeba a nesmí zůstat veřejně dostupná
+                await TryDeleteStoredCopyAsync(photo, CancellationToken.None);
 
                 succeeded++;
             }
@@ -611,6 +620,45 @@ public sealed class PhotoClassificationService(
     }
 
     /// <summary>
+    /// Smaže lokální kopii fotky INZERÁTU (listing_photos) a vynuluje stored_url,
+    /// pokud je zapnuté Photos:DeleteStoredAfterClassification. Fotky z prohlídky
+    /// (user_listing_photos) tudy nikdy neprocházejí – ty jsou uživatelovy a mazat se nesmí.
+    /// Chyba mazání klasifikaci nezneplatní – jen se zaloguje.
+    /// </summary>
+    private async Task TryDeleteStoredCopyAsync(ListingPhoto photo, CancellationToken ct)
+    {
+        if (!DeleteStoredAfterClassification || photo.StoredUrl is null)
+            return;
+
+        var storedUrl = photo.StoredUrl;
+        try
+        {
+            await storageService.DeleteFileAsync(storedUrl, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex,
+                "Failed to delete stored photo {Url} for listing {ListingId} order {Order}",
+                storedUrl, photo.ListingId, photo.Order);
+            // I když soubor nešel smazat (např. už neexistuje), odkaz na něj ven nepouštíme
+        }
+
+        // Pojistka: LocalStorageService může očekávat jiný tvar cesty – smažeme i přímo z disku
+        try
+        {
+            var localPath = ResolveLocalPath(storedUrl);
+            if (File.Exists(localPath))
+                File.Delete(localPath);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Local delete fallback failed for {Url}", storedUrl);
+        }
+
+        photo.StoredUrl = null;
+    }
+
+    /// <summary>
     /// Odstraní opakující se věty (LLM hallucination) a zkrátí na max délku.
     /// </summary>
     private static string TrimToSentence(string text, int maxLength)
@@ -812,15 +860,24 @@ public sealed class PhotoClassificationService(
                             continue;
                         }
 
-                        var ct2 = dlResponse.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
-                        var ext2 = ct2 switch { "image/png" => ".png", "image/webp" => ".webp", _ => ".jpg" };
-                        await using var dlStream = await dlResponse.Content.ReadAsStreamAsync(ct);
-                        var rel = await storageService.UploadFileAsync(dlStream, $"{photo.Order}{ext2}", $"listings/{photo.ListingId}/photos", ct);
-                        photo.StoredUrl = $"/{rel.TrimStart('/')}";
-                        await db.SaveChangesAsync(ct);
+                        if (DeleteStoredAfterClassification)
+                        {
+                            // Lokální kopie se po klasifikaci mažou – pro alt text stačí obrázek v paměti,
+                            // znovu ho na disk (a na veřejný web) neukládáme.
+                            imageBytes = await dlResponse.Content.ReadAsByteArrayAsync(ct);
+                        }
+                        else
+                        {
+                            var ct2 = dlResponse.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                            var ext2 = ct2 switch { "image/png" => ".png", "image/webp" => ".webp", _ => ".jpg" };
+                            await using var dlStream = await dlResponse.Content.ReadAsStreamAsync(ct);
+                            var rel = await storageService.UploadFileAsync(dlStream, $"{photo.Order}{ext2}", $"listings/{photo.ListingId}/photos", ct);
+                            photo.StoredUrl = $"/{rel.TrimStart('/')}";
+                            await db.SaveChangesAsync(ct);
 
-                        var lp = ResolveLocalPath(photo.StoredUrl);
-                        imageBytes = await File.ReadAllBytesAsync(lp, ct);
+                            var lp = ResolveLocalPath(photo.StoredUrl);
+                            imageBytes = await File.ReadAllBytesAsync(lp, ct);
+                        }
                     }
                     catch { failed++; continue; }
                 }

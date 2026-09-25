@@ -41,6 +41,7 @@ _PHOTO_DOWNLOAD_HEADERS = {
 
 from .filters import get_filter_manager
 from .area_parsing import parse_title_areas, parse_description_land, title_offers_land
+from .auction_parsing import is_auction_context, mentions_auction_offer, parse_auction_fields
 
 
 # ── Regex enrichment ──────────────────────────────────────────────────────────
@@ -95,6 +96,40 @@ def _enrich_listing_fields(data: Dict[str, Any]) -> None:
                 break
 
     _enrich_areas(data)
+    _enrich_auction_fields(data)
+
+
+_AUCTION_OFFER_TYPES = {'Dražba', 'Auction'}
+
+
+def _enrich_auction_fields(data: Dict[str, Any]) -> None:
+    """
+    Parametry dražby (termín, vyvolávací cena, jistota) z titulku + popisu.
+
+    Spouští se, když je nabídka označená jako dražba, nebo když o dražbě/aukci mluví text.
+    Hodnoty, které už scraper dodal (např. SReality z items[]), nepřepisuje.
+    Když nabídka dražbou označená není, ale text ji tak výslovně pojmenuje
+    ("nedobrovolná dražba", "elektronická dražba") a najdeme vyvolávací cenu,
+    přepneme offer_type na "Dražba" – jinak by dražby ze zdrojů bez kategorie
+    padaly mezi běžné prodeje.
+    """
+    text = ' '.join(filter(None, [data.get('title', ''), data.get('description', '')]))
+    is_auction = data.get('offer_type') in _AUCTION_OFFER_TYPES
+
+    if not is_auction and not is_auction_context(text):
+        return
+
+    auction_date, starting_price, deposit = parse_auction_fields(text)
+
+    if data.get('auction_date') is None and auction_date is not None:
+        data['auction_date'] = auction_date
+    if data.get('auction_starting_price') is None and starting_price is not None:
+        data['auction_starting_price'] = starting_price
+    if data.get('auction_deposit') is None and deposit is not None:
+        data['auction_deposit'] = deposit
+
+    if not is_auction and mentions_auction_offer(text) and data.get('auction_starting_price') is not None:
+        data['offer_type'] = 'Dražba'
 
 
 _LAND_TYPES = {'Pozemek', 'Land'}
@@ -338,11 +373,12 @@ class DatabaseManager:
                     latitude, longitude, geocoded_at, geocode_source,
                     view_count, date_created_source,
                     first_seen_at, last_seen_at, is_active,
-                    district, municipality
+                    district, municipality,
+                    auction_date, auction_starting_price, auction_deposit
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                         $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, true,
-                        $27, $28)
+                        $27, $28, $29, $30, $31)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
                     url               = EXCLUDED.url,
@@ -374,7 +410,10 @@ class DatabaseManager:
                     is_active    = true,
                     deactivated_at = NULL,
                     district     = COALESCE(EXCLUDED.district,     re_realestate.listings.district),
-                    municipality = COALESCE(EXCLUDED.municipality, re_realestate.listings.municipality)
+                    municipality = COALESCE(EXCLUDED.municipality, re_realestate.listings.municipality),
+                    auction_date           = COALESCE(EXCLUDED.auction_date,           re_realestate.listings.auction_date),
+                    auction_starting_price = COALESCE(EXCLUDED.auction_starting_price, re_realestate.listings.auction_starting_price),
+                    auction_deposit        = COALESCE(EXCLUDED.auction_deposit,        re_realestate.listings.auction_deposit)
                 RETURNING id
                 """,
                 listing_id,
@@ -405,8 +444,11 @@ class DatabaseManager:
                 now,
                 listing_data.get("district"),
                 listing_data.get("municipality"),
+                listing_data.get("auction_date"),
+                listing_data.get("auction_starting_price"),
+                listing_data.get("auction_deposit"),
             )
-            
+
             # Pokud UPDATE navrátil existující ID, použij to
             final_listing_id = result if result else listing_id
 

@@ -12,6 +12,12 @@ public interface IOllamaTextService
     /// <summary>Dávkově normalizuje popis – extrahuje rok stavby, patro, výtah, sklep, zahradu, ... listingId + force=true=přenormalizuj konkrétní. orderDesc=true=nejnovější první.</summary>
     Task<OllamaTextBatchResultDto> BulkNormalizeAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false);
 
+    /// <summary>
+    /// Dávkově generuje neutrální AI shrnutí popisu (3–5 vět česky), které se veřejně zobrazuje
+    /// místo původního textu inzerátu. listingId + force=true=přegeneruj konkrétní. orderDesc=true=nejnovější první.
+    /// </summary>
+    Task<OllamaTextBatchResultDto> BulkSummaryAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false);
+
     /// <summary>Dávkově generuje cenový signál (low/fair/high) na základě lokality, plochy a stavu. listingId + force=true=přepočítej konkrétní. orderDesc=true=nejnovější první.</summary>
     Task<OllamaTextBatchResultDto> BulkPriceOpinionAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false);
 
@@ -57,4 +63,5 @@ public record OllamaTextStatsDto(
     int WithPriceSignal,
     int PriceSignalLow,
     int PriceSignalFair,
-    int PriceSignalHigh);
+    int PriceSignalHigh,
+    int WithSummary = 0);
