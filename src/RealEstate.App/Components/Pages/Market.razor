@@ -1,0 +1,212 @@
+@page "/market"
+@using System.Net
+@using RealEstate.Api.Contracts.Market
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageTitle>Tržní report – Real Estate Aggregator</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4">
+    <MudIcon Icon="@Icons.Material.Filled.Insights" Class="mr-2" />
+    Tržní report
+</MudText>
+
+<MudPaper Class="pa-3 mb-3" Elevation="1">
+    <MudGrid Spacing="2" AlignItems="Center">
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField T="string" @bind-Value="_municipality" Label="Obec / městská část"
+                          Placeholder="např. Znojmo, Brno-Židenice"
+                          Clearable="true" Dense="true" Variant="Variant.Outlined" Immediate="true"
+                          OnKeyDown="OnFilterKeyDown" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField T="string" @bind-Value="_district" Label="Okres"
+                          Placeholder="např. Znojmo"
+                          Clearable="true" Dense="true" Variant="Variant.Outlined" Immediate="true"
+                          OnKeyDown="OnFilterKeyDown" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" @bind-Value="_propertyType" Label="Typ nemovitosti"
+                       Clearable="true" Dense="true" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@null">Vše</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Apartment")">Byt</MudSelectItem>
+                <MudSelectItem T="string" Value="@("House")">Dům</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Land")">Pozemek</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Cottage")">Chata</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Commercial")">Komerční</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       OnClick="LoadAsync" StartIcon="@Icons.Material.Filled.Refresh"
+                       Disabled="_loading" FullWidth="true">
+                @(_loading ? "Načítám..." : "Zobrazit")
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_status == HttpStatusCode.Unauthorized)
+{
+    <MudAlert Severity="Severity.Info">
+        Tržní report je dostupný přihlášeným uživatelům – <MudLink Href="/login">přihlásit se</MudLink>.
+    </MudAlert>
+}
+else if (_status == HttpStatusCode.PaymentRequired)
+{
+    <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.Lock">
+        Dostupné v tarifu Profi – <MudLink Href="/pricing">zobrazit tarify</MudLink>.
+    </MudAlert>
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else if (_loading && _report is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-4" />
+}
+else if (_report is not null)
+{
+    <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2 d-block">
+        @_report.TotalActive aktivních inzerátů, @_report.TotalDeactivatedLast12M stažených za 12 měsíců ·
+        řádky s min. 3 aktivními inzeráty · vygenerováno @_report.GeneratedAt.ToLocalTime().ToString("d. M. yyyy H:mm")
+    </MudText>
+
+    @if (_report.Rows.Count == 0)
+    {
+        <EmptyState Icon="@Icons.Material.Filled.SearchOff"
+                    Title="Žádná data"
+                    Description="Pro zvolené filtry není dostatek inzerátů." />
+    }
+    else
+    {
+        <MudTable T="MarketReportRowDto" Items="_report.Rows" Dense="true" Hover="true" Striped="true"
+                  Breakpoint="Breakpoint.Sm" FixedHeader="true" Height="calc(100vh - 320px)"
+                  SortLabel="Řadit podle" Elevation="1">
+            <HeaderContent>
+                <MudTh><MudTableSortLabel T="MarketReportRowDto" SortBy="@(r => r.Locality)">Lokalita</MudTableSortLabel></MudTh>
+                <MudTh>Typ</MudTh>
+                <MudTh>Dispozice</MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel T="MarketReportRowDto" InitialDirection="SortDirection.Descending" SortBy="@(r => r.ActiveCount)">Aktivní</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel T="MarketReportRowDto" SortBy="@(r => r.SoldLast12M)">Staženo/12 m</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel T="MarketReportRowDto" SortBy="@(r => r.MedianPricePerM2Sale ?? 0)">Medián Kč/m² prodej</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel T="MarketReportRowDto" SortBy="@(r => r.MedianRentPerM2 ?? 0)">Medián nájem Kč/m²/měs.</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel T="MarketReportRowDto" SortBy="@(r => r.GrossYieldPct ?? 0)">Výnos %</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel T="MarketReportRowDto" SortBy="@(r => r.MedianDaysToDeactivate ?? 0)">Medián dnů do stažení</MudTableSortLabel></MudTh>
+                <MudTh Style="text-align:right"><MudTableSortLabel T="MarketReportRowDto" SortBy="@(r => r.MedianDaysOnMarketActive ?? 0)">Medián dnů na trhu (aktivní)</MudTableSortLabel></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Lokalita" Style="font-weight:600">@context.Locality</MudTd>
+                <MudTd DataLabel="Typ">@PropertyTypeLabel(context.PropertyType)</MudTd>
+                <MudTd DataLabel="Dispozice">@(context.Disposition ?? "—")</MudTd>
+                <MudTd DataLabel="Aktivní" Style="text-align:right">@context.ActiveCount</MudTd>
+                <MudTd DataLabel="Staženo/12 m" Style="text-align:right">@context.SoldLast12M</MudTd>
+                <MudTd DataLabel="Medián Kč/m² prodej" Style="text-align:right">@Num(context.MedianPricePerM2Sale)</MudTd>
+                <MudTd DataLabel="Medián nájem Kč/m²/měs." Style="text-align:right">@Num(context.MedianRentPerM2)</MudTd>
+                <MudTd DataLabel="Výnos %" Style="text-align:right">
+                    @if (context.GrossYieldPct is not null)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="@YieldColor(context.GrossYieldPct.Value)">@context.GrossYieldPct.Value.ToString("F1") %</MudChip>
+                    }
+                    else
+                    {
+                        <text>—</text>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Medián dnů do stažení" Style="text-align:right">@Days(context.MedianDaysToDeactivate)</MudTd>
+                <MudTd DataLabel="Medián dnů na trhu (aktivní)" Style="text-align:right">@Days(context.MedianDaysOnMarketActive)</MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 300 }" RowsPerPageString="Řádků na stránku" InfoFormat="{first_item}–{last_item} z {all_items}" />
+            </PagerContent>
+        </MudTable>
+    }
+}
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    private string? _municipality;
+    private string? _district;
+    private string? _propertyType;
+
+    private bool _loading;
+    private MarketReportDto? _report;
+    private HttpStatusCode? _status;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task OnFilterKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Enter" ? LoadAsync() : Task.CompletedTask;
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        _status = null;
+
+        try
+        {
+            var query = new List<string>();
+            if (!string.IsNullOrWhiteSpace(_municipality)) query.Add($"municipality={Uri.EscapeDataString(_municipality.Trim())}");
+            if (!string.IsNullOrWhiteSpace(_district)) query.Add($"district={Uri.EscapeDataString(_district.Trim())}");
+            if (!string.IsNullOrWhiteSpace(_propertyType)) query.Add($"propertyType={Uri.EscapeDataString(_propertyType)}");
+            var url = "api/market/report" + (query.Count > 0 ? "?" + string.Join("&", query) : "");
+
+            using var response = await Http.GetAsync(url, _cts.Token);
+            _status = response.StatusCode;
+
+            if (response.IsSuccessStatusCode)
+            {
+                _report = await response.Content.ReadFromJsonAsync<MarketReportDto>(_cts.Token);
+            }
+            else if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.PaymentRequired))
+            {
+                _error = $"Tržní report se nepodařilo načíst ({(int)response.StatusCode}).";
+                Snackbar.Add(_error, Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _error = "Tržní report se nepodařilo načíst.";
+            Snackbar.Add($"{_error} {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string Num(decimal? value) => value is null ? "—" : value.Value.ToString("N0");
+    private static string Days(double? value) => value is null ? "—" : value.Value.ToString("F0");
+
+    private static Color YieldColor(double pct) => pct switch
+    {
+        >= 5 => Color.Success,
+        >= 3.5 => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private static string PropertyTypeLabel(string? type) => type switch
+    {
+        "Apartment" => "Byt",
+        "House" => "Dům",
+        "Land" => "Pozemek",
+        "Cottage" => "Chata",
+        "Commercial" => "Komerční",
+        "Industrial" => "Průmysl",
+        "Garage" => "Garáž",
+        "Other" => "Ostatní",
+        _ => type ?? "—",
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

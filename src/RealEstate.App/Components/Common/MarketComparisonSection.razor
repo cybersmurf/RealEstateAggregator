@@ -1,0 +1,250 @@
+@using System.Net
+@using RealEstate.Api.Contracts.Market
+@using MudBlazor
+@inject HttpClient Http
+@implements IDisposable
+
+@*
+    MarketComparisonSection – cena za m² inzerátu vs. medián lokality (tarif Hledač)
+    + hrubý výnos z pronájmu pro byty/domy (tarif Profi).
+    Samostatná sekce pro ListingDetail; načítá si data sama.
+*@
+
+<SectionCard Title="Cena vs. lokalita"
+             Icon="@Icons.Material.Filled.Insights"
+             IconColor="Color.Info"
+             Class="mb-3">
+    <HeaderActions>
+        @if (_comparison?.Verdict is not null)
+        {
+            <MudChip T="string" Size="Size.Small" Color="@VerdictColor" Icon="@VerdictIcon">
+                @_comparison.Verdict
+                @if (_comparison.DeviationPct is not null)
+                {
+                    <text>&nbsp;(@FormatSigned(_comparison.DeviationPct.Value) %)</text>
+                }
+            </MudChip>
+        }
+    </HeaderActions>
+    <ChildContent>
+        @if (_loading)
+        {
+            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="72px" />
+        }
+        else if (_comparisonStatus == HttpStatusCode.Unauthorized)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                Pro srovnání ceny s lokalitou se <MudLink Href="/login">přihlaste</MudLink>.
+            </MudAlert>
+        }
+        else if (_comparisonStatus == HttpStatusCode.PaymentRequired)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Icon="@Icons.Material.Filled.Lock">
+                Dostupné v tarifu Hledač – <MudLink Href="/pricing">zobrazit tarify</MudLink>.
+            </MudAlert>
+        }
+        else if (_comparisonError is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true">@_comparisonError</MudAlert>
+        }
+        else if (_comparison is not null)
+        {
+            @if (_comparison.SampleSize == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    @_comparison.ScopeLabel.
+                    @if (_comparison.ListingPricePerM2 is not null)
+                    {
+                        <text> Cena inzerátu: <b>@Kc(_comparison.ListingPricePerM2)</b>/m².</text>
+                    }
+                </MudText>
+            }
+            else
+            {
+                <MudGrid Spacing="2">
+                    <MudItem xs="6" sm="3">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Tento inzerát</MudText>
+                        <MudText Typo="Typo.h6">@Kc(_comparison.ListingPricePerM2)<small>/m²</small></MudText>
+                    </MudItem>
+                    <MudItem xs="6" sm="3">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Medián lokality</MudText>
+                        <MudText Typo="Typo.h6">@Kc(_comparison.MedianPricePerM2)<small>/m²</small></MudText>
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Běžné rozpětí (P25–P75)</MudText>
+                        <MudText Typo="Typo.h6">@Kc(_comparison.P25PricePerM2) – @Kc(_comparison.P75PricePerM2)<small>/m²</small></MudText>
+                    </MudItem>
+                </MudGrid>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary mt-2 d-block">
+                    Srovnání: @_comparison.ScopeLabel · aktivní a za posledních 12 měsíců stažené inzeráty, bez duplikátů
+                </MudText>
+            }
+        }
+
+        @if (ShowsYield)
+        {
+            <MudDivider Class="my-3" />
+            <MudText Typo="Typo.subtitle2" Class="mb-1">
+                <MudIcon Icon="@Icons.Material.Filled.Savings" Size="Size.Small" Class="mr-1" Style="vertical-align: middle;" />
+                Hrubý výnos z pronájmu
+            </MudText>
+
+            @if (_loading)
+            {
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" />
+            }
+            else if (_yieldStatus == HttpStatusCode.Unauthorized)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">
+                    Pro výnos z pronájmu se <MudLink Href="/login">přihlaste</MudLink>.
+                </MudAlert>
+            }
+            else if (_yieldStatus == HttpStatusCode.PaymentRequired)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Icon="@Icons.Material.Filled.Lock">
+                    Dostupné v tarifu Profi – <MudLink Href="/pricing">zobrazit tarify</MudLink>.
+                </MudAlert>
+            }
+            else if (_yieldError is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true">@_yieldError</MudAlert>
+            }
+            else if (_yield is not null)
+            {
+                @if (_yield.GrossYieldPct is not null)
+                {
+                    <MudGrid Spacing="2">
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Hrubý výnos</MudText>
+                            <MudText Typo="Typo.h6" Color="@YieldColor">@_yield.GrossYieldPct.Value.ToString("F1") % p. a.</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Kupní cena</MudText>
+                            <MudText Typo="Typo.body1">@Kc(_yield.SalePricePerM2Median)<small>/m²</small></MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@SampleText(_yield.SaleSampleSize)</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Nájem</MudText>
+                            <MudText Typo="Typo.body1">@Kc(_yield.MonthlyRentPerM2Median)<small>/m²/měs.</small></MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@SampleText(_yield.RentSampleSize)</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Lokalita</MudText>
+                            <MudText Typo="Typo.body2">@_yield.ScopeLabel</MudText>
+                        </MudItem>
+                    </MudGrid>
+                }
+                @if (_yield.Note is not null)
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1 d-block">@_yield.Note</MudText>
+                }
+            }
+        }
+    </ChildContent>
+</SectionCard>
+
+@code {
+    [Parameter, EditorRequired] public Guid ListingId { get; set; }
+    /// <summary>"Sale" | "Rent" | "Auction"</summary>
+    [Parameter] public string OfferType { get; set; } = "";
+    /// <summary>"Apartment" | "House" | …</summary>
+    [Parameter] public string PropertyType { get; set; } = "";
+
+    private readonly CancellationTokenSource _cts = new();
+    private bool _loading = true;
+
+    private MarketComparisonDto? _comparison;
+    private HttpStatusCode? _comparisonStatus;
+    private string? _comparisonError;
+
+    private RentalYieldDto? _yield;
+    private HttpStatusCode? _yieldStatus;
+    private string? _yieldError;
+
+    private bool ShowsYield =>
+        PropertyType is "Apartment" or "House" && OfferType is "Sale" or "Rent";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var comparisonTask = LoadComparisonAsync();
+        var yieldTask = ShowsYield ? LoadYieldAsync() : Task.CompletedTask;
+        await Task.WhenAll(comparisonTask, yieldTask);
+        _loading = false;
+    }
+
+    private async Task LoadComparisonAsync()
+    {
+        try
+        {
+            using var response = await Http.GetAsync($"api/listings/{ListingId}/market-comparison", _cts.Token);
+            _comparisonStatus = response.StatusCode;
+            if (response.IsSuccessStatusCode)
+                _comparison = await response.Content.ReadFromJsonAsync<MarketComparisonDto>(_cts.Token);
+            else if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.PaymentRequired))
+                _comparisonError = "Srovnání s lokalitou se nepodařilo načíst.";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            _comparisonError = "Srovnání s lokalitou se nepodařilo načíst.";
+        }
+    }
+
+    private async Task LoadYieldAsync()
+    {
+        try
+        {
+            using var response = await Http.GetAsync($"api/listings/{ListingId}/rental-yield", _cts.Token);
+            _yieldStatus = response.StatusCode;
+            if (response.IsSuccessStatusCode)
+                _yield = await response.Content.ReadFromJsonAsync<RentalYieldDto>(_cts.Token);
+            else if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.PaymentRequired))
+                _yieldError = "Výnos z pronájmu se nepodařilo načíst.";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            _yieldError = "Výnos z pronájmu se nepodařilo načíst.";
+        }
+    }
+
+    private Color VerdictColor => _comparison?.Verdict switch
+    {
+        "pod mediánem" => Color.Success,
+        "nad mediánem" => Color.Error,
+        _ => Color.Warning,
+    };
+
+    private string VerdictIcon => _comparison?.Verdict switch
+    {
+        "pod mediánem" => Icons.Material.Filled.TrendingDown,
+        "nad mediánem" => Icons.Material.Filled.TrendingUp,
+        _ => Icons.Material.Filled.TrendingFlat,
+    };
+
+    private Color YieldColor => _yield?.GrossYieldPct switch
+    {
+        >= 5 => Color.Success,
+        >= 3.5 => Color.Warning,
+        null => Color.Default,
+        _ => Color.Error,
+    };
+
+    private static string Kc(decimal? value) => value is null ? "—" : $"{value.Value:N0} Kč";
+
+    private static string FormatSigned(double value) => value > 0 ? $"+{value:F1}" : $"{value:F1}";
+
+    private static string SampleText(int n) => n switch
+    {
+        0 => "bez dat",
+        1 => "tento inzerát",
+        >= 2 and <= 4 => $"medián z {n} inzerátů",
+        _ => $"medián z {n} inzerátů",
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}
