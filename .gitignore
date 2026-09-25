@@ -210,3 +210,6 @@ nohup.out
 
 # Datované výstupy benchmarků
 benchmark_*.json
+
+# Worktrees agentů Claude Code
+.claude/worktrees/
