@@ -60,13 +60,16 @@ BASE_WEB = "https://www.sreality.cz"
 
 # Mapování locality_district_id → název okresu (pro geo filtr)
 DISTRICT_ID_TO_NAME: Dict[int, str] = {
-    77: "Znojmo",
-    78: "Brno-město",
+    # Ověřeno dotazem na /estates/search 25. 9. 2026 (dřív tu bylo 78=Brno-město, 80=Břeclav …
+    # a scraper pro Brno-město dostával prázdné výsledky)
+    70: "Žďár nad Sázavou",
+    71: "Blansko",
+    72: "Brno-město",
     73: "Brno-venkov",
-    80: "Břeclav",
-    81: "Hodonín",
-    82: "Vyškov",
-    83: "Blansko",
+    74: "Břeclav",
+    75: "Hodonín",
+    76: "Vyškov",
+    77: "Znojmo",
 }
 
 DEFAULT_HEADERS = {

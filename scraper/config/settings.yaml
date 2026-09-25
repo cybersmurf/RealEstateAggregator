@@ -173,7 +173,7 @@ scrapers:
     locality_district_ids:
       - 77   # Znojmo (ID=77)
       - 73   # Brno-venkov (ID=73) – Pohořelice, Vlasatice, Mušov, Miroslav, Žabčice, Dolní Kounice, …
-      - 78   # Brno-město (ID=78) – byty a pronájmy pro výnos z nájmu a medián dispozic
+      - 72   # Brno-město (ID=72) – byty a pronájmy pro výnos z nájmu a medián dispozic (ověřeno sondou 25. 9. 2026)
     # locality_district_id: 77  # legacy – nahrazeno listem výše
     # Scrape separately per category_main_cb to avoid pagination overflow in incremental mode.
     # Without this, a single query for all types returns 700+ results and incremental
