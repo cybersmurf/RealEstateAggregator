@@ -520,6 +520,9 @@
             <!-- Historie cen -->
             <PriceHistorySection History="@_priceHistory" />
 
+            <!-- Cena vs. lokalita (medián Kč/m²) a výnos z nájmu – tarify Hledač/Profi -->
+            <MarketComparisonSection ListingId="_listing.Id" OfferType="@_listing.OfferType" PropertyType="@_listing.PropertyType" />
+
             <!-- Katastr nemovitosti -->
             <SectionCard Title="Katastr nemovitosti" Icon="@Icons.Material.Filled.AccountBalance" IconColor="Color.Info">
                 <HeaderActions>

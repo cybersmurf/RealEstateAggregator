@@ -3,6 +3,9 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Pgvector.EntityFrameworkCore;
 using RealEstate.Api.Services;
 using RealEstate.Api.Services.Auth;
+using RealEstate.Api.Services.Market;
+using RealEstate.Api.Services.Notifications;
+using RealEstate.Api.Services.SavedSearches;
 using RealEstate.Domain.Repositories;
 using RealEstate.Infrastructure;
 using RealEstate.Infrastructure.Repositories;
@@ -20,6 +23,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuthService, AuthService>();
 
         services.AddScoped<IListingService, ListingService>();
+
+        // Tržní statistiky (medián Kč/m², výnos z nájmu, doba na trhu)
+        services.AddScoped<IMarketStatsService, MarketStatsService>();
+
+        // Uložená hledání + upozornění (e-mail / Telegram); job po scrapu i hodinový fallback
+        services.AddScoped<ISavedSearchService, SavedSearchService>();
+        services.AddScoped<ISavedSearchNotifier, SavedSearchNotifier>();
+        services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        services.AddSingleton<ITelegramSender, TelegramSender>();
+        services.AddHttpClient("Telegram");
+        services.AddHostedService<SavedSearchHostedService>();
         services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddScoped<ISourceService, SourceService>();
         services.AddScoped<IAnalysisService, AnalysisService>();

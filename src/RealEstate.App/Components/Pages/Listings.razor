@@ -9,6 +9,7 @@
 @inject ISnackbar Snackbar
 @inject ProtectedLocalStorage LocalStorage
 @inject SourceLogoProvider Logos
+@inject IDialogService DialogService
 
 <MudStack Spacing="3" Class="pa-4">
 
@@ -240,6 +241,13 @@
                                    aria-label="Exportovat do CSV" />
                 </MudTooltip>
             }
+            <MudTooltip Text="Uložit toto hledání a dostávat upozornění na nové inzeráty a zlevnění">
+                <MudIconButton Icon="@Icons.Material.Filled.BookmarkAdd"
+                               Size="Size.Small"
+                               Color="Color.Primary"
+                               OnClick="OpenSaveSearchDialogAsync"
+                               aria-label="Uložit hledání" />
+            </MudTooltip>
             <MudTooltip Text="@(_cardView ? "Tabulkový pohled" : "Kartový pohled")">
                 <MudIconButton Icon="@(_cardView ? Icons.Material.Filled.TableRows : Icons.Material.Filled.GridView)"
                                Size="Size.Small"
@@ -668,6 +676,24 @@
         {
             Snackbar.Add($"Nepodařilo se načíst zdroje: {ex.Message}", Severity.Warning);
         }
+    }
+
+    /// <summary>Otevře dialog pro uložení aktuálního filtru jako hledání s upozorněním.</summary>
+    private async Task OpenSaveSearchDialogAsync()
+    {
+        var filter = new ListingFilterDto
+        {
+            SearchText = _filter.SearchText, PriceMin = _filter.PriceMin, PriceMax = _filter.PriceMax,
+            AreaBuiltUpMin = _filter.AreaBuiltUpMin, AreaBuiltUpMax = _filter.AreaBuiltUpMax,
+            AreaLandMin = _filter.AreaLandMin, AreaLandMax = _filter.AreaLandMax,
+            PropertyType = _filter.PropertyType, OfferType = _filter.OfferType, Disposition = _filter.Disposition,
+            Region = _filter.Region, District = _filter.District, Municipality = _filter.Municipality,
+            Conditions = _filter.Conditions, ConstructionTypes = _filter.ConstructionTypes,
+            RoomsMin = _filter.RoomsMin, RoomsMax = _filter.RoomsMax,
+            SourceCodes = _selectedSourceCodes?.Count > 0 ? _selectedSourceCodes.ToList() : null,
+        };
+        var parameters = new DialogParameters<SaveSearchDialog> { { x => x.Filter, filter } };
+        await DialogService.ShowAsync<SaveSearchDialog>("Uložit hledání", parameters);
     }
 
     /// <summary>Uloží aktuální stav stránky do LocalStorage (trvalé napříč refreshi).</summary>
