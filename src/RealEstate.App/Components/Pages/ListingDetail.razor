@@ -84,6 +84,12 @@
                 </MudStack>
             </MudPaper>
 
+            <!-- Stejná nemovitost v dalších zdrojích (sloučená karta duplicit) -->
+            <DuplicateGroupSection ListingId="_listing.Id" />
+
+            <!-- Dražba: termín, vyvolávací cena, jistota -->
+            <AuctionSection Listing="_listing" />
+
             <!-- Photo Carousel -->
             @if (_listing.Photos.Any())
             {

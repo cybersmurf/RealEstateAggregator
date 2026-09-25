@@ -680,7 +680,7 @@ async def get_listing(listing_id: str) -> str:
     result_lines += ["", f"## 📸 Fotky z inzerátu ({len(photos)})"]
     if photos:
         for i, p in enumerate(photos):
-            url = p.get("storedUrl") or p.get("originalUrl") or ""
+            url = p.get("originalUrl") or p.get("storedUrl") or ""
             result_lines.append(f"- {url}")
         result_lines.append("")
         result_lines.append(f"💡 Pro zobrazení fotek zavolej: `get_listing_photos(listing_id='{listing_id}')`")
@@ -820,14 +820,14 @@ async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 5)
         for i, p in enumerate(page_photos, start + 1):
             stored = p.get("storedUrl") or ""
             original = p.get("originalUrl") or ""
-            # storedUrl je relativní /uploads/... → stahuj přes API_BASE_URL (lokální)
-            # originalUrl je přímá CDN URL (fallback pokud stored není k dispozici)
-            if stored.startswith("/"):
-                url = PHOTOS_BASE_URL.rstrip("/") + stored
-            elif stored:
-                url = stored
-            else:
+            # Původní URL zdroje má přednost: stažené kopie (/uploads/listings/*/photos) API i App
+            # veřejně neservírují (404) a po klasifikaci se mažou. storedUrl je jen záloha.
+            if original:
                 url = original
+            elif stored.startswith("/"):
+                url = PHOTOS_BASE_URL.rstrip("/") + stored
+            else:
+                url = stored
             if not url:
                 continue
             result.append(TextContent(type="text", text=f"**{i}.**"))
@@ -994,7 +994,7 @@ async def analyze_listing_photos(listing_id: str, page: int = 1, page_size: int 
     async with httpx.AsyncClient(timeout=120) as client:
         for i, p in enumerate(page_photos, start + 1):
             photo_id = p.get("id", "")
-            url = p.get("storedUrl") or p.get("originalUrl") or ""
+            url = p.get("originalUrl") or p.get("storedUrl") or ""
             if url and url.startswith("/"):
                 url = PHOTOS_BASE_URL.rstrip("/") + url
             cached = p.get("aiDescription")
@@ -1145,7 +1145,7 @@ async def analyze_tovisit_listings(
 
             for i, p in enumerate(photos_to_process, 1):
                 photo_id = p.get("id", "")
-                url = p.get("storedUrl") or p.get("originalUrl") or ""
+                url = p.get("originalUrl") or p.get("storedUrl") or ""
                 cached_desc = p.get("aiDescription")
 
                 total_photos += 1

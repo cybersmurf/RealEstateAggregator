@@ -39,6 +39,11 @@
                     <MudText Typo="Typo.h6">@_stats.WithPriceSignal <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">(@PricePct %)</MudText></MudText>
                     <MudProgressLinear Value="@PricePct" Color="@PctColor(PricePct)" Rounded="true" Size="Size.Small" />
                 </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">AI shrnutí</MudText>
+                    <MudText Typo="Typo.h6">@_stats.WithSummary <MudText Inline="true" Typo="Typo.caption" Color="Color.Secondary">(@SummaryPct %)</MudText></MudText>
+                    <MudProgressLinear Value="@SummaryPct" Color="@PctColor(SummaryPct)" Rounded="true" Size="Size.Small" />
+                </MudItem>
             </MudGrid>
         </MudPaper>
     }
@@ -232,6 +237,7 @@
 
     private int NormPct => _stats?.TotalListings > 0 ? (int)(100.0 * _stats.WithNormalizedData / _stats.TotalListings) : 0;
     private int TagsPct => _stats?.TotalListings > 0 ? (int)(100.0 * _stats.WithSmartTags / _stats.TotalListings) : 0;
+    private int SummaryPct => _stats?.TotalListings > 0 ? (int)(100.0 * _stats.WithSummary / _stats.TotalListings) : 0;
     private int PricePct => _stats?.TotalListings > 0 ? (int)(100.0 * _stats.WithPriceSignal / _stats.TotalListings) : 0;
     private Color PctColor(int pct) => pct >= 90 ? Color.Success : pct >= 70 ? Color.Warning : Color.Error;
 
@@ -405,7 +411,7 @@
 
     private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
     private record ScrapeTriggerResultDto(Guid JobId, string Status, string? Message);
-    private record OllamaStatsDto(int TotalListings, int WithNormalizedData, int WithSmartTags, int WithPriceSignal);
+    private record OllamaStatsDto(int TotalListings, int WithNormalizedData, int WithSmartTags, int WithPriceSignal, int WithSummary = 0);
     private record BulkJobResultDto(int Processed, int Succeeded, int Failed, int RemainingUnprocessed);
     private record DeactivateDeadResultDto(int Checked, int Deactivated);
 }

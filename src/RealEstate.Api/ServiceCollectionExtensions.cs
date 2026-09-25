@@ -4,6 +4,7 @@ using Pgvector.EntityFrameworkCore;
 using RealEstate.Api.Services;
 using RealEstate.Api.Services.Auth;
 using RealEstate.Api.Services.Billing;
+using RealEstate.Api.Services.Duplicates;
 using RealEstate.Api.Services.Leads;
 using RealEstate.Api.Services.Market;
 using RealEstate.Api.Services.Notifications;
@@ -41,6 +42,11 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient("Stripe", client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddScoped<IStripeBillingService, StripeBillingService>();
         services.AddScoped<ILeadService, LeadService>();
+
+        // Sloučená karta duplicit, mazání stažených fotek, průběžné AI shrnutí
+        services.AddScoped<IDuplicateGroupService, DuplicateGroupService>();
+        services.AddScoped<IPhotoPurgeService, PhotoPurgeService>();
+        services.AddHostedService<AiSummaryHostedService>();
         services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddScoped<ISourceService, SourceService>();
         services.AddScoped<IAnalysisService, AnalysisService>();
