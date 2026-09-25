@@ -1,0 +1,261 @@
+@using System.Globalization
+@using System.Net
+@using RealEstate.Api.Contracts.Leads
+@using RealEstate.App.Services
+@implements IDisposable
+
+@inject HttpClient Http
+@inject IConfiguration Config
+@inject ISnackbar Snackbar
+
+@*
+    MortgageCalculator – orientační výpočet hypotéky k inzerátu + odkaz na partnera
+    a formulář poptávky (lead). Vkládá se do ListingDetail pod cenu.
+*@
+
+<SectionCard Title="Hypotéka" Icon="@Icons.Material.Filled.AccountBalance" Subtitle="orientační výpočet">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6">
+            <MudNumericField T="decimal?" @bind-Value="_price" Label="Cena nemovitosti" Adornment="Adornment.End" AdornmentText="Kč"
+                             Min="0" Step="100000" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudNumericField T="decimal" @bind-Value="_ratePercent" Label="Úroková sazba" Adornment="Adornment.End" AdornmentText="% p.a."
+                             Min="0" Max="20" Step="0.1m" Format="0.00" Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">Vlastní zdroje: <b>@_ownFundsPercent %</b> (@Czk(OwnFunds))</MudText>
+            <MudSlider T="int" @bind-Value="_ownFundsPercent" Min="10" Max="90" Step="5" Color="Color.Primary" Immediate="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">Splatnost: <b>@_years let</b></MudText>
+            <MudSlider T="int" @bind-Value="_years" Min="5" Max="40" Step="1" Color="Color.Primary" Immediate="true" />
+        </MudItem>
+    </MudGrid>
+
+    @if (_price is > 0)
+    {
+        var r = Result;
+        <MudDivider Class="my-3" />
+        <MudGrid Spacing="2">
+            <MudItem xs="6" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Měsíční splátka</MudText>
+                <MudText Typo="Typo.h6" Color="Color.Primary">@Czk(r.Monthly)</MudText>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Výše úvěru</MudText>
+                <MudText Typo="Typo.subtitle1">@Czk(r.Loan)</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">LTV @r.LtvPercent.ToString("0.#", Cz) %</MudText>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Celkem zaplatíte</MudText>
+                <MudText Typo="Typo.subtitle1">@Czk(r.TotalPaid)</MudText>
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Z toho úroky</MudText>
+                <MudText Typo="Typo.subtitle1">@Czk(r.TotalInterest)</MudText>
+            </MudItem>
+        </MudGrid>
+        @if (r.LtvPercent > 80)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                LTV nad 80 % – banky typicky vyžadují vyšší vlastní zdroje nebo účtují vyšší sazbu.
+            </MudAlert>
+        }
+
+        <MudStack Row="true" Spacing="2" Class="mt-3" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            @if (!string.IsNullOrWhiteSpace(PartnerUrl))
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@PartnerUrl" Target="_blank"
+                           StartIcon="@Icons.Material.Filled.OpenInNew">
+                    Porovnat nabídky bank
+                </MudButton>
+            }
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                       StartIcon="@(_formOpen ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                       OnClick="@(() => _formOpen = !_formOpen)">
+                Nechte si připravit nabídku
+            </MudButton>
+        </MudStack>
+
+        <MudCollapse Expanded="_formOpen">
+            <MudPaper Class="pa-3 mt-3" Elevation="0" Style="background: var(--mud-palette-background-gray);">
+                @if (_sent)
+                {
+                    <MudAlert Severity="Severity.Success">Děkujeme, poptávku jsme předali. Ozveme se vám na uvedený kontakt.</MudAlert>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="mb-2">
+                        Nezávazně vám připravíme nabídku financování pro tuto nemovitost
+                        (úvěr @Czk(r.Loan), splatnost @_years let).
+                    </MudText>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6">
+                            <MudTextField T="string" @bind-Value="_name" Label="Jméno a příjmení" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField T="string" @bind-Value="_email" Label="E-mail" InputType="InputType.Email" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField T="string" @bind-Value="_phone" Label="Telefon" InputType="InputType.Telephone" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudTextField T="string" @bind-Value="_message" Label="Poznámka" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudCheckBox T="bool" @bind-Value="_consent" Color="Color.Primary" Dense="true">
+                                Souhlasím s předáním údajů hypotečnímu specialistovi za účelem přípravy nabídky.
+                            </MudCheckBox>
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_sending || !_consent)"
+                                       StartIcon="@Icons.Material.Filled.Send" OnClick="SubmitLeadAsync">
+                                @(_sending ? "Odesílám…" : "Odeslat poptávku")
+                            </MudButton>
+                        </MudItem>
+                    </MudGrid>
+                }
+            </MudPaper>
+        </MudCollapse>
+    }
+    else
+    {
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mt-2">Zadejte cenu nemovitosti pro výpočet splátky.</MudText>
+    }
+</SectionCard>
+
+@code {
+    [Parameter, EditorRequired] public decimal? Price { get; set; }
+    [Parameter] public Guid? ListingId { get; set; }
+    [Parameter] public string? ListingTitle { get; set; }
+
+    private static readonly CultureInfo Cz = CultureInfo.GetCultureInfo("cs-CZ");
+
+    private decimal? _price;
+    private decimal? _lastBoundPrice;
+    private int _ownFundsPercent = 20;
+    private decimal _ratePercent = 4.79m;
+    private int _years = 30;
+
+    private bool _formOpen;
+    private bool _sending;
+    private bool _sent;
+    private string _name = "";
+    private string _email = "";
+    private string _phone = "";
+    private string _message = "";
+    private bool _consent;
+
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override void OnInitialized()
+    {
+        var configured = Config["MortgageDefaultRate"];
+        if (decimal.TryParse(configured, NumberStyles.Any, CultureInfo.InvariantCulture, out var rate) && rate > 0)
+            _ratePercent = rate;
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Předvyplnit cenu z inzerátu; ruční úpravu uživatele nepřepisovat, dokud se nezmění inzerát
+        if (Price != _lastBoundPrice)
+        {
+            _price = Price;
+            _lastBoundPrice = Price;
+        }
+    }
+
+    private MortgageResult Result => MortgageMath.Compute(_price ?? 0, _ownFundsPercent, _ratePercent, _years);
+
+    private decimal OwnFunds => (_price ?? 0) - Result.Loan;
+
+    private string? PartnerUrl
+    {
+        get
+        {
+            var url = Config["MortgagePartnerUrl"];
+            if (string.IsNullOrWhiteSpace(url) || _price is not > 0)
+                return null;
+            return MortgageMath.BuildPartnerUrl(url, _price.Value, Result.Loan);
+        }
+    }
+
+    private static string Czk(decimal value) => value.ToString("N0", Cz) + " Kč";
+
+    private async Task SubmitLeadAsync()
+    {
+        if (_sending)
+            return;
+        _sending = true;
+        try
+        {
+            var r = Result;
+            var dto = new LeadCreateDto(
+                ListingId, "mortgage", _name, _email,
+                string.IsNullOrWhiteSpace(_phone) ? null : _phone,
+                BuildMessage(),
+                _price, r.Loan, _years, "listing-detail", _consent);
+
+            using var response = await Http.PostAsJsonAsync("api/leads", dto, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _sent = true;
+                Snackbar.Add("Poptávka odeslána. Děkujeme!", Severity.Success);
+            }
+            else if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                Snackbar.Add("Příliš mnoho požadavků. Zkuste to za minutu.", Severity.Warning);
+            }
+            else
+            {
+                var detail = await ReadProblemDetailAsync(response);
+                Snackbar.Add(detail ?? "Poptávku se nepodařilo odeslat.", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Komponenta opuštěna
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba při odesílání: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private string? BuildMessage()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(ListingTitle))
+            parts.Add($"Inzerát: {ListingTitle}");
+        parts.Add($"Vlastní zdroje {_ownFundsPercent} %, sazba {_ratePercent.ToString("0.00", Cz)} %, splátka {Czk(Result.Monthly)}/měs.");
+        if (!string.IsNullOrWhiteSpace(_message))
+            parts.Add(_message.Trim());
+        return string.Join("\n", parts);
+    }
+
+    private async Task<string?> ReadProblemDetailAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProblemPayload>(_cts.Token);
+            return problem?.Detail;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed record ProblemPayload(string? Title, string? Detail);
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

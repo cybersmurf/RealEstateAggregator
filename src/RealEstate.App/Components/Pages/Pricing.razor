@@ -1,0 +1,270 @@
+@page "/pricing"
+@using System.Globalization
+@using System.Net
+@using RealEstate.Api.Contracts.Auth
+@using RealEstate.Api.Contracts.Billing
+@implements IDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>Ceník</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="pa-4">
+    <MudStack AlignItems="AlignItems.Center" Spacing="1" Class="mb-4 text-center">
+        <MudText Typo="Typo.h4">Tarify</MudText>
+        <MudText Typo="Typo.body1" Class="mud-text-secondary">
+            Vyhledávání napříč 14 zdroji je zdarma. Placené tarify přidávají upozornění, tržní data a API.
+        </MudText>
+    </MudStack>
+
+    @if (Checkout == "cancel")
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => Checkout = null)">
+            Platba byla zrušena. Tarif zůstává beze změny – můžete to zkusit kdykoli znovu.
+        </MudAlert>
+    }
+
+    <MudStack Row="true" Justify="Justify.Center" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+        <MudText Typo="Typo.body1" Class="@(_yearly ? "mud-text-secondary" : "")">Měsíčně</MudText>
+        <MudSwitch T="bool" @bind-Value="_yearly" Color="Color.Primary" aria-label="Přepnout roční platbu" />
+        <MudText Typo="Typo.body1" Class="@(_yearly ? "" : "mud-text-secondary")">Ročně</MudText>
+        <MudChip T="string" Color="Color.Success" Size="Size.Small" Variant="Variant.Text">2 měsíce zdarma</MudChip>
+    </MudStack>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_plans is null)
+    {
+        <MudAlert Severity="Severity.Error">Ceník se nepodařilo načíst.</MudAlert>
+    }
+    else
+    {
+        <MudGrid Spacing="3" Justify="Justify.Center">
+            @foreach (var plan in _plans)
+            {
+                var isCurrent = _profile is not null && CurrentPlan == plan.Code;
+                var highlighted = plan.Code == "hledac";
+                <MudItem xs="12" sm="6" md="4">
+                    <MudPaper Class="pa-5 d-flex flex-column" Elevation="@(highlighted ? 4 : 1)"
+                              Style="@(highlighted ? "height:100%; border: 2px solid var(--mud-palette-primary);" : "height:100%;")">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.h5">@plan.Name</MudText>
+                            @if (isCurrent)
+                            {
+                                <MudChip T="string" Color="Color.Primary" Size="Size.Small">Váš tarif</MudChip>
+                            }
+                            else if (highlighted)
+                            {
+                                <MudChip T="string" Color="Color.Secondary" Size="Size.Small">Nejoblíbenější</MudChip>
+                            }
+                        </MudStack>
+
+                        <div class="my-3">
+                            @if (plan.Code == "free")
+                            {
+                                <MudText Typo="Typo.h4">Zdarma</MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.h4">
+                                    @PriceLabel(plan)
+                                    <MudText Typo="Typo.body2" Inline="true" Class="mud-text-secondary">/ @(_yearly ? "rok" : "měsíc")</MudText>
+                                </MudText>
+                                @if (_yearly && plan.MonthlyPriceCzk is { } m && plan.YearlyPriceCzk is { } y && y > 0)
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                        tj. @Czk(Math.Round(y / 12, 0)) měsíčně místo @Czk(m)
+                                    </MudText>
+                                }
+                            }
+                        </div>
+
+                        <MudList T="string" Dense="true" Class="flex-grow-1">
+                            @foreach (var feature in plan.Features)
+                            {
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.Check" IconColor="Color.Success">@feature</MudListItem>
+                            }
+                        </MudList>
+
+                        <div class="mt-4">
+                            @if (plan.Code == "free")
+                            {
+                                @if (_profile is null)
+                                {
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" Href="/register">Začít zdarma</MudButton>
+                                }
+                                else
+                                {
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Disabled="true">
+                                        @(isCurrent ? "Aktuální tarif" : "Zahrnuto")
+                                    </MudButton>
+                                }
+                            }
+                            else
+                            {
+                                <MudButton Variant="@(highlighted ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" FullWidth="true"
+                                           Disabled="@(_checkingOut is not null || isCurrent)"
+                                           OnClick="@(() => CheckoutAsync(plan.Code))">
+                                    @if (_checkingOut == plan.Code)
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                    }
+                                    @(isCurrent ? "Aktuální tarif" : plan.Purchasable ? "Vybrat " + plan.Name : "Brzy")
+                                </MudButton>
+                            }
+                        </div>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block text-center mt-4">
+            Ceny včetně DPH. Předplatné lze kdykoli zrušit ve správě účtu; platby zpracovává Stripe.
+        </MudText>
+    }
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery(Name = "checkout")]
+    public string? Checkout { get; set; }
+
+    private static readonly CultureInfo Cz = CultureInfo.GetCultureInfo("cs-CZ");
+
+    private List<PlanInfoDto>? _plans;
+    private UserProfileDto? _profile;
+    private bool _loading = true;
+    private bool _yearly;
+    private string? _checkingOut;
+    private readonly CancellationTokenSource _cts = new();
+
+    private string CurrentPlan =>
+        _profile is null ? "free"
+        : _profile.PlanValidUntil is { } until && until < DateTime.UtcNow ? "free"
+        : _profile.Plan;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _plans = await Http.GetFromJsonAsync<List<PlanInfoDto>>("api/auth/plans", _cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Ceník se nepodařilo načíst: {ex.Message}", Severity.Error);
+        }
+
+        // Přihlášení není nutné – jen kvůli označení aktuálního tarifu
+        try
+        {
+            using var response = await Http.GetAsync("api/auth/me", _cts.Token);
+            if (response.IsSuccessStatusCode)
+                _profile = await response.Content.ReadFromJsonAsync<UserProfileDto>(_cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch
+        {
+            // Anonymní návštěvník
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string PriceLabel(PlanInfoDto plan)
+    {
+        var price = _yearly ? plan.YearlyPriceCzk : plan.MonthlyPriceCzk;
+        return price is { } p ? Czk(p) : "–";
+    }
+
+    private static string Czk(decimal value) => value.ToString("N0", Cz) + " Kč";
+
+    private async Task CheckoutAsync(string planCode)
+    {
+        if (_checkingOut is not null)
+            return;
+
+        if (_profile is null)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/pricing");
+            return;
+        }
+
+        _checkingOut = planCode;
+        try
+        {
+            var request = new CheckoutRequestDto(planCode, _yearly ? "year" : "month");
+            using var response = await Http.PostAsJsonAsync("api/billing/checkout", request, _cts.Token);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                Navigation.NavigateTo("/login?returnUrl=/pricing");
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.ServiceUnavailable)
+            {
+                Snackbar.Add("Platby zatím nejsou aktivní – napište nám.", Severity.Info);
+                return;
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                var problem = await ReadProblemAsync(response);
+                Snackbar.Add(problem ?? "Platbu se nepodařilo zahájit.", Severity.Error);
+                return;
+            }
+
+            var session = await response.Content.ReadFromJsonAsync<CheckoutSessionDto>(_cts.Token);
+            if (session is null || string.IsNullOrEmpty(session.Url))
+            {
+                Snackbar.Add("Stripe nevrátil adresu platby.", Severity.Error);
+                return;
+            }
+            Navigation.NavigateTo(session.Url, forceLoad: true);
+        }
+        catch (OperationCanceledException)
+        {
+            // Stránka opuštěna
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba při zahájení platby: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _checkingOut = null;
+        }
+    }
+
+    private async Task<string?> ReadProblemAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProblemPayload>(_cts.Token);
+            return problem?.Detail;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed record ProblemPayload(string? Title, string? Detail);
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

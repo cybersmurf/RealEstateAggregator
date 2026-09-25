@@ -1,0 +1,495 @@
+@page "/account"
+@using System.Globalization
+@using System.Net
+@using RealEstate.Api.Contracts.Auth
+@using RealEstate.Api.Contracts.Billing
+@implements IDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<PageTitle>Můj účet</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="pa-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+        <MudIcon Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Primary" Size="Size.Large" />
+        <div>
+            <MudText Typo="Typo.h5">Můj účet</MudText>
+            @if (_profile is not null)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@_profile.Email</MudText>
+            }
+        </div>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.NotificationsActive" Href="/saved-searches">
+            Uložená hledání
+        </MudButton>
+    </MudStack>
+
+    @if (Checkout == "success")
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => Checkout = null)">
+            Platba proběhla, tarif se aktivuje během chvíle. Pokud se nezmění do minuty, obnovte stránku.
+        </MudAlert>
+    }
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_profile is null)
+    {
+        <MudAlert Severity="Severity.Error">Profil se nepodařilo načíst.</MudAlert>
+    }
+    else
+    {
+        <MudStack Spacing="3">
+
+            @* ── Profil ─────────────────────────────────────────────── *@
+            <SectionCard Title="Profil" Icon="@Icons.Material.Filled.Person">
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="6">
+                        <MudTextField T="string" Value="@_profile.Email" Label="E-mail" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField T="string" @bind-Value="_displayName" Label="Zobrazované jméno" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField T="string" @bind-Value="_telegramChatId" Label="Telegram chat ID" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      HelperText="Pro upozornění z uložených hledání" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            Jak získat chat ID: napište našemu Telegram botu a pošlete <code>/start</code>;
+                            své chat ID zjistíte přes <b>@@userinfobot</b>.
+                        </MudText>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_savingProfile"
+                                   StartIcon="@Icons.Material.Filled.Save" OnClick="SaveProfileAsync">
+                            @(_savingProfile ? "Ukládám…" : "Uložit profil")
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+            </SectionCard>
+
+            @* ── Tarif ──────────────────────────────────────────────── *@
+            <SectionCard Title="Tarif" Icon="@Icons.Material.Filled.WorkspacePremium">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudChip T="string" Color="@PlanColor(EffectivePlan)" Size="Size.Medium" Variant="Variant.Filled">@PlanLabel(EffectivePlan)</MudChip>
+                    @if (_profile.IsAdmin)
+                    {
+                        <MudChip T="string" Color="Color.Dark" Size="Size.Small" Variant="Variant.Outlined">Správce</MudChip>
+                    }
+                    @if (_profile.PlanValidUntil is { } until)
+                    {
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                            @(until < DateTime.UtcNow ? "vypršel" : "platí do") @until.ToLocalTime().ToString("d. M. yyyy", Cz)
+                        </MudText>
+                    }
+                    else if (EffectivePlan != "free")
+                    {
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">bez expirace</MudText>
+                    }
+                </MudStack>
+                <MudStack Row="true" Spacing="2" Class="mt-3" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/pricing" StartIcon="@Icons.Material.Filled.SwapVert">
+                        Změnit tarif
+                    </MudButton>
+                    @if (_profile.HasStripeSubscription)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="_openingPortal"
+                                   StartIcon="@Icons.Material.Filled.CreditCard" OnClick="OpenPortalAsync">
+                            @(_openingPortal ? "Otevírám…" : "Spravovat předplatné")
+                        </MudButton>
+                    }
+                </MudStack>
+            </SectionCard>
+
+            @* ── Změna hesla ────────────────────────────────────────── *@
+            <SectionCard Title="Změna hesla" Icon="@Icons.Material.Filled.Lock">
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="4">
+                        <MudTextField T="string" @bind-Value="_currentPassword" Label="Současné heslo" InputType="InputType.Password" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField T="string" @bind-Value="_newPassword" Label="Nové heslo" InputType="InputType.Password" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="Alespoň 8 znaků" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField T="string" @bind-Value="_newPasswordAgain" Label="Nové heslo znovu" InputType="InputType.Password" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_changingPassword"
+                                   StartIcon="@Icons.Material.Filled.Key" OnClick="ChangePasswordAsync">
+                            @(_changingPassword ? "Měním…" : "Změnit heslo")
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+            </SectionCard>
+
+            @* ── API klíče (Profi / admin) ───────────────────────────── *@
+            @if (CanManageKeys)
+            {
+                <SectionCard Title="API klíče" Icon="@Icons.Material.Filled.VpnKey" Subtitle="denní kvóta 1 000 požadavků na klíč">
+                    @if (_newKey is not null)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mb-3" ShowCloseIcon="true" CloseIconClicked="@(() => _newKey = null)">
+                            <MudText Typo="Typo.body2" Class="mb-1"><b>Klíč si teď zkopírujte – už se znovu nezobrazí.</b></MudText>
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                <code style="word-break: break-all;">@_newKey.Key</code>
+                                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" aria-label="Kopírovat klíč"
+                                               OnClick="@(() => CopyAsync(_newKey.Key))" />
+                            </MudStack>
+                            <MudText Typo="Typo.caption" Class="mt-1">Používejte v hlavičce <code>X-Api-Key</code>.</MudText>
+                        </MudAlert>
+                    }
+
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3" Wrap="Wrap.Wrap">
+                        <MudTextField T="string" @bind-Value="_newKeyName" Label="Název klíče" Placeholder="např. Excel import" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 260px;" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_creatingKey"
+                                   StartIcon="@Icons.Material.Filled.Add" OnClick="CreateKeyAsync">
+                            Vytvořit klíč
+                        </MudButton>
+                    </MudStack>
+
+                    @if (_keys is null)
+                    {
+                        <MudProgressLinear Indeterminate="true" />
+                    }
+                    else if (_keys.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">Zatím žádné klíče.</MudText>
+                    }
+                    else
+                    {
+                        <MudSimpleTable Dense="true" Hover="true">
+                            <thead>
+                                <tr>
+                                    <th>Název</th>
+                                    <th>Prefix</th>
+                                    <th>Dnes</th>
+                                    <th>Celkem</th>
+                                    <th>Naposledy</th>
+                                    <th>Stav</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var key in _keys)
+                                {
+                                    <tr>
+                                        <td>@key.Name</td>
+                                        <td><code>@key.KeyPrefix…</code></td>
+                                        <td>@key.UsedToday / @key.DailyQuota</td>
+                                        <td>@key.TotalRequests</td>
+                                        <td>@(key.LastUsedAt?.ToLocalTime().ToString("d. M. yyyy H:mm", Cz) ?? "–")</td>
+                                        <td>
+                                            <MudChip T="string" Size="Size.Small" Color="@(key.IsActive ? Color.Success : Color.Default)" Variant="Variant.Text">
+                                                @(key.IsActive ? "aktivní" : "zrušen")
+                                            </MudChip>
+                                        </td>
+                                        <td>
+                                            @if (key.IsActive)
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                                               aria-label="Zrušit klíč" OnClick="@(() => RevokeKeyAsync(key.Id))" />
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                </SectionCard>
+            }
+            else
+            {
+                <SectionCard Title="API klíče" Icon="@Icons.Material.Filled.VpnKey">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Přístup k API je součástí tarifu <b>Profi</b>.
+                        <MudLink Href="/pricing">Zobrazit ceník</MudLink>
+                    </MudText>
+                </SectionCard>
+            }
+        </MudStack>
+    }
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery(Name = "checkout")]
+    public string? Checkout { get; set; }
+
+    private static readonly CultureInfo Cz = CultureInfo.GetCultureInfo("cs-CZ");
+
+    private UserProfileDto? _profile;
+    private bool _loading = true;
+
+    private string _displayName = "";
+    private string _telegramChatId = "";
+    private bool _savingProfile;
+
+    private bool _openingPortal;
+
+    private string _currentPassword = "";
+    private string _newPassword = "";
+    private string _newPasswordAgain = "";
+    private bool _changingPassword;
+
+    private List<ApiKeyDto>? _keys;
+    private string _newKeyName = "";
+    private bool _creatingKey;
+    private ApiKeyCreatedDto? _newKey;
+
+    private readonly CancellationTokenSource _cts = new();
+
+    private string EffectivePlan =>
+        _profile is null ? "free"
+        : _profile.PlanValidUntil is { } until && until < DateTime.UtcNow ? "free"
+        : _profile.Plan;
+
+    private bool CanManageKeys => _profile is not null && (_profile.IsAdmin || EffectivePlan == "profi");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProfileAsync();
+        if (CanManageKeys)
+            await LoadKeysAsync();
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        _loading = true;
+        try
+        {
+            using var response = await Http.GetAsync("api/auth/me", _cts.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                Navigation.NavigateTo("/login?returnUrl=/account");
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            _profile = await response.Content.ReadFromJsonAsync<UserProfileDto>(_cts.Token);
+            _displayName = _profile?.DisplayName ?? "";
+            _telegramChatId = _profile?.TelegramChatId ?? "";
+        }
+        catch (OperationCanceledException)
+        {
+            // Stránka opuštěna
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba při načítání profilu: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        _savingProfile = true;
+        try
+        {
+            var request = new UpdateProfileRequestDto(_displayName, _telegramChatId);
+            using var response = await Http.PatchAsJsonAsync("api/auth/me", request, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _profile = await response.Content.ReadFromJsonAsync<UserProfileDto>(_cts.Token);
+                Snackbar.Add("Profil uložen.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(await ProblemDetailAsync(response) ?? "Profil se nepodařilo uložit.", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _savingProfile = false;
+        }
+    }
+
+    private async Task OpenPortalAsync()
+    {
+        _openingPortal = true;
+        try
+        {
+            using var response = await Http.PostAsync("api/billing/portal", null, _cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                Snackbar.Add(await ProblemDetailAsync(response) ?? "Portál předplatného se nepodařilo otevřít.", Severity.Error);
+                return;
+            }
+            var status = await response.Content.ReadFromJsonAsync<BillingStatusDto>(_cts.Token);
+            if (string.IsNullOrEmpty(status?.PortalUrl))
+            {
+                Snackbar.Add("Stripe nevrátil adresu portálu.", Severity.Error);
+                return;
+            }
+            Navigation.NavigateTo(status.PortalUrl, forceLoad: true);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _openingPortal = false;
+        }
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        if (_newPassword != _newPasswordAgain)
+        {
+            Snackbar.Add("Nová hesla se neshodují.", Severity.Warning);
+            return;
+        }
+        _changingPassword = true;
+        try
+        {
+            var request = new ChangePasswordRequestDto(_currentPassword, _newPassword);
+            using var response = await Http.PostAsJsonAsync("api/auth/change-password", request, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _currentPassword = _newPassword = _newPasswordAgain = "";
+                Snackbar.Add("Heslo změněno.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(await ProblemDetailAsync(response) ?? "Heslo se nepodařilo změnit.", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _changingPassword = false;
+        }
+    }
+
+    private async Task LoadKeysAsync()
+    {
+        try
+        {
+            _keys = await Http.GetFromJsonAsync<List<ApiKeyDto>>("api/keys", _cts.Token) ?? [];
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _keys = [];
+            Snackbar.Add($"API klíče se nepodařilo načíst: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task CreateKeyAsync()
+    {
+        _creatingKey = true;
+        try
+        {
+            var request = new CreateApiKeyRequestDto(string.IsNullOrWhiteSpace(_newKeyName) ? "API klíč" : _newKeyName.Trim(), null);
+            using var response = await Http.PostAsJsonAsync("api/keys", request, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _newKey = await response.Content.ReadFromJsonAsync<ApiKeyCreatedDto>(_cts.Token);
+                _newKeyName = "";
+                await LoadKeysAsync();
+            }
+            else
+            {
+                Snackbar.Add(await ProblemDetailAsync(response) ?? "Klíč se nepodařilo vytvořit.", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _creatingKey = false;
+        }
+    }
+
+    private async Task RevokeKeyAsync(Guid id)
+    {
+        try
+        {
+            using var response = await Http.DeleteAsync($"api/keys/{id}", _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Klíč zrušen.", Severity.Success);
+                await LoadKeysAsync();
+            }
+            else
+            {
+                Snackbar.Add(await ProblemDetailAsync(response) ?? "Klíč se nepodařilo zrušit.", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _cts.Token, text);
+            Snackbar.Add("Klíč zkopírován do schránky.", Severity.Success);
+        }
+        catch (Exception)
+        {
+            Snackbar.Add("Kopírování se nepodařilo – zkopírujte klíč ručně.", Severity.Warning);
+        }
+    }
+
+    private async Task<string?> ProblemDetailAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProblemPayload>(_cts.Token);
+            return problem?.Detail;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string PlanLabel(string plan) => plan switch
+    {
+        "profi" => "Profi",
+        "hledac" => "Hledač",
+        _ => "Zdarma",
+    };
+
+    private static Color PlanColor(string plan) => plan switch
+    {
+        "profi" => Color.Secondary,
+        "hledac" => Color.Primary,
+        _ => Color.Default,
+    };
+
+    private sealed record ProblemPayload(string? Title, string? Detail);
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}
