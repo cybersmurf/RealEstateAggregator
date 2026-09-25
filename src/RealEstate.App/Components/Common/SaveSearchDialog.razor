@@ -1,0 +1,158 @@
+@using System.Net
+@using RealEstate.Api.Contracts.SavedSearches
+@implements IDisposable
+
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+
+@*
+    SaveSearchDialog – uloží aktuální filtr z /listings jako uložené hledání s upozorněním.
+    Otevření z Listings.razor:
+      var parameters = new DialogParameters<SaveSearchDialog> { { x => x.Filter, _filter } };
+      await DialogService.ShowAsync<SaveSearchDialog>("Uložit hledání", parameters);
+*@
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@_summary</MudText>
+
+            <MudTextField T="string"
+                          @bind-Value="_name"
+                          Label="Název hledání"
+                          Variant="Variant.Outlined"
+                          MaxLength="200"
+                          Immediate="true"
+                          Required="true"
+                          RequiredError="Zadejte název"
+                          Disabled="_saving" />
+
+            <MudText Typo="Typo.subtitle2" Class="mt-2">Kanály doručení</MudText>
+            <MudSwitch T="bool" @bind-Value="_notifyEmail" Label="E-mail" Color="Color.Primary" Disabled="_saving" />
+            <MudSwitch T="bool" @bind-Value="_notifyTelegram" Label="Telegram" Color="Color.Primary" Disabled="_saving" />
+
+            <MudText Typo="Typo.subtitle2" Class="mt-2">Upozorňovat na</MudText>
+            <MudSwitch T="bool" @bind-Value="_notifyNewListings" Label="Nové inzeráty" Color="Color.Primary" Disabled="_saving" />
+            <MudSwitch T="bool" @bind-Value="_notifyPriceDrops" Label="Zlevnění" Color="Color.Primary" Disabled="_saving" />
+
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true">
+                    @_error
+                    @if (_errorLink is not null)
+                    {
+                        <text> </text><MudLink Href="@_errorLink.Value.Href">@_errorLink.Value.Label</MudLink>
+                    }
+                </MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_saving">Zrušit</MudButton>
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.BookmarkAdd"
+                   OnClick="SaveAsync"
+                   Disabled="@(_saving || string.IsNullOrWhiteSpace(_name))">
+            @(_saving ? "Ukládám…" : "Uložit hledání")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    /// <summary>Aktuální filtr ze stránky Inzeráty – ukládá se tak, jak je (server odstraní stránkování a osobní stav).</summary>
+    [Parameter] public ListingFilterDto Filter { get; set; } = new();
+
+    private readonly CancellationTokenSource _cts = new();
+
+    private string _summary = string.Empty;
+    private string _name = string.Empty;
+    private bool _notifyEmail = true;
+    private bool _notifyTelegram;
+    private bool _notifyNewListings = true;
+    private bool _notifyPriceDrops = true;
+    private bool _saving;
+    private string? _error;
+    private (string Href, string Label)? _errorLink;
+
+    protected override void OnParametersSet()
+    {
+        _summary = FilterSummaryFormatter.Summarize(Filter);
+        if (string.IsNullOrWhiteSpace(_name))
+            _name = _summary.Length > 200 ? _summary[..200] : _summary;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) return;
+
+        _saving = true;
+        _error = null;
+        _errorLink = null;
+        try
+        {
+            var request = new SavedSearchUpsertDto(
+                _name.Trim(), Filter, _notifyEmail, _notifyTelegram, _notifyNewListings, _notifyPriceDrops, true);
+
+            using var response = await Http.PostAsJsonAsync("api/saved-searches", request, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add($"Hledání „{_name.Trim()}“ uloženo. Upozornění přijdou po dalším scrapu.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+                return;
+            }
+
+            switch (response.StatusCode)
+            {
+                case HttpStatusCode.Unauthorized:
+                    _error = "Pro uložení hledání je nutné přihlášení.";
+                    _errorLink = ("/login", "Přihlásit se");
+                    break;
+                case HttpStatusCode.PaymentRequired:
+                    _error = "Uložená hledání s upozorněním jsou součástí tarifu Hledač.";
+                    _errorLink = ("/pricing", "Zobrazit tarify");
+                    break;
+                default:
+                    _error = await ReadProblemDetailAsync(response) ?? $"Uložení se nepodařilo ({(int)response.StatusCode}).";
+                    break;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Dialog byl zavřen
+        }
+        catch (Exception ex)
+        {
+            _error = $"Uložení se nepodařilo: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task<string?> ReadProblemDetailAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProblemPayload>(_cts.Token);
+            return problem?.Detail;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+
+    private sealed record ProblemPayload(string? Title, string? Detail);
+}

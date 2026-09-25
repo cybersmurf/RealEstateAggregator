@@ -1,0 +1,420 @@
+@page "/saved-searches"
+@implements IDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+@using System.Net
+@using RealEstate.Api.Contracts.SavedSearches
+
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>Uložená hledání</PageTitle>
+
+<MudStack Spacing="3" Class="pa-4">
+
+    <!-- Záhlaví -->
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudIcon Icon="@Icons.Material.Filled.NotificationsActive" Color="Color.Primary" Size="Size.Large" />
+        <div>
+            <MudText Typo="Typo.h5">Uložená hledání</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                Po každém scrapu vám pošleme nové inzeráty a zlevnění odpovídající vašemu filtru – e-mailem nebo Telegramem.
+            </MudText>
+        </div>
+        <MudSpacer />
+        <MudTooltip Text="Obnovit seznam">
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                           OnClick="LoadAsync"
+                           Disabled="_loading"
+                           aria-label="Obnovit seznam" />
+        </MudTooltip>
+        <MudTooltip Text="Nastavte filtr v Inzerátech a klikněte na „Uložit hledání“">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.BookmarkAdd"
+                       OnClick="@(() => Navigation.NavigateTo("/listings"))">
+                Nové hledání
+            </MudButton>
+        </MudTooltip>
+    </MudStack>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_accessProblem is not null)
+    {
+        <MudAlert Severity="Severity.Info">
+            @_accessProblem.Value.Message
+            <MudLink Href="@_accessProblem.Value.Href" Class="ms-1">@_accessProblem.Value.LinkLabel</MudLink>
+        </MudAlert>
+    }
+    else if (_items is null)
+    {
+        <MudAlert Severity="Severity.Error">Nepodařilo se načíst uložená hledání.</MudAlert>
+    }
+    else if (_items.Count == 0)
+    {
+        <MudPaper Class="pa-8 text-center" Elevation="0" Style="border: 2px dashed #e0e0e0; border-radius:12px;">
+            <MudIcon Icon="@Icons.Material.Outlined.NotificationsNone" Size="Size.Large" Color="Color.Secondary" Style="font-size:3rem;opacity:0.5;" />
+            <MudText Typo="Typo.h6" Color="Color.Secondary" Class="mt-2">Zatím žádné uložené hledání</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                Na stránce Inzeráty nastavte filtr (typ, lokalita, cena…) a uložte ho tlačítkem „Uložit hledání“.
+            </MudText>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Search"
+                       OnClick="@(() => Navigation.NavigateTo("/listings"))">
+                Přejít na Inzeráty
+            </MudButton>
+        </MudPaper>
+    }
+    else
+    {
+        @foreach (var item in _items)
+        {
+            var busy = _busyIds.Contains(item.Id);
+            <SectionCard Title="@item.Name"
+                         Icon="@(item.IsActive ? Icons.Material.Filled.Notifications : Icons.Material.Outlined.NotificationsOff)"
+                         IconColor="@(item.IsActive ? Color.Primary : Color.Default)"
+                         Subtitle="@FilterSummaryFormatter.Summarize(item.Filter)">
+                <HeaderActions>
+                    <MudTooltip Text="Aktuální počet inzerátů odpovídajících filtru">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled" Icon="@Icons.Material.Filled.ListAlt">
+                            @(item.CurrentMatchCount?.ToString() ?? "?") shod
+                        </MudChip>
+                    </MudTooltip>
+                    @if (item.NotifyEmail)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Email">E-mail</MudChip>
+                    }
+                    @if (item.NotifyTelegram)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Send">Telegram</MudChip>
+                    }
+                    @if (!item.IsActive)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text">Pozastaveno</MudChip>
+                    }
+                </HeaderActions>
+                <ChildContent>
+                    <MudGrid Spacing="2" Class="align-center">
+                        <MudItem xs="12" md="7">
+                            <MudStack Row="true" Spacing="4" Wrap="Wrap.Wrap">
+                                <MudSwitch T="bool"
+                                           Value="item.NotifyEmail"
+                                           ValueChanged="@((bool v) => UpdateAsync(item, item with { NotifyEmail = v }))"
+                                           Label="E-mail" Color="Color.Primary" Size="Size.Small" Disabled="busy" />
+                                <MudSwitch T="bool"
+                                           Value="item.NotifyTelegram"
+                                           ValueChanged="@((bool v) => UpdateAsync(item, item with { NotifyTelegram = v }))"
+                                           Label="Telegram" Color="Color.Primary" Size="Size.Small" Disabled="busy" />
+                                <MudSwitch T="bool"
+                                           Value="item.NotifyNewListings"
+                                           ValueChanged="@((bool v) => UpdateAsync(item, item with { NotifyNewListings = v }))"
+                                           Label="Nové inzeráty" Color="Color.Secondary" Size="Size.Small" Disabled="busy" />
+                                <MudSwitch T="bool"
+                                           Value="item.NotifyPriceDrops"
+                                           ValueChanged="@((bool v) => UpdateAsync(item, item with { NotifyPriceDrops = v }))"
+                                           Label="Zlevnění" Color="Color.Secondary" Size="Size.Small" Disabled="busy" />
+                                <MudSwitch T="bool"
+                                           Value="item.IsActive"
+                                           ValueChanged="@((bool v) => UpdateAsync(item, item with { IsActive = v }))"
+                                           Label="Aktivní" Color="Color.Success" Size="Size.Small" Disabled="busy" />
+                            </MudStack>
+                        </MudItem>
+                        <MudItem xs="12" md="5">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Vyhodnoceno: @FormatTime(item.LastRunAt) · Poslední upozornění: @FormatTime(item.LastNotifiedAt)
+                                · Celkem odesláno: <b>@item.TotalNotified</b>
+                            </MudText>
+                        </MudItem>
+                    </MudGrid>
+
+                    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2" AlignItems="AlignItems.Center">
+                        <MudButton Size="Size.Small"
+                                   Variant="Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.Outbox"
+                                   OnClick="@(() => SendTestAsync(item))"
+                                   Disabled="busy">
+                            Otestovat doručení
+                        </MudButton>
+                        <MudButton Size="Size.Small"
+                                   Variant="Variant.Text"
+                                   StartIcon="@(_expandedIds.Contains(item.Id) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.History)"
+                                   OnClick="@(() => ToggleHistoryAsync(item.Id))">
+                            Historie upozornění
+                        </MudButton>
+                        <MudSpacer />
+                        @if (_deleteConfirmId == item.Id)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Error">Opravdu smazat?</MudText>
+                            <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Filled"
+                                       OnClick="@(() => DeleteAsync(item))" Disabled="busy">Smazat</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       OnClick="@(() => _deleteConfirmId = null)">Zpět</MudButton>
+                        }
+                        else
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                           Color="Color.Error"
+                                           Size="Size.Small"
+                                           OnClick="@(() => _deleteConfirmId = item.Id)"
+                                           Disabled="busy"
+                                           aria-label="Smazat hledání" />
+                        }
+                    </MudStack>
+
+                    @if (_expandedIds.Contains(item.Id))
+                    {
+                        <MudDivider Class="my-2" />
+                        @if (!_history.TryGetValue(item.Id, out var history))
+                        {
+                            <MudProgressLinear Indeterminate="true" Color="Color.Secondary" />
+                        }
+                        else if (history.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Zatím nebylo odesláno žádné upozornění.</MudText>
+                        }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                                <thead>
+                                    <tr>
+                                        <th>Kdy</th>
+                                        <th>Typ</th>
+                                        <th>Inzerát</th>
+                                        <th style="text-align:right">Cena</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var n in history)
+                                    {
+                                        <tr>
+                                            <td style="white-space:nowrap">@FormatTime(n.SentAt)</td>
+                                            <td>
+                                                @if (n.Kind == "price_drop")
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text" Icon="@Icons.Material.Filled.TrendingDown">Zlevnění</MudChip>
+                                                }
+                                                else
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Text" Icon="@Icons.Material.Filled.NewReleases">Nový</MudChip>
+                                                }
+                                            </td>
+                                            <td>
+                                                <MudLink Href="@($"/listings/{n.ListingId}")">@(n.ListingTitle ?? "(inzerát už není dostupný)")</MudLink>
+                                            </td>
+                                            <td style="text-align:right; white-space:nowrap">
+                                                @if (n.Kind == "price_drop" && n.OldPrice is not null)
+                                                {
+                                                    <span style="text-decoration:line-through; opacity:0.6">@FormatPrice(n.OldPrice)</span>
+                                                    <text> → </text>
+                                                }
+                                                <b>@FormatPrice(n.NewPrice)</b>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    }
+                </ChildContent>
+            </SectionCard>
+        }
+    }
+</MudStack>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    private bool _loading = true;
+    private List<SavedSearchDto>? _items;
+    private (string Message, string Href, string LinkLabel)? _accessProblem;
+    private readonly HashSet<Guid> _busyIds = [];
+    private readonly HashSet<Guid> _expandedIds = [];
+    private readonly Dictionary<Guid, List<SavedSearchNotificationDto>> _history = new();
+    private Guid? _deleteConfirmId;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _accessProblem = null;
+        try
+        {
+            using var response = await Http.GetAsync("api/saved-searches", _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                _items = await response.Content.ReadFromJsonAsync<List<SavedSearchDto>>(_cts.Token) ?? [];
+            }
+            else if (!HandleAccessStatus(response.StatusCode))
+            {
+                _items = null;
+                Snackbar.Add($"Načtení uložených hledání selhalo ({(int)response.StatusCode}).", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _items = null;
+            Snackbar.Add($"Načtení uložených hledání selhalo: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private bool HandleAccessStatus(HttpStatusCode status)
+    {
+        switch (status)
+        {
+            case HttpStatusCode.Unauthorized:
+                _accessProblem = ("Uložená hledání jsou dostupná po přihlášení.", "/login", "Přihlásit se");
+                return true;
+            case HttpStatusCode.PaymentRequired:
+                _accessProblem = ("Uložená hledání s upozorněním jsou součástí tarifu Hledač.", "/pricing", "Zobrazit tarify");
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private async Task UpdateAsync(SavedSearchDto original, SavedSearchDto changed)
+    {
+        _busyIds.Add(original.Id);
+        try
+        {
+            var request = new SavedSearchUpsertDto(
+                changed.Name, changed.Filter, changed.NotifyEmail, changed.NotifyTelegram,
+                changed.NotifyNewListings, changed.NotifyPriceDrops, changed.IsActive);
+
+            using var response = await Http.PutAsJsonAsync($"api/saved-searches/{original.Id}", request, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                var updated = await response.Content.ReadFromJsonAsync<SavedSearchDto>(_cts.Token);
+                if (updated is not null && _items is not null)
+                {
+                    var index = _items.FindIndex(s => s.Id == original.Id);
+                    if (index >= 0) _items[index] = updated;
+                }
+            }
+            else if (!HandleAccessStatus(response.StatusCode))
+            {
+                Snackbar.Add($"Uložení změny selhalo ({(int)response.StatusCode}).", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Uložení změny selhalo: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busyIds.Remove(original.Id);
+        }
+    }
+
+    private async Task DeleteAsync(SavedSearchDto item)
+    {
+        _busyIds.Add(item.Id);
+        try
+        {
+            using var response = await Http.DeleteAsync($"api/saved-searches/{item.Id}", _cts.Token);
+            if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _items?.RemoveAll(s => s.Id == item.Id);
+                _expandedIds.Remove(item.Id);
+                _history.Remove(item.Id);
+                Snackbar.Add($"Hledání „{item.Name}“ smazáno.", Severity.Success);
+            }
+            else if (!HandleAccessStatus(response.StatusCode))
+            {
+                Snackbar.Add($"Smazání selhalo ({(int)response.StatusCode}).", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Smazání selhalo: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busyIds.Remove(item.Id);
+            _deleteConfirmId = null;
+        }
+    }
+
+    private async Task SendTestAsync(SavedSearchDto item)
+    {
+        _busyIds.Add(item.Id);
+        try
+        {
+            using var response = await Http.PostAsync($"api/saved-searches/{item.Id}/test", null, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<SavedSearchTestResultDto>(_cts.Token);
+                if (result is null) return;
+
+                if (result.EmailSent) Snackbar.Add("Zkušební e-mail odeslán.", Severity.Success);
+                else if (item.NotifyEmail) Snackbar.Add($"E-mail: {result.EmailError ?? "neodesláno"}", Severity.Warning);
+
+                if (result.TelegramSent) Snackbar.Add("Zkušební zpráva na Telegram odeslána.", Severity.Success);
+                else if (item.NotifyTelegram) Snackbar.Add($"Telegram: {result.TelegramError ?? "neodesláno"}", Severity.Warning);
+
+                if (!item.NotifyEmail && !item.NotifyTelegram)
+                    Snackbar.Add("Hledání nemá zapnutý žádný kanál doručení.", Severity.Info);
+            }
+            else if (!HandleAccessStatus(response.StatusCode))
+            {
+                Snackbar.Add($"Zkušební doručení selhalo ({(int)response.StatusCode}).", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Zkušební doručení selhalo: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busyIds.Remove(item.Id);
+        }
+    }
+
+    private async Task ToggleHistoryAsync(Guid id)
+    {
+        if (!_expandedIds.Add(id))
+        {
+            _expandedIds.Remove(id);
+            return;
+        }
+
+        try
+        {
+            var items = await Http.GetFromJsonAsync<List<SavedSearchNotificationDto>>($"api/saved-searches/{id}/notifications", _cts.Token);
+            _history[id] = items ?? [];
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _history[id] = [];
+            Snackbar.Add($"Historii se nepodařilo načíst: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private static string FormatTime(DateTime? utc) =>
+        utc is null ? "nikdy" : utc.Value.ToLocalTime().ToString("d. M. yyyy H:mm");
+
+    private static string FormatPrice(decimal? price) =>
+        price is null ? "–" : $"{price.Value:N0} Kč";
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

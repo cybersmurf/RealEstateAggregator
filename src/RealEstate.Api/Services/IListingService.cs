@@ -1,5 +1,6 @@
 using RealEstate.Api.Contracts.Common;
 using RealEstate.Api.Contracts.Listings;
+using RealEstate.Domain.Entities;
 
 namespace RealEstate.Api.Services;
 
@@ -19,6 +20,12 @@ public interface IListingService
         CancellationToken cancellationToken);
 
     Task<ListingStatsDto> GetStatsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sestaví dotaz na aktivní inzeráty podle filtru (duplikáty skryté), bez řazení a stránkování.
+    /// Používají ho uložená hledání pro počet shod a vyhodnocení nových inzerátů.
+    /// </summary>
+    IQueryable<Listing> BuildFilteredQuery(ListingFilterDto filter);
 
     /// <summary>Exportuje výsledky vyhledávání jako CSV (max 5000 záznámů).</summary>
     Task<byte[]> ExportCsvAsync(ListingFilterDto filter, CancellationToken cancellationToken);
