@@ -245,6 +245,24 @@ app.UseForwardedHeaders();
 // Uvnitř Docker sítě chodí požadavky po HTTP (App → http://realestate-api:8080) –
 // redirect by je rozbil, jakmile se prostředí přepne na Production.
 
+// Stažené fotky inzerátů (/uploads/listings/…) jsou dílem zdrojů – slouží jen klasifikaci,
+// veřejně je nešíříme. UI zobrazuje původní URL zdroje. Fotky z prohlídek (/uploads/…/my_photos) zůstávají.
+var serveStoredListingPhotos = builder.Configuration.GetValue<bool?>("Photos:ServeStoredListingPhotos") ?? false;
+if (!serveStoredListingPhotos)
+{
+    app.Use(async (context, next) =>
+    {
+        var path = context.Request.Path;
+        if (path.StartsWithSegments("/uploads/listings", StringComparison.OrdinalIgnoreCase)
+            && path.Value!.Contains("/photos/", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+        await next(context);
+    });
+}
+
 // Enable static files for local storage serving
 app.UseStaticFiles();
 
