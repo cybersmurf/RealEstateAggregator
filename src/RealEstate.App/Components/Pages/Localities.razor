@@ -1,0 +1,82 @@
+@page "/lokality"
+@using RealEstate.Api.Contracts.Market
+@implements IDisposable
+@inject HttpClient Http
+
+<PageTitle>Obce a nabídka nemovitostí – Znojemsko a jižní Morava</PageTitle>
+<HeadContent>
+    <meta name="description" content="Přehled obcí na Znojemsku a jižní Moravě s počtem aktivních inzerátů domů, pozemků a bytů, mediánem ceny za m² a dobou na trhu." />
+</HeadContent>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudStack Spacing="3">
+        <MudText Typo="Typo.h4">Obce</MudText>
+        <MudText Class="mud-text-secondary">
+            Kde se právě prodává. U každé obce najdete počet aktivních inzerátů ze 14 zdrojů, medián ceny za m²,
+            dobu na trhu a počet zlevnění. Data jsou agregovaná z veřejných inzerátů, aktualizace denně.
+        </MudText>
+        <MudTextField T="string" @bind-Value="_search" Immediate="true" Placeholder="Hledat obec…"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Outlined" Margin="Margin.Dense" />
+
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_items.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info">Zatím žádná data.</MudAlert>
+        }
+        else
+        {
+            <MudGrid Spacing="2">
+                @foreach (var group in Filtered.GroupBy(i => i.District ?? "Ostatní").OrderByDescending(g => g.Sum(i => i.ActiveCount)))
+                {
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.h6" Class="mt-2">okres @group.Key <MudText Inline="true" Typo="Typo.caption" Class="mud-text-secondary">(@group.Sum(i => i.ActiveCount) inzerátů)</MudText></MudText>
+                    </MudItem>
+                    @foreach (var item in group.OrderByDescending(i => i.ActiveCount))
+                    {
+                        <MudItem xs="6" sm="4" md="3" lg="2">
+                            <MudLink Href="@($"/lokalita/{item.Slug}")" Underline="Underline.None">
+                                <MudPaper Class="pa-2 d-flex justify-space-between align-center" Elevation="1">
+                                    <MudText Typo="Typo.body2">@item.Name</MudText>
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">@item.ActiveCount</MudChip>
+                                </MudPaper>
+                            </MudLink>
+                        </MudItem>
+                    }
+                }
+            </MudGrid>
+        }
+    </MudStack>
+</MudContainer>
+
+@code {
+    private List<LocalityIndexItemDto> _items = new();
+    private bool _loading = true;
+    private string _search = string.Empty;
+    private readonly CancellationTokenSource _cts = new();
+
+    private IEnumerable<LocalityIndexItemDto> Filtered =>
+        string.IsNullOrWhiteSpace(_search)
+            ? _items
+            : _items.Where(i => i.Name.Contains(_search, StringComparison.CurrentCultureIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _items = await Http.GetFromJsonAsync<List<LocalityIndexItemDto>>("api/localities?minActive=2", _cts.Token) ?? new();
+        }
+        catch (Exception) when (!_cts.IsCancellationRequested)
+        {
+            _items = new();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    public void Dispose() => _cts.Cancel();
+}

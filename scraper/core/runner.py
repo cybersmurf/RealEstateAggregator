@@ -146,23 +146,37 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             # (všechny kategorie) vrátil 700+ výsledků a incremental (5 str. × 60 = 300)
             # by domy na stránkách 6+ vynechal.
             category_main_cbs: list = sreality_config.get("category_main_cbs") or [None]
+            # Typ nabídky: 1=Prodej, 2=Pronájem, 3=Dražba. Pronájem má smysl u bytů (1) a domů (2),
+            # dražby u domů a pozemků – jinak by se pro každý okres spouštěly prázdné dotazy.
+            category_type_cbs: list = sreality_config.get("category_type_cbs") or [1]
+
+            def _type_applies(cat_main, cat_type) -> bool:
+                if cat_type == 2:
+                    return cat_main in (1, 2, None)
+                if cat_type == 3:
+                    return cat_main in (2, 3, None)
+                return True
 
             if district_ids:
                 for district_id in district_ids:
                     for cat_main in category_main_cbs:
-                        logger.info(
-                            f"Job {job_id}: Scheduling Sreality scraper "
-                            f"district_id={district_id} category_main_cb={cat_main}"
-                        )
-                        scraper = SrealityScraper(
-                            category_main_cb=cat_main,
-                            fetch_details=fetch_details,
-                            detail_fetch_concurrency=detail_fetch_concurrency,
-                            locality_region_id=locality_region_id,
-                            locality_district_id=district_id,
-                            max_pages_incremental=max_pages_incremental,
-                        )
-                        tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
+                        for cat_type in category_type_cbs:
+                            if not _type_applies(cat_main, cat_type):
+                                continue
+                            logger.info(
+                                f"Job {job_id}: Scheduling Sreality scraper "
+                                f"district_id={district_id} category_main_cb={cat_main} category_type_cb={cat_type}"
+                            )
+                            scraper = SrealityScraper(
+                                category_main_cb=cat_main,
+                                category_type_cb=cat_type,
+                                fetch_details=fetch_details,
+                                detail_fetch_concurrency=detail_fetch_concurrency,
+                                locality_region_id=locality_region_id,
+                                locality_district_id=district_id,
+                                max_pages_incremental=max_pages_incremental,
+                            )
+                            tasks.append(("SREALITY", scraper.run(full_rescan=request.full_rescan)))
             else:
                 # Bez filtru okresu – celá republika (fallback)
                 for cat_main in category_main_cbs:

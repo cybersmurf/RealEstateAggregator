@@ -1,0 +1,15 @@
+@* StatCard – kompaktní číslo s popiskem pro přehledy (obec, tržní report). *@
+<MudPaper Class="pa-3" Elevation="1" Style="height:100%;">
+    <MudText Typo="Typo.caption" Class="mud-text-secondary">@Label</MudText>
+    <MudText Typo="Typo.h5">@Value</MudText>
+    @if (!string.IsNullOrWhiteSpace(Sub))
+    {
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">@Sub</MudText>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public string? Sub { get; set; }
+}

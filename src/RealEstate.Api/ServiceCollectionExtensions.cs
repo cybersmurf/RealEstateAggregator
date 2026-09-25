@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
 
         // Tržní statistiky (medián Kč/m², výnos z nájmu, doba na trhu)
         services.AddScoped<IMarketStatsService, MarketStatsService>();
+        services.AddScoped<ILocalityStatsService, LocalityStatsService>();
 
         // Uložená hledání + upozornění (e-mail / Telegram); job po scrapu i hodinový fallback
         services.AddScoped<ISavedSearchService, SavedSearchService>();

@@ -109,6 +109,7 @@ if (!serveStoredListingPhotos)
 app.UseStaticFiles(); // Serves runtime-uploaded files from wwwroot (e.g. /uploads/)
 app.MapStaticAssets();
 app.MapAccountEndpoints();
+app.MapSitemap();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

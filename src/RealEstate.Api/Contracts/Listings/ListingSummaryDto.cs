@@ -27,6 +27,13 @@ public sealed class ListingSummaryDto
     /// <summary>Dny na trhu (aktivní: do teď; stažený: do deaktivace).</summary>
     public int DaysOnMarket { get; set; }
 
+    /// <summary>Předchozí cena (poslední změna v historii), null = cena se neměnila.</summary>
+    public decimal? PreviousPrice { get; set; }
+    /// <summary>Změna ceny v % oproti předchozí (záporná = zlevnění).</summary>
+    public double? PriceChangePct { get; set; }
+    /// <summary>Kdy se cena naposledy změnila.</summary>
+    public DateTime? PriceChangedAt { get; set; }
+
     // Thumbnail pro kartový pohled
     public string? ThumbnailUrl { get; set; }
 

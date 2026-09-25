@@ -377,6 +377,32 @@
                                     @(item.PriceSignal == "low" ? "Podhodnocená" : item.PriceSignal == "high" ? "Nadhodnocená" : "Přiměřená")
                                 </MudChip>
                             }
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-1">
+                                @if (item.PriceChangePct is { } pct && item.PreviousPrice is { } prev)
+                                {
+                                    <MudTooltip Text="@($"Dříve {prev:N0} Kč, změna {item.PriceChangedAt?.ToLocalTime():d. M. yyyy}")">
+                                        <MudChip T="string" Size="Size.Small"
+                                                 Color="@(pct < 0 ? Color.Success : Color.Error)"
+                                                 Icon="@(pct < 0 ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward)"
+                                                 Style="font-size:0.7rem;height:20px;">
+                                            @(pct < 0 ? "Zlevněno" : "Zdraženo") @Math.Abs(pct).ToString("0.#") %
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                         Icon="@Icons.Material.Filled.Schedule" Style="font-size:0.7rem;height:20px;">
+                                    @item.DaysOnMarket dní
+                                </MudChip>
+                                @if (item.OtherSourceCodes.Count > 0)
+                                {
+                                    <MudTooltip Text="@($"Také na: {string.Join(", ", item.OtherSourceCodes)}")">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                                                 Icon="@Icons.Material.Filled.ContentCopy" Style="font-size:0.7rem;height:20px;">
+                                            +@item.OtherSourceCodes.Count @(item.OtherSourceCodes.Count == 1 ? "zdroj" : "zdroje")
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                            </MudStack>
                             @{
                                 var cardTags = ParseSmartTags(item.SmartTags);
                             }
@@ -486,6 +512,12 @@
                     @if (context.Price.HasValue)
                     {
                         <MudText Color="@PriceColor(context.Price)" Class="fw-bold">@context.Price.Value.ToString("N0") Kč</MudText>
+                        @if (context.PriceChangePct is { } rowPct)
+                        {
+                            <MudText Typo="Typo.caption" Color="@(rowPct < 0 ? Color.Success : Color.Error)">
+                                @(rowPct < 0 ? "▼" : "▲") @Math.Abs(rowPct).ToString("0.#") %
+                            </MudText>
+                        }
                     }
                     else
                     {
@@ -497,6 +529,7 @@
                 <MudTd>
                     @{ var si = StatusInfo(context.UserStatus); }
                     <MudChip T="string" Size="Size.Small" Color="@si.Color" Variant="Variant.Filled" Icon="@si.Icon">@si.Label</MudChip>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@context.DaysOnMarket dní@(context.OtherSourceCodes.Count > 0 ? $" · +{context.OtherSourceCodes.Count} zdroj" : "")</MudText>
                 </MudTd>
                 <MudTd>
                     <MudStack Row="true" Spacing="0">
@@ -599,6 +632,10 @@
     [SupplyParameterFromQuery(Name = "source")]
     public string? SourceQueryParam { get; set; }
 
+    /// <summary>Předvyplnění obce z SEO stránky /lokalita/{slug} ("Zobrazit inzeráty").</summary>
+    [SupplyParameterFromQuery(Name = "municipality")]
+    public string? MunicipalityQueryParam { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         // ⚠️ DŮLEŽITÉ POŘADÍ: LocalStorage PŘED Http.GetFromJsonAsync.
@@ -659,6 +696,15 @@
         {
             var sources = await Http.GetFromJsonAsync<List<SourceDto>>("api/sources");
             _availableSources = sources ?? new List<SourceDto>();
+
+            // Obec z query parametru (?municipality=Znojmo) – přepíše obnovený filtr
+            if (!string.IsNullOrWhiteSpace(MunicipalityQueryParam))
+            {
+                _filter.Municipality = MunicipalityQueryParam;
+                _filter.Page = 1;
+                _overridePage = 1;
+                _tableCurrentPage = 0;
+            }
 
             // Předvybrat zdroj z query parametru (?source=REMAX) – přepíše restore
             if (!string.IsNullOrEmpty(SourceQueryParam) &&

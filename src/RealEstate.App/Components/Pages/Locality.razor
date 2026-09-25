@@ -1,0 +1,161 @@
+@page "/lokalita/{Slug}"
+@using RealEstate.Api.Contracts.Market
+@implements IDisposable
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+@if (_stats is null)
+{
+    <PageTitle>Obec – nemovitosti</PageTitle>
+}
+else
+{
+    <PageTitle>@_stats.Name – domy, pozemky a byty na prodej, ceny za m² (@_stats.ActiveCount inzerátů)</PageTitle>
+    <HeadContent>
+        <meta name="description" content="@MetaDescription" />
+        <link rel="canonical" href="@($"{Navigation.BaseUri.TrimEnd('/')}/lokalita/{_stats.Slug}")" />
+    </HeadContent>
+}
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_stats is null)
+    {
+        <MudAlert Severity="Severity.Warning">Obec nenalezena. <MudLink Href="/lokality">Zpět na přehled obcí</MudLink></MudAlert>
+    }
+    else
+    {
+        <MudStack Spacing="3">
+            <MudBreadcrumbs Items="_crumbs" />
+            <MudText Typo="Typo.h4">Nemovitosti @_stats.Name</MudText>
+            <MudText Class="mud-text-secondary">
+                @(_stats.District is not null ? $"okres {_stats.District} · " : "")
+                @_stats.ActiveCount aktivních inzerátů ze 14 zdrojů, z toho @_stats.NewLast30Days nových za posledních 30 dní.
+                Za rok bylo staženo @_stats.DeactivatedLast12Months inzerátů. Aktualizováno @_stats.GeneratedAt.ToLocalTime().ToString("d. M. yyyy").
+            </MudText>
+
+            <MudGrid Spacing="2">
+                <MudItem xs="6" md="3"><StatCard Label="Domy na prodej" Value="@_stats.ActiveHouses.ToString()" Sub="@Fmt(_stats.MedianHousePrice, " Kč medián")" /></MudItem>
+                <MudItem xs="6" md="3"><StatCard Label="Pozemky" Value="@_stats.ActiveLand.ToString()" Sub="@Fmt(_stats.MedianLandPricePerM2, " Kč/m² medián")" /></MudItem>
+                <MudItem xs="6" md="3"><StatCard Label="Byty" Value="@_stats.ActiveApartments.ToString()" Sub="@Fmt(_stats.MedianApartmentPricePerM2, " Kč/m² medián")" /></MudItem>
+                <MudItem xs="6" md="3"><StatCard Label="Pronájmy" Value="@_stats.ActiveRent.ToString()" Sub="@Fmt(_stats.MedianApartmentRentPerM2, " Kč/m²/měs.")" /></MudItem>
+                <MudItem xs="6" md="3"><StatCard Label="Cena domů za m²" Value="@(Fmt(_stats.MedianHousePricePerM2, " Kč") ?? "–")" Sub="medián aktivní nabídky" /></MudItem>
+                <MudItem xs="6" md="3"><StatCard Label="Doba na trhu" Value="@(_stats.MedianDaysOnMarketActive is { } d ? $"{d:0} dní" : "–")" Sub="medián aktivních inzerátů" /></MudItem>
+                <MudItem xs="6" md="3"><StatCard Label="Do stažení" Value="@(_stats.MedianDaysToDeactivate is { } s ? $"{s:0} dní" : "–")" Sub="medián za 12 měsíců" /></MudItem>
+                <MudItem xs="6" md="3"><StatCard Label="Zlevnění" Value="@_stats.PriceDropsLast90Days.ToString()" Sub="inzerátů za 90 dní" /></MudItem>
+            </MudGrid>
+
+            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
+                           OnClick="@(() => Navigation.NavigateTo($"/listings?municipality={Uri.EscapeDataString(_stats.Name)}"))">
+                    Zobrazit inzeráty
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.NotificationsActive"
+                           Href="/register">
+                    Hlídat nové inzeráty a zlevnění
+                </MudButton>
+            </MudStack>
+
+            <SectionCard Title="Aktuální nabídka" Icon="@Icons.Material.Filled.Apartment">
+                @if (_listings.Count == 0)
+                {
+                    <MudText Class="mud-text-secondary">Žádné aktivní inzeráty.</MudText>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true" Hover="true">
+                        <thead>
+                            <tr><th>Typ</th><th>Inzerát</th><th style="text-align:right">Cena</th><th style="text-align:right">Plocha</th><th>Na trhu</th><th>Zdroj</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var l in _listings)
+                            {
+                                <tr>
+                                    <td>@TypeLabel(l.PropertyType) @(l.OfferType == "Rent" ? "(pronájem)" : "")</td>
+                                    <td><MudLink Href="@($"/listings/{l.Id}")">@l.Title</MudLink></td>
+                                    <td style="text-align:right">@(l.Price?.ToString("N0") ?? "–") Kč</td>
+                                    <td style="text-align:right">@(l.AreaBuiltUp?.ToString("N0") ?? l.AreaLand?.ToString("N0") ?? "–") m²</td>
+                                    <td>@l.DaysOnMarket dní</td>
+                                    <td>@l.SourceName@(l.OtherSourceCodes.Count > 0 ? $" +{l.OtherSourceCodes.Count}" : "")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                    @if (_total > _listings.Count)
+                    {
+                        <MudText Typo="Typo.caption" Class="mt-2 mud-text-secondary">Zobrazeno @_listings.Count z @_total. Kompletní seznam s filtry je v <MudLink Href="@($"/listings?municipality={Uri.EscapeDataString(_stats.Name)}")">inzerátech</MudLink>.</MudText>
+                    }
+                }
+            </SectionCard>
+
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Statistiky jsou počítány z veřejných inzerátů 14 zdrojů po sloučení duplicit. Mediány vyžadují alespoň 3 inzeráty.
+                Texty a fotografie inzerátů nezobrazujeme; u každého záznamu je odkaz na zdroj.
+            </MudText>
+        </MudStack>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public string Slug { get; set; } = string.Empty;
+
+    private LocalityPublicStatsDto? _stats;
+    private List<ListingSummaryDto> _listings = new();
+    private int _total;
+    private bool _loading = true;
+    private readonly CancellationTokenSource _cts = new();
+    private List<BreadcrumbItem> _crumbs = new();
+
+    private string MetaDescription => _stats is null ? "" :
+        $"{_stats.Name}: {_stats.ActiveHouses} domů, {_stats.ActiveLand} pozemků, {_stats.ActiveApartments} bytů na prodej. " +
+        (_stats.MedianHousePricePerM2 is { } m ? $"Medián ceny domů {m:N0} Kč/m². " : "") +
+        (_stats.MedianDaysOnMarketActive is { } d ? $"Medián doby na trhu {d:0} dní. " : "") +
+        "Historie cen, doba na trhu a sloučené duplicity ze 14 zdrojů.";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        try
+        {
+            using var resp = await Http.GetAsync($"api/localities/{Uri.EscapeDataString(Slug)}", _cts.Token);
+            _stats = resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<LocalityPublicStatsDto>(cancellationToken: _cts.Token) : null;
+            if (_stats is not null)
+            {
+                _crumbs = new()
+                {
+                    new BreadcrumbItem("Obce", "/lokality"),
+                    new BreadcrumbItem(_stats.Name, null, disabled: true),
+                };
+                var filter = new ListingFilterDto { Municipality = _stats.Name, PageSize = 30, SortBy = "date", SortDescending = true };
+                using var search = await Http.PostAsJsonAsync("api/listings/search", filter, _cts.Token);
+                if (search.IsSuccessStatusCode)
+                {
+                    var page = await search.Content.ReadFromJsonAsync<PagedResultDto<ListingSummaryDto>>(cancellationToken: _cts.Token);
+                    _listings = page?.Items.ToList() ?? new();
+                    _total = page?.TotalCount ?? 0;
+                }
+            }
+        }
+        catch (Exception) when (!_cts.IsCancellationRequested)
+        {
+            _stats = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string? Fmt(decimal? v, string suffix) => v is { } d ? $"{d:N0}{suffix}" : null;
+
+    private static string TypeLabel(string t) => t switch
+    {
+        "House" => "Dům", "Apartment" => "Byt", "Land" => "Pozemek", "Cottage" => "Chata",
+        "Commercial" => "Komerční", "Garage" => "Garáž", _ => "Ostatní",
+    };
+
+    public void Dispose() => _cts.Cancel();
+}

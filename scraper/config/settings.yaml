@@ -79,6 +79,8 @@ search_filters:
     - "jihomoravsk"   # Jihomoravský kraj (záloha pro scrapers, které nedávají okres)
     - "Brno-venkov"   # Celý okres Brno-venkov (Pohořelice, Mušov, Miroslav, …)
     - "brno-venkov"   # lowercase varianta
+    - "Brno-město"    # Brno – byty a pronájmy (od 25. 9. 2026)
+    - "Brno"          # záloha pro zdroje bez okresu
     - "Pohořelice"    # Pohořelice a okolí (okres Brno-venkov, sever koridoru)
     - "pohořelice"    # lowercase varianta (URL slug)
     - "Vlasatice"     # Obec v koridoru (Brno-venkov)
@@ -110,7 +112,7 @@ search_filters:
     
   # Filtery pro byty (Apartments)
   apartments:
-    enabled: false  # Vypnuto, pokud nechceš byty
+    enabled: true   # 25. 9. 2026: byty a pronájmy bydlení zapnuty (výnos z nájmu, medián dispozic)
     max_price: null
     min_price: null
     offer_types:
@@ -171,15 +173,22 @@ scrapers:
     locality_district_ids:
       - 77   # Znojmo (ID=77)
       - 73   # Brno-venkov (ID=73) – Pohořelice, Vlasatice, Mušov, Miroslav, Žabčice, Dolní Kounice, …
+      - 78   # Brno-město (ID=78) – byty a pronájmy pro výnos z nájmu a medián dispozic
     # locality_district_id: 77  # legacy – nahrazeno listem výše
     # Scrape separately per category_main_cb to avoid pagination overflow in incremental mode.
     # Without this, a single query for all types returns 700+ results and incremental
     # (5 pages × 60 = 300) misses houses on pages 6+.
     # 2=Dům, 3=Pozemek, 4=Komerční
     category_main_cbs:
+      - 1   # Byty (Apartments) – prodej i pronájem
       - 2   # Domy (Houses)
       - 3   # Pozemky (Land)
       - 4   # Komerční (Commercial)
+    # Typ nabídky: 1=Prodej, 2=Pronájem (jen byty a domy), 3=Dražba (jen domy a pozemky)
+    category_type_cbs:
+      - 1
+      - 2
+      - 3
     # Max pages per district+category in incremental mode (default: 5)
     max_pages_incremental: 10
   min_description_length: 20  # znaků

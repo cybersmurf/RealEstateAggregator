@@ -112,6 +112,8 @@ services:
       - ScrapingApiKey=${API_KEY:-dev-key-change-me}
       - MortgagePartnerUrl=${MORTGAGE_PARTNER_URL:-}         # odkaz na hypotečního partnera (UTM se doplní)
       - MortgageDefaultRate=${MORTGAGE_DEFAULT_RATE:-4.79}
+      - ContactEmail=${CONTACT_EMAIL:-}                     # kontakt v podmínkách a GDPR
+      - PublicBaseUrl=${APP_PUBLIC_URL:-http://localhost:5002}  # sitemap.xml
     depends_on:
       api:
         condition: service_healthy
@@ -147,7 +149,9 @@ services:
       - DB_PASSWORD=${POSTGRES_PASSWORD:-dev}
       - PYTHONUNBUFFERED=1
       - DOCKER=1                  # ← vypne uvicorn --reload (způsobuje hang na macOS Docker)
-      - UPLOADS_BASE_PATH=/app/uploads  # Sdílený volume s API pro inline photo download
+      # UPLOADS_BASE_PATH záměrně nenastaveno (25. 9. 2026): fotky se už při scrapu nestahují,
+      # klasifikace si je bere z původní URL a soubor po sobě smaže. Ušetří ~24 GB/rok a snižuje právní riziko.
+      # - UPLOADS_BASE_PATH=/app/uploads
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
       - API_BASE_URL=http://realestate-api:8080  # Po scrapu volá detekci duplikátů a uložená hledání v API
       - API_KEY=${API_KEY:-dev-key-change-me}    # Hlavní klíč – správcovské endpointy API

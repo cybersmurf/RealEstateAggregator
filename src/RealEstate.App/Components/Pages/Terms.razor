@@ -1,0 +1,61 @@
+@page "/terms"
+@inject IConfiguration Config
+
+<PageTitle>Podmínky užití – Real Estate Aggregator</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-4">
+    <MudPaper Class="pa-6">
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.h4">Podmínky užití</MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">Platné od 25. 9. 2026</MudText>
+
+            <MudText Typo="Typo.h6">1. Co služba dělá</MudText>
+            <MudText>
+                Real Estate Aggregator sleduje veřejně dostupné realitní inzeráty a zobrazuje k nim vlastní
+                strukturovaná data: cenu, plochu, lokalitu, historii ceny, dobu na trhu, sloučení stejné nemovitosti
+                z více zdrojů a stručné shrnutí. U každého záznamu je uveden zdroj a odkaz na původní inzerát.
+                Služba nezprostředkovává prodej ani pronájem a není realitní kanceláří.
+            </MudText>
+
+            <MudText Typo="Typo.h6">2. Zdroje a autorská práva</MudText>
+            <MudText>
+                Texty a fotografie inzerátů jsou dílem jejich autorů a zdrojových portálů. Služba je veřejně
+                nezobrazuje ani nešíří; zobrazuje pouze vlastní shrnutí, číselné údaje a odkaz na zdroj.
+                Provozovatel zdroje nebo autor inzerátu může požádat o vyřazení záznamu na kontaktu níže;
+                žádosti vyřizujeme do 48 hodin.
+            </MudText>
+
+            <MudText Typo="Typo.h6">3. Účet a tarify</MudText>
+            <MudText>
+                Účet Zdarma umožňuje ukládat stavy a poznámky k inzerátům. Tarify Hledač a Profi jsou předplatné
+                s měsíční nebo roční platbou přes Stripe; předplatné lze kdykoli zrušit v zákaznickém portálu
+                a platí do konce zaplaceného období. Ceny jsou uvedeny v ceníku včetně DPH.
+            </MudText>
+
+            <MudText Typo="Typo.h6">4. Bez záruky správnosti</MudText>
+            <MudText>
+                Data vznikají automatizovaným sběrem a mohou obsahovat chyby, zpoždění nebo neúplnosti.
+                Statistiky (mediány cen, výnos, doba na trhu) jsou orientační a nenahrazují odborný odhad.
+                Před rozhodnutím vždy ověřte údaje u zdroje a v katastru nemovitostí.
+            </MudText>
+
+            <MudText Typo="Typo.h6">5. API a férové užití</MudText>
+            <MudText>
+                API klíče jsou určeny pro vlastní použití zákazníka v rámci denní kvóty. Je zakázáno data
+                dále hromadně přeprodávat nebo obcházet limity. Porušení může vést k zablokování účtu.
+            </MudText>
+
+            <MudText Typo="Typo.h6">6. Kontakt</MudText>
+            <MudText>
+                Provozovatel: fyzická osoba, Česká republika.
+                @if (!string.IsNullOrWhiteSpace(Config["ContactEmail"]))
+                {
+                    <text>Kontakt: <MudLink Href="@($"mailto:{Config["ContactEmail"]}")">@Config["ContactEmail"]</MudLink></text>
+                }
+            </MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Zpracování osobních údajů popisuje stránka <MudLink Href="/privacy">Ochrana osobních údajů</MudLink>.
+            </MudText>
+        </MudStack>
+    </MudPaper>
+</MudContainer>

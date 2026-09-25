@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Allow: /lokality
+Allow: /lokalita/
+Allow: /listings/
+Disallow: /account
+Disallow: /saved-searches
+Disallow: /scrape
+Disallow: /login
+Disallow: /register
+Disallow: /uploads/
+
+Sitemap: https://realestate.sudata.eu/sitemap.xml

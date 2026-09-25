@@ -306,6 +306,7 @@ app.MapBillingEndpoints();
 app.MapLeadEndpoints();
 app.MapDuplicateGroupEndpoints();
 app.MapMarketEndpoints();
+app.MapLocalityEndpoints();
 app.MapSavedSearchEndpoints();
 app.MapListingEndpoints();
 app.MapSourceEndpoints();

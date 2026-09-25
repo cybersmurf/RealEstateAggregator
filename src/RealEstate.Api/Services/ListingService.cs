@@ -112,6 +112,7 @@ public class ListingService : IListingService
         if (items.Count > 0)
         {
             var pageIds = items.Select(i => i.Id).ToList();
+            await EnrichPriceChangesAsync(items, pageIds, cancellationToken);
             var duplicateSources = await _dbContext.Listings
                 .AsNoTracking()
                 .Where(l => l.IsActive
@@ -837,6 +838,33 @@ public class ListingService : IListingService
         }
 
         return new DeactivateDeadResult(candidates.Count, toDeactivate.Count);
+    }
+
+    /// <summary>
+    /// Doplní poslední změnu ceny (předchozí cena, %, datum) pro zobrazenou stránku.
+    /// Bere poslední dva záznamy historie na inzerát; jeden dotaz pro celou stránku.
+    /// </summary>
+    private async Task EnrichPriceChangesAsync(List<ListingSummaryDto> items, List<Guid> pageIds, CancellationToken ct)
+    {
+        var rows = await _dbContext.ListingPriceHistories
+            .AsNoTracking()
+            .Where(h => pageIds.Contains(h.ListingId) && h.Price != null)
+            .OrderBy(h => h.ListingId).ThenByDescending(h => h.RecordedAt)
+            .Select(h => new { h.ListingId, h.Price, h.RecordedAt })
+            .ToListAsync(ct);
+
+        foreach (var group in rows.GroupBy(r => r.ListingId))
+        {
+            var last = group.Take(2).ToList();
+            if (last.Count < 2 || last[1].Price is not > 0 || last[0].Price == last[1].Price)
+                continue;
+            var item = items.FirstOrDefault(i => i.Id == group.Key);
+            if (item is null)
+                continue;
+            item.PreviousPrice = last[1].Price;
+            item.PriceChangePct = Math.Round((double)((last[0].Price!.Value - last[1].Price!.Value) / last[1].Price!.Value) * 100, 1);
+            item.PriceChangedAt = last[0].RecordedAt.UtcDateTime;
+        }
     }
 
     /// <summary>Doba na trhu ve dnech: aktivní = do teď, stažený = do deaktivace.</summary>

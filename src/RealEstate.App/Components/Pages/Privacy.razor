@@ -1,0 +1,57 @@
+@page "/privacy"
+@inject IConfiguration Config
+
+<PageTitle>Ochrana osobních údajů – Real Estate Aggregator</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-4">
+    <MudPaper Class="pa-6">
+        <MudStack Spacing="3">
+            <MudText Typo="Typo.h4">Ochrana osobních údajů</MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">Informace podle čl. 13 GDPR, platné od 25. 9. 2026</MudText>
+
+            <MudText Typo="Typo.h6">Jaké údaje zpracováváme</MudText>
+            <MudSimpleTable Dense="true">
+                <thead><tr><th>Údaj</th><th>Účel</th><th>Doba</th></tr></thead>
+                <tbody>
+                    <tr><td>E-mail, jméno, heslo (jen hash)</td><td>Vedení účtu, přihlášení</td><td>Po dobu existence účtu</td></tr>
+                    <tr><td>Stavy a poznámky k inzerátům</td><td>Vaše osobní evidence hledání</td><td>Po dobu existence účtu</td></tr>
+                    <tr><td>Uložená hledání, Telegram chat ID</td><td>Doručování upozornění, která si zapnete</td><td>Do smazání hledání nebo účtu</td></tr>
+                    <tr><td>Platební identifikátory Stripe</td><td>Správa předplatného (kartu Stripe u nás neukládá)</td><td>10 let (účetnictví)</td></tr>
+                    <tr><td>Kontakt z formuláře hypotéky</td><td>Předání poptávky partnerovi, jen s vaším souhlasem</td><td>12 měsíců</td></tr>
+                    <tr><td>IP adresa, technické logy</td><td>Bezpečnost, omezení počtu požadavků</td><td>30 dní</td></tr>
+                </tbody>
+            </MudSimpleTable>
+
+            <MudText Typo="Typo.h6">Právní základ</MudText>
+            <MudText>
+                Plnění smlouvy (účet, předplatné), souhlas (upozornění, předání poptávky partnerovi)
+                a oprávněný zájem (bezpečnost provozu). Souhlas lze kdykoli odvolat vypnutím upozornění nebo
+                smazáním účtu.
+            </MudText>
+
+            <MudText Typo="Typo.h6">Příjemci</MudText>
+            <MudText>
+                Stripe (platby), poskytovatel e-mailového serveru, Telegram (pokud si upozornění zapnete),
+                hypoteční partner (jen po odeslání poptávky). Data inzerátů samotných osobní údaje neobsahují;
+                kontaktní údaje inzerentů neukládáme ani nezobrazujeme.
+            </MudText>
+
+            <MudText Typo="Typo.h6">Cookies</MudText>
+            <MudText>
+                Používáme pouze technicky nezbytnou cookie pro přihlášení a nastavení prohlížeče
+                (uložené filtry). Žádné reklamní ani sledovací cookies.
+            </MudText>
+
+            <MudText Typo="Typo.h6">Vaše práva</MudText>
+            <MudText>
+                Přístup, oprava, výmaz, přenositelnost a námitka. Účet a všechna související data smažeme na
+                požádání do 30 dnů.
+                @if (!string.IsNullOrWhiteSpace(Config["ContactEmail"]))
+                {
+                    <text>Kontakt: <MudLink Href="@($"mailto:{Config["ContactEmail"]}")">@Config["ContactEmail"]</MudLink>.</text>
+                }
+                Dozorový úřad: Úřad pro ochranu osobních údajů, Pplk. Sochora 27, Praha 7.
+            </MudText>
+        </MudStack>
+    </MudPaper>
+</MudContainer>

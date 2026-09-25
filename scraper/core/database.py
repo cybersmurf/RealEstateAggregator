@@ -62,6 +62,47 @@ _RE_CONSTRUCTION_MAP = [
 ]
 
 
+# PSČ → okres (Jihomoravský kraj + okolí). Bazoš, iDnes a menší realitky posílají jen
+# "671 71 Znojmo" bez okresu, takže 900+ inzerátů vypadávalo z lokalitních statistik a filtrů.
+_POSTAL_DISTRICTS = {
+    "669": "Znojmo", "671": "Znojmo",
+    "664": "Brno-venkov", "665": "Brno-venkov", "667": "Brno-venkov",
+    "600": "Brno-město", "602": "Brno-město", "603": "Brno-město", "612": "Brno-město", "613": "Brno-město",
+    "614": "Brno-město", "615": "Brno-město", "616": "Brno-město", "617": "Brno-město", "618": "Brno-město",
+    "619": "Brno-město", "620": "Brno-město", "621": "Brno-město", "623": "Brno-město", "624": "Brno-město",
+    "625": "Brno-město", "627": "Brno-město", "628": "Brno-město", "634": "Brno-město", "635": "Brno-město",
+    "636": "Brno-město", "637": "Brno-město", "638": "Brno-město", "639": "Brno-město", "641": "Brno-město",
+    "642": "Brno-město", "643": "Brno-město", "644": "Brno-město",
+    "678": "Blansko", "679": "Blansko",
+    "683": "Vyškov", "684": "Vyškov", "685": "Vyškov",
+    "690": "Břeclav", "691": "Břeclav", "692": "Břeclav",
+    "693": "Hodonín", "695": "Hodonín", "696": "Hodonín",
+}
+_RE_POSTAL = re.compile(r'\b(\d{3})\s?\d{2}\b')
+_DISTRICT_KEYWORDS = [
+    ("znojm", "Znojmo"),
+    ("brno-venkov", "Brno-venkov"),
+    ("brno-město", "Brno-město"), ("brno-mesto", "Brno-město"),
+    ("břeclav", "Břeclav"), ("hodonín", "Hodonín"), ("vyškov", "Vyškov"), ("blansko", "Blansko"),
+]
+
+
+def enrich_district(data: Dict[str, Any]) -> None:
+    """Doplní 'district' z PSČ nebo z klíčových slov v location_text, když ho scraper nedodal."""
+    if data.get("district"):
+        return
+    text = " ".join(filter(None, [data.get("location_text", ""), data.get("municipality", "")]))
+    m = _RE_POSTAL.search(text)
+    if m and m.group(1) in _POSTAL_DISTRICTS:
+        data["district"] = _POSTAL_DISTRICTS[m.group(1)]
+        return
+    low = text.lower()
+    for kw, district in _DISTRICT_KEYWORDS:
+        if kw in low:
+            data["district"] = district
+            return
+
+
 def _enrich_listing_fields(data: Dict[str, Any]) -> None:
     """
     Doplní chybějící sémantická pole (disposition, rooms, condition, construction_type)
@@ -97,6 +138,7 @@ def _enrich_listing_fields(data: Dict[str, Any]) -> None:
 
     _enrich_areas(data)
     _enrich_auction_fields(data)
+    enrich_district(data)
 
 
 _AUCTION_OFFER_TYPES = {'Dražba', 'Auction'}
