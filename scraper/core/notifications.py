@@ -99,8 +99,11 @@ async def notify_stale_sources(stale: list[dict[str, Any]]) -> None:
 
     lines = [f"⚠️ *{len(stale)} mrtvý/ch scraper/ů* – data jsou zastaralá:"]
     for s in stale:
+        days = s.get("days_stale")
+        # Nový zdroj bez jediného inzerátu má days_stale None (MAX(last_seen_at) je NULL)
+        age = f"{days:.0f} dní bez aktualizace" if days is not None else "zatím žádná data"
         lines.append(
-            f"  • `{s['code']}` ({s['name']}) – {s['days_stale']:.0f} dní bez aktualizace, {s['active_count']} aktivních inzerátů"
+            f"  • `{s['code']}` ({s['name']}) – {age}, {s.get('active_count') or 0} aktivních inzerátů"
         )
 
     payload = {"text": "\n".join(lines), "mrkdwn": True}
