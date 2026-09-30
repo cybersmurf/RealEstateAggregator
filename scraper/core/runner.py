@@ -82,6 +82,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             "BAZOS",
             "REALINGO",
             "REALMIX",
+            "REALITYCECHY",
+            "REALITYMIX",
+            "REALCITY",
+            "BEZREALITKY",
+            "OKDRAZBY",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
@@ -101,6 +106,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         from core.scrapers.bazos_scraper import BazosScraper
         from core.scrapers.realingo_scraper import RealingoScraper
         from core.scrapers.realmix_scraper import RealmixScraper
+        from core.scrapers.realitycechy_scraper import RealityCechyScraper
+        from core.scrapers.realitymix_scraper import RealityMixScraper
+        from core.scrapers.realcity_scraper import RealcityScraper
+        from core.scrapers.bezrealitky_scraper import BezrealitkyScraper
+        from core.scrapers.okdrazby_scraper import OkdrazbyScraper
 
         # Vybuduj tasku pro paralelní scraping
         tasks = []
@@ -248,6 +258,31 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             logger.info(f"Job {job_id}: Scheduling REALmix (reality-znojmo.cz) scraper...")
             scraper = RealmixScraper()
             tasks.append(("REALMIX", scraper.run(full_rescan=request.full_rescan)))
+
+        if "REALITYCECHY" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Reality Čechy scraper...")
+            scraper = RealityCechyScraper()
+            tasks.append(("REALITYCECHY", scraper.run(full_rescan=request.full_rescan)))
+
+        if "REALITYMIX" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling RealityMIX scraper...")
+            scraper = RealityMixScraper()
+            tasks.append(("REALITYMIX", scraper.run(full_rescan=request.full_rescan)))
+
+        if "REALCITY" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Realcity scraper...")
+            scraper = RealcityScraper()
+            tasks.append(("REALCITY", scraper.run(full_rescan=request.full_rescan)))
+
+        if "BEZREALITKY" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Bezrealitky scraper...")
+            scraper = BezrealitkyScraper()
+            tasks.append(("BEZREALITKY", scraper.run(full_rescan=request.full_rescan)))
+
+        if "OKDRAZBY" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling OK dražby scraper...")
+            scraper = OkdrazbyScraper()
+            tasks.append(("OKDRAZBY", scraper.run(full_rescan=request.full_rescan)))
 
         # Čas před spuštěním scrapingu – slouží pro deaktivaci neviděných inzerátů
         scrape_started_at = datetime.utcnow()

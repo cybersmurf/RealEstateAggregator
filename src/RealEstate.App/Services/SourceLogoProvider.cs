@@ -22,6 +22,11 @@ public sealed class SourceLogoProvider
         { "NEMZNOJMO",     "/images/logos/NEMZNOJMO.png" },
         { "REALINGO",      "/images/logos/REALINGO.png" },
         { "REALMIX",       "/images/logos/REALMIX.svg" },
+        { "REALITYCECHY",  "/images/logos/REALITYCECHY.svg" },
+        { "REALITYMIX",    "/images/logos/REALITYMIX.svg" },
+        { "REALCITY",      "/images/logos/REALCITY.svg" },
+        { "BEZREALITKY",   "/images/logos/BEZREALITKY.svg" },
+        { "OKDRAZBY",      "/images/logos/OKDRAZBY.svg" },
         { "REAS",          "/images/logos/REAS.svg" },
         { "BAZOS",         "/images/logos/BAZOS.svg" },
     };

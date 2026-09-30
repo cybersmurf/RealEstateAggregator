@@ -1,0 +1,430 @@
+{
+ "data": {
+  "listAdverts": {
+   "totalCount": 3,
+   "list": [
+    {
+     "id": "1050010",
+     "uri": "1050010-nabidka-prodej-domu-krhovice",
+     "type": "UNDEFINED",
+     "estateType": "DUM",
+     "offerType": "PRODEJ",
+     "disposition": "DISP_4_KK",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "NEW",
+     "construction": "WOOD",
+     "reconstruction": null,
+     "ownership": "OSOBNI",
+     "address": "Krhovice - Krhovice, Jihomoravský kraj",
+     "city": "Krhovice",
+     "cityDistrict": "Krhovice",
+     "street": "",
+     "zip": "671 28",
+     "surface": 156,
+     "surfaceLand": 768,
+     "price": 11900000,
+     "currency": "CZK",
+     "originalPrice": 11900000,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 48.8200833,
+      "lng": 16.1783838
+     },
+     "imageAltText": "Prodej domu 156 m², pozemek 768 m², Krhovice, Jihomoravský kraj",
+     "title": "Prodej domu 156 m², pozemek 768 m²",
+     "description": "Novostavba 4+kk se samostatným domkem 1+kk přímo na zahradě s krásným výhledem na okraji obce Krhovice u Znojma. \nDům jsme stavěli pro vlastní bydlení, nyní ho z rodinných důvodů nabízíme k prodeji. Samostatný domek 1+kk  můžete využít pro podnikání, návštěvy nebo ho pronajímat okolo 10 tisíc měsíčně.\n\n🔑 Základní parametry\nDispozice: 4+kk (hlavní dům) + 1+kk (zahradní domek)\nUžitná plocha: 128m² hlavní dům + 28m² zahradní domek\nPlocha pozemku: 768m²\nZastavěná plocha: 245m²\nEnergetická náročnost: Třída B \nRok kolaudace: Duben 2026 (nový dům v plné záruce)\n\nDům je dřevostavba s kvalitní izolací,",
+     "mainImage": {
+      "id": "28223203",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050010/1790231683-jmygsbtfky-titulka-krhovice.jpg"
+     },
+     "publicImages": [
+      {
+       "id": "28223203",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050010/1790231683-jmygsbtfky-titulka-krhovice.jpg"
+      },
+      {
+       "id": "28223423",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050010/1790232261-guaqgdgvxp-dji-20260815-131625-25.jpg"
+      },
+      {
+       "id": "28223338",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050010/1790231810-gfydrchrza-dji-0699.jpg"
+      },
+      {
+       "id": "28223355",
+       "order": 4,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050010/1790231874-sbuhtrirbg-dji-20260815-131541-22.jpg"
+      },
+      {
+       "id": "28223425",
+       "order": 5,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050010/1790232370-izvegutpgg-dji-20260815-131957-31.jpg"
+      },
+      {
+       "id": "27870324",
+       "order": 6,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050010/1785231538-ronuznaask-obyvac-c3-ad-pokoj-s-kk.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "630",
+       "name": "okres Znojmo",
+       "lvl": 3,
+       "uri": "okres-znojmo",
+       "osmId": 441326
+      },
+      {
+       "id": "12806",
+       "name": "Krhovice",
+       "lvl": 4,
+       "uri": "krhovice",
+       "osmId": 438735
+      }
+     ],
+     "active": true,
+     "reserved": false
+    },
+    {
+     "id": "1069510",
+     "uri": "1069510-nabidka-prodej-domu-tasovicka-so-pou-znojmo",
+     "type": "UNDEFINED",
+     "estateType": "DUM",
+     "offerType": "PRODEJ",
+     "disposition": "DISP_4_KK",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "NEW",
+     "construction": "BRICK",
+     "reconstruction": null,
+     "ownership": "OSOBNI",
+     "address": "Tasovická, Tasovice - Tasovice nad Dyjí, Jihomoravský kraj",
+     "city": "Tasovice",
+     "cityDistrict": "Tasovice nad Dyjí",
+     "street": "Tasovická",
+     "zip": "671 25",
+     "surface": 109,
+     "surfaceLand": 505,
+     "price": 7999000,
+     "currency": "CZK",
+     "originalPrice": 7999000,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 48.835876375334,
+      "lng": 16.158812000652
+     },
+     "imageAltText": "Prodej domu 109 m², pozemek 505 m², Tasovická, Tasovice, Jihomoravský kraj",
+     "title": "Prodej domu 109 m², pozemek 505 m²",
+     "description": "Nabízíme k prodeji moderní rodinný dům o dispozici 4+kk se skladem v obci Tasovice u Znojma. Dům nabízí přibližně 100 m² užitné plochy a stojí na pozemku o celkové výměře 505 m².\n\nNemovitost je navržena s důrazem na kvalitní provedení, moderní technologie, nízké provozní náklady a komfortní rodinné bydlení.\n\nDům bude dokončen ve vysokém standardu. Koupelny a WC budou vybaveny kvalitní sanitou a obklady z Koupelen Ptáček. O efektivní a úsporné vytápění se postará tepelné čerpadlo Stiebel Eltron v kombinaci s podlahovým vytápěním. Pro zdravé a komfortní vnitřní prostředí bude dům vybaven systéme",
+     "mainImage": {
+      "id": "28204385",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069510/1789998439-huscztfvgz-chatgpt-image-9-8-2026-13-57-46.png"
+     },
+     "publicImages": [
+      {
+       "id": "28204385",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069510/1789998439-huscztfvgz-chatgpt-image-9-8-2026-13-57-46.png"
+      },
+      {
+       "id": "28204386",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069510/1789998440-pxuoplimvf-chatgpt-image-7-8-2026-12-51-36.png"
+      },
+      {
+       "id": "28204387",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069510/1789998429-imtygdamcq-8-c.png"
+      },
+      {
+       "id": "28204388",
+       "order": 4,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069510/1789998429-fuhzxegnok-bez-nazvu.png"
+      },
+      {
+       "id": "28204389",
+       "order": 5,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069510/1789998432-hkbeyfcrrn-chatgpt-image-7-8-2026-11-49-57.png"
+      },
+      {
+       "id": "28204390",
+       "order": 6,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069510/1789998435-preqzxxptq-g60a8281-enhanced-nr.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "630",
+       "name": "okres Znojmo",
+       "lvl": 3,
+       "uri": "okres-znojmo",
+       "osmId": 441326
+      },
+      {
+       "id": "9627",
+       "name": "Tasovice",
+       "lvl": 4,
+       "uri": "tasovice",
+       "osmId": 438696
+      }
+     ],
+     "active": true,
+     "reserved": false
+    },
+    {
+     "id": "1043958",
+     "uri": "1043958-nabidka-prodej-domu-stitary",
+     "type": "UNDEFINED",
+     "estateType": "DUM",
+     "offerType": "PRODEJ",
+     "disposition": "DISP_5_KK",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "GOOD",
+     "construction": "BRICK",
+     "reconstruction": null,
+     "ownership": "OSOBNI",
+     "address": "Štítary - Štítary na Moravě, Jihomoravský kraj",
+     "city": "Štítary",
+     "cityDistrict": "Štítary na Moravě",
+     "street": "",
+     "zip": "671 02",
+     "surface": 186,
+     "surfaceLand": 1309,
+     "price": 4500000,
+     "currency": "CZK",
+     "originalPrice": 4500000,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 48.9332493,
+      "lng": 15.8480537
+     },
+     "imageAltText": "Prodej domu 186 m², pozemek 1.309 m², Štítary, Jihomoravský kraj",
+     "title": "Prodej domu 186 m², pozemek 1.309 m²",
+     "description": "Prodám RD ve Štítarech poblíž Vranovské přehrady,\n186 m2 užitné plochy, 1300 m2 pozemek, vzrostlá zahrada s plným soukromím, klidná ulice, ihned k nastěhování, dům je vyklizený. Na kole za 20 min. na Vranovské pláži. Autem 18 km Rakousko, 20 km Znojmo, 40 km Dukovany, 90 km Brno. Dva nové kotle (plyn a dřevo), revize komína, přípojky voda, el., kanalizace, plyn. V zahradě vydatná studna s už. vodou. V přízemí lze vytvořit oddělenou jednotku na sezónní krátkodobé pronájmy např. pro cyklisty. Dispozice ale umožňuje i zázemí pro živnostníka - topenář, instalatér, včelař... případně územní plán um",
+     "mainImage": {
+      "id": "27895697",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1043k/1043958/1785698935-tyfojdacqt-1000008818.jpg"
+     },
+     "publicImages": [
+      {
+       "id": "27895697",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1043k/1043958/1785698935-tyfojdacqt-1000008818.jpg"
+      },
+      {
+       "id": "27895158",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1043k/1043958/1785668097-xusrnuqtnw-22.jpg"
+      },
+      {
+       "id": "27895157",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1043k/1043958/1785668098-wuvouqwbaw-21.jpg"
+      },
+      {
+       "id": "27768378",
+       "order": 4,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1043k/1043958/1783712933-dzktdgfddb-20260706-192813.jpg"
+      },
+      {
+       "id": "27895156",
+       "order": 5,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1043k/1043958/1785668099-chqkikcqbe-20-8o5a0606.jpg"
+      },
+      {
+       "id": "27895154",
+       "order": 6,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1043k/1043958/1785668098-uvwwduahfy-12.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "630",
+       "name": "okres Znojmo",
+       "lvl": 3,
+       "uri": "okres-znojmo",
+       "osmId": 441326
+      },
+      {
+       "id": "9013",
+       "name": "Štítary",
+       "lvl": 4,
+       "uri": "stitary",
+       "osmId": 437045
+      }
+     ],
+     "active": true,
+     "reserved": false
+    }
+   ]
+  }
+ },
+ "extensions": {
+  "warnings": [
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "timeActivated"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "timeActivated"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "timeActivated"
+    ]
+   }
+  ]
+ }
+}

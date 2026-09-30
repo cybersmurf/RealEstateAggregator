@@ -101,6 +101,7 @@ search_filters:
     offer_types:
       - "Sale"           # Prodej
       - "Rent"           # Pronájem
+      - "Auction"        # Dražba (OK dražby, Sreality dražby) – 30. 9. 2026
 
   # Filtery pro stavební pozemky (Land)
   land:
@@ -109,6 +110,7 @@ search_filters:
     min_price: null
     offer_types:
       - "Sale"
+      - "Auction"
     
   # Filtery pro byty (Apartments)
   apartments:
@@ -118,6 +120,7 @@ search_filters:
     offer_types:
       - "Sale"
       - "Rent"
+      - "Auction"
     
   # Filtery pro komerční nemovitosti
   commercial:

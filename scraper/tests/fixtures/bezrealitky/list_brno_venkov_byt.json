@@ -1,0 +1,415 @@
+{
+ "data": {
+  "listAdverts": {
+   "totalCount": 8,
+   "list": [
+    {
+     "id": "1049300",
+     "uri": "1049300-nabidka-prodej-bytu-brnenska-pole-slapanice",
+     "type": "UNDEFINED",
+     "estateType": "BYT",
+     "offerType": "PRODEJ",
+     "disposition": "DISP_3_KK",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "VERY_GOOD",
+     "construction": "BRICK",
+     "reconstruction": null,
+     "ownership": "OSOBNI",
+     "address": "Brněnská Pole, Šlapanice - Šlapanice u Brna, Jihomoravský kraj",
+     "city": "Šlapanice",
+     "cityDistrict": "Šlapanice u Brna",
+     "street": "Brněnská Pole",
+     "zip": "664 51",
+     "surface": 62,
+     "surfaceLand": null,
+     "price": 7490000,
+     "currency": "CZK",
+     "originalPrice": 8290000,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 49.1644327,
+      "lng": 16.7187788
+     },
+     "imageAltText": "Prodej bytu 3+kk 62 m², Brněnská Pole, Šlapanice, Jihomoravský kraj",
+     "title": "Prodej bytu 3+kk 62 m²",
+     "description": "Nabízím k prodeji byt 3+kk v osobním vlastnictví nacházející se v nové moderní rezidenční čtvrti obce Šlapanice. Tento byt o užitné ploše 62 m² se nachází v 1. patře čtyřpodlažního cihlového domu z roku 2010 s 16 bytovými jednotkami a je celý zařízený v jednotném jemně pastelovém stylu, díky čemuž působí velmi světle a útulně. \n\nByt je ve velmi dobrém stavu a je prodáván plně zařízený dle přiložených fotek, takže si stačí pouze přinést osobní věci a začít bydlet. Zařízení bytu (postele, sedačka, stoly, židle, dvířka kuchyňské linky) bylo pořizováno před 2 roky, tudíž je téměř jako nové.\n\nVýtah",
+     "mainImage": {
+      "id": "28053135",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1049k/1049300/1787987980-yxjbhsscxr-20260630-191036.jpg"
+     },
+     "publicImages": [
+      {
+       "id": "28053135",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1049k/1049300/1787987980-yxjbhsscxr-20260630-191036.jpg"
+      },
+      {
+       "id": "28053136",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1049k/1049300/1787988006-gdddnhwvvy-20260630-191648.jpg"
+      },
+      {
+       "id": "28053137",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1049k/1049300/1787988016-xlcqrxxyah-20260630-192513_TS1787988381TS.jpg"
+      },
+      {
+       "id": "28053138",
+       "order": 4,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1049k/1049300/1787988025-zjtvhgaaho-20260630-192631.jpg"
+      },
+      {
+       "id": "28053139",
+       "order": 5,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1049k/1049300/1787988040-whsqxxpaee-20260630-193026.jpg"
+      },
+      {
+       "id": "28053140",
+       "order": 6,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1049k/1049300/1787988052-pdwuyaxzve-20260630-193043.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "659",
+       "name": "okres Brno-venkov",
+       "lvl": 3,
+       "uri": "okres-brno-venkov",
+       "osmId": 442084
+      },
+      {
+       "id": "12012",
+       "name": "Šlapanice",
+       "lvl": 4,
+       "uri": "slapanice-okres-brno-venkov",
+       "osmId": 436872
+      }
+     ],
+     "active": true,
+     "reserved": false
+    },
+    {
+     "id": "1072310",
+     "uri": "1072310-nabidka-prodej-bytu-ivancice",
+     "type": "UNDEFINED",
+     "estateType": "BYT",
+     "offerType": "PRODEJ",
+     "disposition": "DISP_3_KK",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "PROJECT",
+     "construction": "BRICK",
+     "reconstruction": null,
+     "ownership": "OSOBNI",
+     "address": "Kupařovice - Kupařovice, Jihomoravský kraj",
+     "city": "Kupařovice",
+     "cityDistrict": "Kupařovice",
+     "street": "",
+     "zip": "664 64",
+     "surface": 78,
+     "surfaceLand": null,
+     "price": 5390000,
+     "currency": "CZK",
+     "originalPrice": 5390000,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 49.0425976,
+      "lng": 16.4884369
+     },
+     "imageAltText": "Prodej bytu 3+kk 78 m², Kupařovice, Jihomoravský kraj",
+     "title": "Prodej bytu 3+kk 78 m²",
+     "description": "Nabízím k prodeji byt 3+kk o užitné ploše 78 m2 ve fázi projektu situovaný v 2. NP v cihlové budově, ve fázi projektu a je určený k osobnímu vlastnictví. Byt o celkové ploše 78 m² má předpokládaný termín realizace 2027-2028 Byt se nachází v domě s 2 byty a samostatným přístupem, což zajišťuje klid a přehledné uspořádání.\n\nSoučástí bytu je také prostorná terasa o rozloze 20 m², ideální pro relaxaci na čerstvém vzduchu. Z hlediska energetické náročnosti získal objekt štítek třídy B a bude vybavený moderními úspornými technologiemi jako jsou rekuperace, klimatizace a ohřev TUV a topení tepelným č",
+     "mainImage": {
+      "id": "28252618",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1072k/1072310/1790684688-dxynjmpxwd-inzer-c3-a1t-bj-3-2bkk-up-78-m2-260929.jpg"
+     },
+     "publicImages": [
+      {
+       "id": "28252618",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1072k/1072310/1790684688-dxynjmpxwd-inzer-c3-a1t-bj-3-2bkk-up-78-m2-260929.jpg"
+      },
+      {
+       "id": "28252619",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1072k/1072310/1790684710-iucvokgmso-kupa-c5-99ovice-3d-230413-01.jpg"
+      },
+      {
+       "id": "28252620",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1072k/1072310/1790684717-igicebykga-c5-a1ir-c5-a1-c3-ad-vztahy-kn-240910.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "659",
+       "name": "okres Brno-venkov",
+       "lvl": 3,
+       "uri": "okres-brno-venkov",
+       "osmId": 442084
+      },
+      {
+       "id": "13598",
+       "name": "Kupařovice",
+       "lvl": 4,
+       "uri": "kuparovice",
+       "osmId": 442050
+      }
+     ],
+     "active": true,
+     "reserved": false
+    },
+    {
+     "id": "1069173",
+     "uri": "1069173-nabidka-prodej-bytu-visnova-so-pou-slapanice",
+     "type": "UNDEFINED",
+     "estateType": "BYT",
+     "offerType": "PRODEJ",
+     "disposition": "DISP_2_KK",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "VERY_GOOD",
+     "construction": "BRICK",
+     "reconstruction": null,
+     "ownership": "OSOBNI",
+     "address": "Višňová, Moravany - Moravany u Brna, Jihomoravský kraj",
+     "city": "Moravany",
+     "cityDistrict": "Moravany u Brna",
+     "street": "Višňová",
+     "zip": "664 48",
+     "surface": 57,
+     "surfaceLand": null,
+     "price": 7600000,
+     "currency": "CZK",
+     "originalPrice": 7600000,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 49.1536822,
+      "lng": 16.5908359
+     },
+     "imageAltText": "Prodej bytu 2+kk 57 m², Višňová, Moravany, Jihomoravský kraj",
+     "title": "Prodej bytu 2+kk 57 m²",
+     "description": "Nabízíme k prodeji útulný a světlý byt 2+kk v cihlové budově v rezidenci Jabloňový sad v kat. území Moravany u Brna. Moravany nabízejí ideální spojení klidného bydlení a výborné dostupnosti do města. Velkou výhodou je rychlé napojení na dálnice D1, D2 a D52. Lokalita je vhodná pro rodiny s dětmi, páry i jednotlivce, kteří chtějí bydlet v klidném prostředí, ale současně mít Brno a důležité dopravní tahy na dosah. Byt je ve velmi dobrém stavu a rozkládá se na ploše 57 m2, je umístěn ve druhém podlaží, což zaručuje příjemné výhledy a minimální tepelné ztráty.\n\nByt disponuje částečnou vybaveností,",
+     "mainImage": {
+      "id": "28199265",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069173/1789902454-neqmhxzlpx-chatgpt-image-sep-20-2c-2026-2c-01-07-03-pm.png"
+     },
+     "publicImages": [
+      {
+       "id": "28199265",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069173/1789902454-neqmhxzlpx-chatgpt-image-sep-20-2c-2026-2c-01-07-03-pm.png"
+      },
+      {
+       "id": "28199266",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069173/1789901902-lsgmmsrzmp-img-8658-283-29-640x640.jpg"
+      },
+      {
+       "id": "28199267",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069173/1789901909-unxrrxfhlu-18430af2-8ece-4ec0-953e-27a7c24aa40c.png"
+      },
+      {
+       "id": "28199268",
+       "order": 4,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069173/1789902864-coebnyiljm-chatgpt-image-sep-20-2c-2026-2c-12-39-25-pm-640x640.jpg"
+      },
+      {
+       "id": "28199269",
+       "order": 5,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069173/1789901888-rbxzhyiyms-img-2034-281-29-640x640.jpg"
+      },
+      {
+       "id": "28199270",
+       "order": 6,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1069k/1069173/1789901334-trvfpbvvgj-img-2019-281-29-640x640.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "659",
+       "name": "okres Brno-venkov",
+       "lvl": 3,
+       "uri": "okres-brno-venkov",
+       "osmId": 442084
+      },
+      {
+       "id": "12006",
+       "name": "Moravany",
+       "lvl": 4,
+       "uri": "moravany-okres-brno-venkov",
+       "osmId": 436866
+      }
+     ],
+     "active": true,
+     "reserved": false
+    }
+   ]
+  }
+ },
+ "extensions": {
+  "warnings": [
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "timeActivated"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "timeActivated"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "timeActivated"
+    ]
+   }
+  ]
+ }
+}

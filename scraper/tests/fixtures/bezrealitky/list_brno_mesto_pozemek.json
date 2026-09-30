@@ -1,0 +1,421 @@
+{
+ "data": {
+  "listAdverts": {
+   "totalCount": 17,
+   "list": [
+    {
+     "id": "961817",
+     "uri": "961817-nabidka-prodej-pozemku-brno",
+     "type": "INVESTUJ_DO_POLE",
+     "estateType": "POZEMEK",
+     "offerType": "PRODEJ",
+     "disposition": "UNDEFINED",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "UNDEFINED",
+     "construction": "UNDEFINED",
+     "reconstruction": null,
+     "ownership": "UNDEFINED",
+     "address": "Brno - Chrlice, Jihomoravský kraj",
+     "city": "Brno",
+     "cityDistrict": "Chrlice",
+     "street": "",
+     "zip": "61600",
+     "surface": 0,
+     "surfaceLand": 4579,
+     "price": 750000,
+     "currency": "CZK",
+     "originalPrice": 750000,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 49.121724,
+      "lng": 16.65577
+     },
+     "imageAltText": "Prodej pozemku 4.579 m², Brno, Jihomoravský kraj",
+     "title": "Prodej pozemku 4.579 m²",
+     "description": "U nás nakupujete přímo od vlastníka – bez prostředníků a bez zbytečných výdajů navíc!\n\nk.ú. Chrlice \nLV č. 781 o výměře 4579 m²\n    • Parcela č. 3235 - o výměře 4579 m² (Orná půda)\n\nPřístupová cesta je zajištěna přes pozemky města.\n\nUž přes 20 let pomáháme lidem bezpečně investovat do pozemků – ať už hledáte stabilní investici, nebo půdu pro hospodaření. Přidejte se k těm, kteří vsadili na jistotu a zhodnocují své peníze tam, kde má investice pevné základy.\nCelý proces služby je ZDARMA, správní poplatek (podání na katastr) hradí kupující. Vlastník si vyhrazuje právo prodat nejvyšší nabídce. Pr",
+     "mainImage": {
+      "id": "27850570",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/961k/961817/961817-1784896909-foto-1.jpg"
+     },
+     "publicImages": [
+      {
+       "id": "27850570",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/961k/961817/961817-1784896909-foto-1.jpg"
+      },
+      {
+       "id": "27850571",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/961k/961817/961817-1784896909-foto-2.jpg"
+      },
+      {
+       "id": "27850572",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/961k/961817/961817-1784896909-foto-3.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "664",
+       "name": "okres Brno-město",
+       "lvl": 3,
+       "uri": "okres-brno-mesto",
+       "osmId": 442273
+      },
+      {
+       "id": "12547",
+       "name": "Brno",
+       "lvl": 4,
+       "uri": "brno",
+       "osmId": 438171
+      },
+      {
+       "id": "18357",
+       "name": "Brno-Chrlice",
+       "lvl": 5,
+       "uri": "brno-chrlice",
+       "osmId": 425974
+      }
+     ],
+     "active": true,
+     "reserved": false
+    },
+    {
+     "id": "1050999",
+     "uri": "1050999-nabidka-prodej-pozemku-brno",
+     "type": "INVESTUJ_DO_POLE",
+     "estateType": "POZEMEK",
+     "offerType": "PRODEJ",
+     "disposition": "UNDEFINED",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "UNDEFINED",
+     "construction": "UNDEFINED",
+     "reconstruction": null,
+     "ownership": "UNDEFINED",
+     "address": "Brno - Slatina, Jihomoravský kraj",
+     "city": "Brno",
+     "cityDistrict": "Slatina",
+     "street": "",
+     "zip": "62700",
+     "surface": 0,
+     "surfaceLand": 4024,
+     "price": 422300,
+     "currency": "CZK",
+     "originalPrice": 422300,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 49.167666,
+      "lng": 16.697317
+     },
+     "imageAltText": "Prodej pozemku 4.024 m², Brno, Jihomoravský kraj",
+     "title": "Prodej pozemku 4.024 m²",
+     "description": "U nás nakupujete přímo od vlastníka - bez prostředníků a bez zbytečných výdajů navíc!\n\nk.ú. Slatina\n\nLV č. 2515 o výměře 4024 m², podíl 1/12\n• Parcela č. 2189/1 - o výměře 40387 m² (Orná půda)\n• Parcela č. 2191/28 - o výměře 2774 m² (Orná půda)\n• Parcela č. 2191/31 - o výměře 5129 m² (Orná půda)\n\nPřístupová cesta je zajištěna přes pozemky města a České republiky.\n\nPomáháme lidem bezpečně investovat do pozemků - ať už hledáte stabilní investici, nebo půdu pro hospodaření. Přidejte se k těm, kteří vsadili na jistotu a zhodnocují své peníze tam, kde má investice pevné základy.\n\nCelý proces služby",
+     "mainImage": {
+      "id": "27885425",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050999/1050999-1785490862-foto-1.jpg"
+     },
+     "publicImages": [
+      {
+       "id": "27885425",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050999/1050999-1785490862-foto-1.jpg"
+      },
+      {
+       "id": "27885426",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050999/1050999-1785490862-foto-2.jpg"
+      },
+      {
+       "id": "27885427",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1050k/1050999/1050999-1785490862-foto-3.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "664",
+       "name": "okres Brno-město",
+       "lvl": 3,
+       "uri": "okres-brno-mesto",
+       "osmId": 442273
+      },
+      {
+       "id": "12547",
+       "name": "Brno",
+       "lvl": 4,
+       "uri": "brno",
+       "osmId": 438171
+      },
+      {
+       "id": "28375",
+       "name": "Brno-Slatina",
+       "lvl": 5,
+       "uri": "brno-slatina",
+       "osmId": 436325
+      }
+     ],
+     "active": true,
+     "reserved": false
+    },
+    {
+     "id": "1040980",
+     "uri": "1040980-nabidka-prodej-pozemku-brno",
+     "type": "INVESTUJ_DO_POLE",
+     "estateType": "POZEMEK",
+     "offerType": "PRODEJ",
+     "disposition": "UNDEFINED",
+     "landType": "UNDEFINED",
+     "houseType": null,
+     "condition": "UNDEFINED",
+     "construction": "UNDEFINED",
+     "reconstruction": null,
+     "ownership": "UNDEFINED",
+     "address": "Brno - Bosonohy, Jihomoravský kraj",
+     "city": "Brno",
+     "cityDistrict": "Bosonohy",
+     "street": "",
+     "zip": "",
+     "surface": 0,
+     "surfaceLand": 1326,
+     "price": 7800000,
+     "currency": "CZK",
+     "originalPrice": 7800000,
+     "isDiscounted": false,
+     "charges": 0,
+     "gps": {
+      "lat": 49.172524,
+      "lng": 16.546432
+     },
+     "imageAltText": "Prodej pozemku 1.326 m², Brno, Jihomoravský kraj",
+     "title": "Prodej pozemku 1.326 m²",
+     "description": "Nabízíme k prodeji exkluzivní investiční a stavební pozemek o celkové výměře 1 326 m² situovaný v mimořádně dynamicky se rozvíjející komerční zóně na jižním okraji Brna, v katastrálním území Bosonohy, v těsné blízkosti ulice Jihlavská.\n\nPozemek je zapsán na LV 211 (k.ú. Bosonohy [608505]) pod parcelním číslem 2450/314. Jedná se o ucelenou plochu v rovinatém terénu, která je dle platného Územního plánu města Brna definována jako plocha zastavitelná. Svou polohou je ideální pro vybudování sídla firmy, medicínského centra, prodejního showroomu, administrativní budovy nebo ubytovacího zařízení.\n\nR",
+     "mainImage": {
+      "id": "27709491",
+      "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1040k/1040980/1040980-1782978215-foto-1.jpg"
+     },
+     "publicImages": [
+      {
+       "id": "27709491",
+       "order": 1,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1040k/1040980/1040980-1782978215-foto-1.jpg"
+      },
+      {
+       "id": "27709492",
+       "order": 2,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1040k/1040980/1040980-1782978215-foto-2.jpg"
+      },
+      {
+       "id": "27709493",
+       "order": 3,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1040k/1040980/1040980-1782978215-foto-3.jpg"
+      },
+      {
+       "id": "27709494",
+       "order": 4,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1040k/1040980/1040980-1782978215-foto-4.jpg"
+      },
+      {
+       "id": "27709495",
+       "order": 5,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1040k/1040980/1040980-1782978215-foto-5.jpg"
+      },
+      {
+       "id": "27709496",
+       "order": 6,
+       "url": "https://api.bezrealitky.cz/media/cache/record_main/data/images/advert/1040k/1040980/1040980-1782978215-foto-6.jpg"
+      }
+     ],
+     "regionTree": [
+      {
+       "id": "487",
+       "name": "Jihomoravský kraj",
+       "lvl": 2,
+       "uri": "jihomoravsky-kraj",
+       "osmId": 442311
+      },
+      {
+       "id": "664",
+       "name": "okres Brno-město",
+       "lvl": 3,
+       "uri": "okres-brno-mesto",
+       "osmId": 442273
+      },
+      {
+       "id": "12547",
+       "name": "Brno",
+       "lvl": 4,
+       "uri": "brno",
+       "osmId": 438171
+      },
+      {
+       "id": "19882",
+       "name": "Brno-Bosonohy",
+       "lvl": 5,
+       "uri": "brno-bosonohy",
+       "osmId": 427519
+      }
+     ],
+     "active": true,
+     "reserved": false
+    }
+   ]
+  }
+ },
+ "extensions": {
+  "warnings": [
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     0,
+     "timeActivated"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     1,
+     "timeActivated"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 5,
+      "column": 61
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "houseType"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 7
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "timeOrder"
+    ]
+   },
+   {
+    "message": "Access denied to this field.",
+    "locations": [
+     {
+      "line": 14,
+      "column": 17
+     }
+    ],
+    "path": [
+     "listAdverts",
+     "list",
+     2,
+     "timeActivated"
+    ]
+   }
+  ]
+ }
+}

@@ -156,6 +156,56 @@ public static class DbInitializer
                 SupportsListScrape = true,
                 ScraperType = "Python",
             },
+            new()
+            {
+                Code = "REALITYCECHY",
+                Name = "Reality Čechy",
+                BaseUrl = "https://www.realitycechy.cz",
+                IsActive = true,
+                SupportsUrlScrape = false,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "REALITYMIX",
+                Name = "RealityMIX",
+                BaseUrl = "https://realitymix.cz",
+                IsActive = true,
+                SupportsUrlScrape = false,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "REALCITY",
+                Name = "Realcity",
+                BaseUrl = "https://www.realcity.cz",
+                IsActive = true,
+                SupportsUrlScrape = false,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "BEZREALITKY",
+                Name = "Bezrealitky",
+                BaseUrl = "https://www.bezrealitky.cz",
+                IsActive = true,
+                SupportsUrlScrape = false,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "OKDRAZBY",
+                Name = "OK dražby",
+                BaseUrl = "https://okdrazby.cz",
+                IsActive = true,
+                SupportsUrlScrape = false,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
         };
 
         var newSources = allSources.Where(s => !existingCodes.Contains(s.Code)).ToList();
