@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Api.Contracts.Listings;
 using RealEstate.Domain.Enums;
@@ -21,7 +23,8 @@ public sealed record DuplicateCandidate(
     double? AreaBuiltUp,
     double? AreaLand,
     DateTime FirstSeenAt,
-    bool PreciseGps = true);
+    bool PreciseGps = true,
+    string? District = null);
 
 public sealed class DuplicateDetectionService(
     RealEstateDbContext ctx,
@@ -47,6 +50,28 @@ public sealed class DuplicateDetectionService(
     /// <summary>Fallback bez GPS: max. relativní rozdíl plochy (5 %).</summary>
     private const double AreaTolerance = 0.05;
 
+    /// <summary>Opakovaný inzerát téhož domu v jednom zdroji: GPS musí být prakticky totožná.</summary>
+    private const double RepeatGpsMaxMeters = 100;
+
+    /// <summary>
+    /// Zdroje, které posílají GPS, ale je to jen střed obce geokódovaný portálem
+    /// (medián odchylky proti Sreality 0,8–3 km, měřeno 30. 9. 2026). Bereme je jako přibližné.
+    /// </summary>
+    public static readonly string[] ApproxGpsSources = ["REALITYCECHY", "REALITYMIX", "REALCITY", "BEZREALITKY"];
+
+    /// <summary>
+    /// Typy, které různé zdroje zaměňují u téže nemovitosti: chata/dům, dům/ostatní (Reas),
+    /// komerční/dům (penziony, apartmány), garáž/ostatní (iDNES).
+    /// </summary>
+    private static readonly HashSet<(PropertyType, PropertyType)> CompatibleTypes =
+    [
+        (PropertyType.House, PropertyType.Cottage), (PropertyType.Cottage, PropertyType.House),
+        (PropertyType.House, PropertyType.Other), (PropertyType.Other, PropertyType.House),
+        (PropertyType.House, PropertyType.Commercial), (PropertyType.Commercial, PropertyType.House),
+        (PropertyType.Cottage, PropertyType.Other), (PropertyType.Other, PropertyType.Cottage),
+        (PropertyType.Garage, PropertyType.Other), (PropertyType.Other, PropertyType.Garage),
+    ];
+
     public async Task<DuplicateScanResultDto> DetectAsync(CancellationToken cancellationToken)
     {
         var candidates = await ctx.Listings
@@ -56,7 +81,8 @@ public sealed class DuplicateDetectionService(
                 l.Id, l.SourceId, l.PropertyType, l.OfferType,
                 l.Price, l.Latitude, l.Longitude,
                 l.Municipality, l.AreaBuiltUp, l.AreaLand, l.FirstSeenAt,
-                l.GeocodeSource != "nominatim"))
+                l.GeocodeSource != "nominatim" && !ApproxGpsSources.Contains(l.SourceCode),
+                l.District))
             .ToListAsync(cancellationToken);
 
         var mapping = BuildClusters(candidates); // dupId -> primaryId
@@ -97,8 +123,8 @@ public sealed class DuplicateDetectionService(
     /// </summary>
     public static bool IsDuplicatePair(DuplicateCandidate a, DuplicateCandidate b)
     {
-        if (a.SourceId == b.SourceId) return false;              // duplicity v rámci zdroje řeší (source_id, external_id) unique
-        if (a.PropertyType != b.PropertyType) return false;
+        if (a.SourceId == b.SourceId) return false;              // opakování v jednom zdroji řeší IsSameSourceRepeat
+        if (!TypesCompatible(a.PropertyType, b.PropertyType)) return false;
         if (a.OfferType != b.OfferType) return false;
 
         if (a.Price is not > 0 || b.Price is not > 0) return false;
@@ -136,8 +162,87 @@ public sealed class DuplicateDetectionService(
         if (distance <= ApproxGpsMaxMeters)
             return true;
 
-        return !string.IsNullOrWhiteSpace(a.Municipality)
-            && string.Equals(a.Municipality.Trim(), b.Municipality?.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (MunicipalityMatches(a.Municipality, b.Municipality))
+            return true;
+
+        // Obec chybí (iDNES, Bazoš, REMAX, Reas… ji neplní): stejný okres + užitná plocha
+        // i pozemek na metr stejné je dost silná shoda i bez obce a GPS.
+        var municipalityMissing = string.IsNullOrWhiteSpace(a.Municipality) || string.IsNullOrWhiteSpace(b.Municipality);
+        return municipalityMissing
+            && builtUp == true && land == true
+            && DistrictMatches(a.District, b.District);
+    }
+
+    /// <summary>
+    /// Tentýž inzerát podaný v jednom zdroji vícekrát (SREALITY dům Kuchařovická 4×).
+    /// Přísnější než cross-source pár: cena na korunu, plochy stejné (obě známé), a buď přesná
+    /// GPS do 100 m, nebo bez přesné GPS stejná obec a známý stejný pozemek.
+    /// </summary>
+    public static bool IsSameSourceRepeat(DuplicateCandidate a, DuplicateCandidate b)
+    {
+        if (a.SourceId != b.SourceId) return false;
+        if (a.PropertyType != b.PropertyType || a.OfferType != b.OfferType) return false;
+        // Pozemky (parcelace: stejná cena, výměra i poloha) a byty (developer: shodné jednotky
+        // v jednom domě) se legitimně opakují – opakování řešíme jen u budov.
+        if (a.PropertyType is PropertyType.Land or PropertyType.Apartment) return false;
+        if (a.Price is not > 0 || b.Price is not > 0 || a.Price != b.Price) return false;
+
+        var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
+        var land = CompareAreas(a.AreaLand, b.AreaLand);
+        if (builtUp == false || land == false) return false;
+        if (builtUp != true && land != true) return false;
+
+        var bothPreciseGps = a.PreciseGps && b.PreciseGps
+            && a.Latitude is not null && a.Longitude is not null
+            && b.Latitude is not null && b.Longitude is not null;
+        if (bothPreciseGps)
+            return GpsDistanceMeters(a.Latitude!.Value, a.Longitude!.Value, b.Latitude!.Value, b.Longitude!.Value) <= RepeatGpsMaxMeters;
+
+        return builtUp == true && land == true && MunicipalityMatches(a.Municipality, b.Municipality);
+    }
+
+    public static bool TypesCompatible(PropertyType a, PropertyType b)
+        => a == b || CompatibleTypes.Contains((a, b));
+
+    /// <summary>
+    /// Obce se shodují, když má některá část („ulice, obec" / „obec, okresní město" – Realingo,
+    /// REALmix) po normalizaci protějšek. Bez diakritiky, bez velikosti písmen.
+    /// </summary>
+    public static bool MunicipalityMatches(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+        var partsA = MunicipalityParts(a);
+        var partsB = MunicipalityParts(b);
+        return partsA.Overlaps(partsB);
+    }
+
+    private static bool DistrictMatches(string? a, string? b)
+        => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
+           && NormalizeText(a) == NormalizeText(b);
+
+    private static HashSet<string> MunicipalityParts(string value)
+    {
+        var parts = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in value.Split([',', '–', '-'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var n = NormalizeText(raw);
+            if (n.Length >= 3) parts.Add(n);
+        }
+        parts.Add(NormalizeText(value));
+        return parts;
+    }
+
+    /// <summary>Malá písmena, bez diakritiky, sjednocené mezery – pro porovnání obcí a okresů.</summary>
+    public static string NormalizeText(string value)
+    {
+        var decomposed = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(decomposed.Length);
+        foreach (var ch in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.NonSpacingMark) continue;
+            sb.Append(char.IsWhiteSpace(ch) ? ' ' : ch);
+        }
+        return string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
     /// <summary>
@@ -147,6 +252,14 @@ public sealed class DuplicateDetectionService(
     /// </summary>
     public static Dictionary<Guid, Guid> BuildClusters(IReadOnlyList<DuplicateCandidate> candidates)
     {
+        var byId = candidates.ToDictionary(c => c.Id);
+
+        // Krok 0: opakování v rámci zdroje (SREALITY má týž dům i 4×). Bez toho by
+        // „jednoznačná shoda v cizím zdroji" nikdy nenastala a celá skupina by propadla.
+        // Opakování se sloučí na zástupce (nejstarší) a do cross-source párování jde jen on.
+        var repeatOf = BuildSameSourceRepeats(candidates);
+        var representatives = candidates.Where(c => !repeatOf.ContainsKey(c.Id)).ToList();
+
         var parent = new Dictionary<Guid, Guid>();
 
         Guid Find(Guid x)
@@ -165,10 +278,11 @@ public sealed class DuplicateDetectionService(
             if (rx != ry) { parent.TryAdd(rx, rx); parent.TryAdd(ry, ry); parent[ry] = rx; }
         }
 
-        // Kandidáty porovnáváme jen uvnitř (typ, nabídka) skupiny a jen v cenovém okně ±2 %
+        // Kandidáty porovnáváme jen uvnitř nabídky a jen v cenovém okně ±2 %
         // – z O(n²) přes všechno je O(n²) přes pár desítek inzerátů se stejnou cenou.
+        // Typ nemovitosti se kontroluje až v páru (chata/dům apod. jsou kompatibilní).
         var pairs = new List<(DuplicateCandidate A, DuplicateCandidate B)>();
-        foreach (var group in candidates.Where(c => c.Price is > 0).GroupBy(c => (c.PropertyType, c.OfferType)))
+        foreach (var group in representatives.Where(c => c.Price is > 0).GroupBy(c => c.OfferType))
         {
             var sorted = group.OrderBy(c => c.Price).ToList();
             for (var i = 0; i < sorted.Count; i++)
@@ -197,7 +311,6 @@ public sealed class DuplicateDetectionService(
         }
 
         // Skupiny → primární podle FirstSeenAt
-        var byId = candidates.ToDictionary(c => c.Id);
         var clusters = parent.Keys.GroupBy(Find);
         var result = new Dictionary<Guid, Guid>();
 
@@ -206,7 +319,7 @@ public sealed class DuplicateDetectionService(
             var members = cluster.Select(id => byId[id]).ToList();
             if (members.Count < 2) continue;
 
-            // Dva inzeráty ze stejného zdroje ve skupině = řetěz přes různé nemovitosti; radši nic
+            // Dva zástupci ze stejného zdroje ve skupině = řetěz přes různé nemovitosti; radši nic
             if (members.DistinctBy(m => m.SourceId).Count() < members.Count) continue;
 
             var primary = members.OrderBy(m => m.FirstSeenAt).ThenBy(m => m.Id).First();
@@ -214,6 +327,51 @@ public sealed class DuplicateDetectionService(
                 result[m.Id] = primary.Id;
         }
 
+        // Opakování dostanou primár svého zástupce (nebo zástupce samotného, když nemá skupinu)
+        foreach (var (dupId, repId) in repeatOf)
+            result[dupId] = result.TryGetValue(repId, out var primaryId) ? primaryId : repId;
+
+        return result;
+    }
+
+    /// <summary>Mapa opakovaný inzerát → zástupce (nejstarší v rámci zdroje). Union-find nad IsSameSourceRepeat.</summary>
+    public static Dictionary<Guid, Guid> BuildSameSourceRepeats(IReadOnlyList<DuplicateCandidate> candidates)
+    {
+        var parent = new Dictionary<Guid, Guid>();
+
+        Guid Find(Guid x)
+        {
+            while (parent.TryGetValue(x, out var p) && p != x)
+            {
+                parent[x] = parent.TryGetValue(p, out var gp) ? gp : p;
+                x = parent[x];
+            }
+            return x;
+        }
+
+        foreach (var group in candidates.Where(c => c.Price is > 0).GroupBy(c => (c.SourceId, c.PropertyType, c.OfferType, c.Price)))
+        {
+            var members = group.ToList();
+            if (members.Count < 2) continue;
+            for (var i = 0; i < members.Count; i++)
+                for (var j = i + 1; j < members.Count; j++)
+                    if (IsSameSourceRepeat(members[i], members[j]))
+                    {
+                        var (rx, ry) = (Find(members[i].Id), Find(members[j].Id));
+                        if (rx != ry) { parent.TryAdd(rx, rx); parent.TryAdd(ry, ry); parent[ry] = rx; }
+                    }
+        }
+
+        var byId = candidates.ToDictionary(c => c.Id);
+        var result = new Dictionary<Guid, Guid>();
+        foreach (var cluster in parent.Keys.GroupBy(Find))
+        {
+            var members = cluster.Select(id => byId[id]).ToList();
+            if (members.Count < 2) continue;
+            var rep = members.OrderBy(m => m.FirstSeenAt).ThenBy(m => m.Id).First();
+            foreach (var m in members.Where(m => m.Id != rep.Id))
+                result[m.Id] = rep.Id;
+        }
         return result;
     }
 

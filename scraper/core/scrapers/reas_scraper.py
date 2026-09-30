@@ -68,6 +68,14 @@ PROPERTY_TYPE_MAP: Dict[str, str] = {
     "other": "Other",
 }
 
+# Segment URL → typ nemovitosti (fallback, když `type` inzerátu neznáme)
+SEGMENT_PROPERTY_TYPES: Dict[str, str] = {
+    "byty": "Apartment",
+    "domy": "House",
+    "pozemky": "Land",
+    "komerci": "Commercial",
+}
+
 # Segmenty URL k českému názvu pro title
 SEGMENT_NAMES: Dict[str, str] = {
     "byty": "bytu",
@@ -444,8 +452,10 @@ class ReasScraper:
         link: str = ad.get("link", f"{BASE_URL}/inzerat/{external_id}")
 
         # Typ nemovitosti
+        # Pole `type`/`subType` u části inzerátů typ nenese (63 domů skončilo jako „Ostatní"
+        # a detekce duplicit je nepárovala) – když mapa nepozná hodnotu, vezmi typ z URL segmentu.
         reas_type = ad.get("type") or ad.get("subType") or "other"
-        property_type = PROPERTY_TYPE_MAP.get(reas_type.lower(), "Other")
+        property_type = PROPERTY_TYPE_MAP.get(reas_type.lower()) or SEGMENT_PROPERTY_TYPES.get(segment, "Other")
 
         # Titulek – sestavíme z dostupných polí
         disposition = ad.get("disposition") or ""

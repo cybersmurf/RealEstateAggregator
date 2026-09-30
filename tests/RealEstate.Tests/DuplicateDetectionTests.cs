@@ -217,10 +217,10 @@ public class DuplicateDetectionClusterTests
     private static readonly Guid SourceC = Guid.NewGuid();
 
     private static DuplicateCandidate Make(Guid source, int daysOld, decimal price = 7_490_000m,
-        double lat = 48.8555, double lon = 16.0488)
+        double lat = 48.8555, double lon = 16.0488, PropertyType propertyType = PropertyType.House)
         => new(
-            Guid.NewGuid(), source, PropertyType.House, OfferType.Sale,
-            price, lat, lon, "Znojmo", 314, 673,
+            Guid.NewGuid(), source, propertyType, OfferType.Sale,
+            price, lat, lon, "Znojmo", propertyType == PropertyType.Land ? null : 314, 673,
             new DateTime(2026, 8, 1).AddDays(-daysOld));
 
     [Fact]
@@ -262,8 +262,8 @@ public class DuplicateDetectionClusterTests
     public void Subdivision_IdenticalParcelsOnTwoSources_NotMerged()
     {
         // Božice: pozemky č. 1–3, stejná cena, výměra i poloha – na Bazoši i SREALITY
-        var bazos = Enumerable.Range(0, 3).Select(i => Make(SourceA, daysOld: 10 + i)).ToList();
-        var sreality = Enumerable.Range(0, 3).Select(i => Make(SourceB, daysOld: i)).ToList();
+        var bazos = Enumerable.Range(0, 3).Select(i => Make(SourceA, daysOld: 10 + i, propertyType: PropertyType.Land)).ToList();
+        var sreality = Enumerable.Range(0, 3).Select(i => Make(SourceB, daysOld: i, propertyType: PropertyType.Land)).ToList();
 
         var mapping = DuplicateDetectionService.BuildClusters([.. bazos, .. sreality]);
 
@@ -278,9 +278,9 @@ public class DuplicateDetectionClusterTests
         var house2 = Make(SourceB, daysOld: 5);
         var parcels = new[]
         {
-            Make(SourceA, daysOld: 9, price: 2_160_000m, lat: 48.7550, lon: 16.2280),
-            Make(SourceA, daysOld: 8, price: 2_160_000m, lat: 48.7550, lon: 16.2280),
-            Make(SourceB, daysOld: 7, price: 2_160_000m, lat: 48.7550, lon: 16.2280),
+            Make(SourceA, daysOld: 9, price: 2_160_000m, lat: 48.7550, lon: 16.2280, propertyType: PropertyType.Land),
+            Make(SourceA, daysOld: 8, price: 2_160_000m, lat: 48.7550, lon: 16.2280, propertyType: PropertyType.Land),
+            Make(SourceB, daysOld: 7, price: 2_160_000m, lat: 48.7550, lon: 16.2280, propertyType: PropertyType.Land),
         };
 
         var mapping = DuplicateDetectionService.BuildClusters([house1, house2, .. parcels]);
@@ -329,5 +329,132 @@ public class DuplicateDetectionClusterTests
         Assert.Equal(2, mapping.Count);
         Assert.Equal(h1a.Id, mapping[h1b.Id]);
         Assert.Equal(h2a.Id, mapping[h2b.Id]);
+    }
+
+    [Fact]
+    public void SameSourceRepeats_CollapseAndFollowRepresentative()
+    {
+        // SREALITY: dům Kuchařovická 4× (stejná cena, plochy, GPS); Realingo má týž dům 1×.
+        // Dřív „nejednoznačná shoda" celou skupinu zahodila – teď se opakování slijí na nejstarší.
+        var sreality = Enumerable.Range(0, 4).Select(i => Make(SourceA, daysOld: 30 + i)).ToList();
+        var realingo = Make(SourceB, daysOld: 2);
+
+        var mapping = DuplicateDetectionService.BuildClusters([.. sreality, realingo]);
+
+        var oldest = sreality.OrderBy(s => s.FirstSeenAt).First();
+        Assert.Equal(4, mapping.Count);
+        Assert.All(sreality.Where(s => s.Id != oldest.Id), s => Assert.Equal(oldest.Id, mapping[s.Id]));
+        Assert.Equal(oldest.Id, mapping[realingo.Id]);
+    }
+
+    [Fact]
+    public void SameSourceRepeat_TwoDifferentHousesFarApart_NotCollapsed()
+    {
+        var a = Make(SourceA, daysOld: 10);
+        var b = Make(SourceA, daysOld: 5, lat: 48.8555 + 0.005);   // ~550 m
+
+        Assert.False(DuplicateDetectionService.IsSameSourceRepeat(a, b));
+        Assert.Empty(DuplicateDetectionService.BuildClusters([a, b]));
+    }
+}
+
+public class DuplicateDetectionRelaxedRuleTests
+{
+    private static readonly Guid SourceA = Guid.NewGuid();
+    private static readonly Guid SourceB = Guid.NewGuid();
+
+    private static DuplicateCandidate Make(Guid source, PropertyType type = PropertyType.House,
+        double? lat = null, double? lon = null, string? municipality = "Znojmo", string? district = "Znojmo",
+        double? builtUp = 120, double? land = 558, bool preciseGps = true)
+        => new(Guid.NewGuid(), source, type, OfferType.Sale, 6_690_000m, lat, lon, municipality, builtUp, land,
+            new DateTime(2026, 9, 1), preciseGps, district);
+
+    [Theory]
+    [InlineData("Šanov, Znojmo", "Šanov")]              // Realingo: obec + okresní město
+    [InlineData("Dlouhá, Hrabětice", "Hrabětice")]      // REALmix: ulice + obec
+    [InlineData("náměstí Svobody, Znojmo", "Znojmo")]   // ulice + město
+    [InlineData("Brno - Chrlice", "Brno")]              // Bezrealitky: město + část
+    [InlineData("ZNOJMO", "znojmo")]                    // velikost písmen
+    [InlineData("Zelešice", "Želešice")]                // diakritika
+    public void MunicipalityMatches_NormalizedParts(string a, string b)
+        => Assert.True(DuplicateDetectionService.MunicipalityMatches(a, b));
+
+    [Theory]
+    [InlineData("Šanov", "Šatov")]
+    [InlineData("Znojmo", null)]
+    [InlineData("", "Znojmo")]
+    public void MunicipalityMatches_DifferentOrMissing_False(string? a, string? b)
+        => Assert.False(DuplicateDetectionService.MunicipalityMatches(a, b));
+
+    [Fact]
+    public void NoGps_MunicipalityWithStreetPrefix_IsDuplicate()
+    {
+        var realmix = Make(SourceA, municipality: "Dlouhá, Hrabětice");
+        var sreality = Make(SourceB, municipality: "Hrabětice");
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(realmix, sreality));
+    }
+
+    [Fact]
+    public void NoGps_MunicipalityMissing_SameDistrictAndBothAreas_IsDuplicate()
+    {
+        // iDNES obec neplní; cena na korunu + užitná plocha + pozemek + okres stačí
+        var idnes = Make(SourceA, municipality: null);
+        var sreality = Make(SourceB);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(idnes, sreality));
+    }
+
+    [Fact]
+    public void NoGps_MunicipalityMissing_LandUnknown_NotDuplicate()
+    {
+        var idnes = Make(SourceA, municipality: null, land: null);
+        var sreality = Make(SourceB);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(idnes, sreality));
+    }
+
+    [Fact]
+    public void NoGps_MunicipalityMissing_DifferentDistrict_NotDuplicate()
+    {
+        var a = Make(SourceA, municipality: null, district: "Brno-venkov");
+        var b = Make(SourceB);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
+    }
+
+    [Fact]
+    public void CottageVsHouse_CloseGps_IsDuplicate()
+    {
+        var chata = Make(SourceA, PropertyType.Cottage, lat: 49.16, lon: 16.55);
+        var dum = Make(SourceB, PropertyType.House, lat: 49.1601, lon: 16.5501);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(chata, dum));
+    }
+
+    [Fact]
+    public void HouseVsLand_NeverDuplicate()
+    {
+        var dum = Make(SourceA, PropertyType.House, lat: 49.16, lon: 16.55);
+        var pozemek = Make(SourceB, PropertyType.Land, lat: 49.16, lon: 16.55);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(dum, pozemek));
+    }
+
+    [Fact]
+    public void ApproxGpsSource_FarCentroid_StillDuplicateByAreasAndMunicipality()
+    {
+        // Reality Čechy geokóduje střed obce (~800 m od domu); Sreality má přesnou GPS
+        var realitycechy = Make(SourceA, lat: 48.86, lon: 16.09, preciseGps: false);
+        var sreality = Make(SourceB, lat: 48.867, lon: 16.095);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(realitycechy, sreality));
+    }
+
+    [Fact]
+    public void ApproxGpsSources_ContainsNewPortals()
+    {
+        Assert.Contains("REALITYCECHY", DuplicateDetectionService.ApproxGpsSources);
+        Assert.DoesNotContain("SREALITY", DuplicateDetectionService.ApproxGpsSources);
     }
 }

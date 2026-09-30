@@ -158,6 +158,19 @@ class RealingoScraper:
             raise ValueError("__NEXT_DATA__ not found (změnil se web?)")
         return json.loads(m.group(1))
 
+    @staticmethod
+    def _municipality(name: str, crumbs: List[Dict[str, Any]], district: str) -> str:
+        """`location.name` je „Obec, Znojmo" (obec + okresní město) nebo „Ulice, Město" (ulice + město,
+        pak má breadcrumbs i město). Do `municipality` patří jen obec – jinak se v UI rozpadnou
+        stránky obcí a detekce duplicit nespáruje „Šanov, Znojmo" se „Šanov" ze Sreality."""
+        city = next((b["name"] for b in crumbs[1:] if b.get("name") and not str(b["name"]).startswith("Okres")), "")
+        if city:
+            return str(city).strip()
+        parts = [p.strip() for p in name.split(",") if p.strip()]
+        if len(parts) >= 2 and parts[-1].lower() == district.lower():
+            return parts[0]
+        return parts[-1] if parts else name.strip()
+
     def parse_list_page(self, html: str) -> Tuple[List[Dict[str, Any]], int]:
         data = self._next_data(html)
         lst = data["props"]["pageProps"]["store"]["offer"]["list"]
@@ -182,9 +195,10 @@ class RealingoScraper:
 
         area = offer.get("area") or {}
         price = (offer.get("price") or {}).get("total")
-        obec = location.get("name") or ""
-        okres = next((b["name"] for b in location.get("breadcrumbs", []) if str(b.get("name", "")).startswith("Okres")), "")
+        crumbs = location.get("breadcrumbs") or []
+        okres = next((b["name"] for b in crumbs if str(b.get("name", "")).startswith("Okres")), "")
         district = okres.replace("Okres ", "").strip()
+        obec = self._municipality(location.get("name") or "", crumbs, district)
         location_text = ", ".join(x for x in (obec, f"okres {district}" if district else "") if x)
 
         category = offer.get("category") or ""

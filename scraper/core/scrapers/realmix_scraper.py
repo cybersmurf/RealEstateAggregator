@@ -202,7 +202,8 @@ class RealmixScraper:
         if rk:
             description = (description + f"\n\nRealitní kancelář: {rk}")[:5000]
 
-        obec = item.get("municipality") or ""
+        # Výpis dává „Ulice, Obec" – do municipality patří jen obec (poslední část)
+        obec = (item.get("municipality") or "").split(",")[-1].strip()
         if not obec:
             crumbs = [a.get_text(strip=True) for a in soup.select(".breadcrumb a")]
             m2 = next((re.sub(r"^Domy |^Byty |^Pozemky ", "", c) for c in crumbs if re.match(r"^(Domy|Byty|Pozemky) [A-ZŠČŘŽÁÉÍÓÚŮŤĎŇĚ]", c)), "")
