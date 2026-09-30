@@ -1,5 +1,6 @@
 @page "/login"
 @inject NavigationManager Navigation
+@inject IConfiguration Configuration
 
 <PageTitle>Přihlášení – Real Estate Aggregator</PageTitle>
 
@@ -35,6 +36,14 @@
                         </MudStack>
                     </form>
 
+                    @if (BlackiesEnabled)
+                    {
+                        <MudButton Href="@BlackiesHref" Variant="Variant.Outlined" Color="Color.Default"
+                                   FullWidth="true" StartIcon="@Icons.Material.Filled.Mail">
+                            Přihlásit se účtem Blackies pošta
+                        </MudButton>
+                    }
+
                     <MudDivider />
                     <MudText Typo="Typo.body2" Align="Align.Center">
                         Nemáte účet? <MudLink Href="@RegisterHref">Zaregistrujte se zdarma</MudLink>
@@ -55,6 +64,11 @@
 
     [SupplyParameterFromQuery(Name = "returnUrl")]
     public string? ReturnUrl { get; set; }
+
+    private bool BlackiesEnabled => !string.IsNullOrWhiteSpace(Configuration["Oidc:ClientId"]);
+
+    private string BlackiesHref =>
+        "/account/login-blackies?returnUrl=" + Uri.EscapeDataString(string.IsNullOrEmpty(ReturnUrl) ? "/" : ReturnUrl);
 
     private string RegisterHref =>
         string.IsNullOrEmpty(ReturnUrl) ? "/register" : $"/register?returnUrl={Uri.EscapeDataString(ReturnUrl)}";

@@ -11,6 +11,8 @@ public interface IAuthService
 {
     Task<(AuthResponseDto? Result, string? Error)> RegisterAsync(RegisterRequestDto request, CancellationToken ct);
     Task<(AuthResponseDto? Result, string? Error)> LoginAsync(LoginRequestDto request, CancellationToken ct);
+    /// <summary>Přihlášení ověřené externím poskytovatelem (Stalwart OIDC). Účet vznikne při prvním přihlášení; povolené jen adresy z OIDC_ADMIN_EMAILS, ty dostanou IsAdmin.</summary>
+    Task<(AuthResponseDto? Result, string? Error)> LoginExternalAsync(string email, string? displayName, CancellationToken ct);
     Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct);
     Task<UserProfileDto?> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken ct);
     Task<string?> ChangePasswordAsync(Guid userId, ChangePasswordRequestDto request, CancellationToken ct);
@@ -65,6 +67,40 @@ public sealed class AuthService(
         if (user is null || !user.IsActive || !PasswordHashing.Verify(request.Password, user.PasswordHash))
             return (null, invalid);
 
+        user.LastLoginAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return (Issue(user), null);
+    }
+
+    public async Task<(AuthResponseDto? Result, string? Error)> LoginExternalAsync(string rawEmail, string? displayName, CancellationToken ct)
+    {
+        var email = NormalizeEmail(rawEmail);
+        if (email is null)
+            return (null, "Poskytovatel přihlášení nevrátil platný e-mail.");
+
+        // Jen vlastníci (Petr, Lenka): OIDC_ADMIN_EMAILS=petr@blackies.cz,lenka@blackies.cz.
+        // Bez seznamu je externí přihlášení vypnuté – zákazníci se hlásí heslem.
+        var admins = (Environment.GetEnvironmentVariable("OIDC_ADMIN_EMAILS") ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(a => a.ToLowerInvariant()).ToHashSet();
+        if (!admins.Contains(email))
+        {
+            logger.LogWarning("OIDC login refused for {Email}: not in OIDC_ADMIN_EMAILS", email);
+            return (null, "Tento účet nemá k aplikaci přístup.");
+        }
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+        if (user is null)
+        {
+            user = new User { Email = email, PasswordHash = null, Plan = UserPlans.Free };
+            db.Users.Add(user);
+            logger.LogInformation("Created admin user {Email} from OIDC", email);
+        }
+        if (!user.IsActive)
+            return (null, "Účet je deaktivovaný.");
+        user.IsAdmin = true;
+        if (string.IsNullOrWhiteSpace(user.DisplayName) && !string.IsNullOrWhiteSpace(displayName))
+            user.DisplayName = displayName.Trim();
         user.LastLoginAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
         return (Issue(user), null);

@@ -74,7 +74,7 @@ Endpoints are registered in `src/RealEstate.Api/Endpoints/` as extension methods
 
 ### Accounts, plans, authorization
 
-`CurrentUserMiddleware` fills scoped `ICurrentUser`: `Authorization: Bearer` (HMAC token from `/api/auth/login`) → user; master `X-Api-Key` (= `API_KEY`) → default admin (used by Blazor App for `/api/scraping`, MCP, scraper); customer key `rea_…` → its owner with a daily quota; nothing → anonymous (no personal states, no original description). Gate endpoints with `.RequireAuth()`, `.RequireAdmin()`, `.RequirePlan(UserPlans.Hledac|Profi)` from `Helpers/AuthorizationFilters.cs` (402 when the plan is missing). Plans: `free` / `hledac` / `profi` (`UserPlans`). Blazor App logs in via form POST `/account/login` (cookie with the API token as claim); `ApiAuthHandler` adds the Bearer to API calls. Owner-only UI is wrapped in `<AuthorizeView Policy="Admin">`.
+`CurrentUserMiddleware` fills scoped `ICurrentUser`: `Authorization: Bearer` (HMAC token from `/api/auth/login`) → user; master `X-Api-Key` (= `API_KEY`) → default admin (used by Blazor App for `/api/scraping`, MCP, scraper); customer key `rea_…` → its owner with a daily quota; nothing → anonymous (no personal states, no original description). Gate endpoints with `.RequireAuth()`, `.RequireAdmin()`, `.RequirePlan(UserPlans.Hledac|Profi)` from `Helpers/AuthorizationFilters.cs` (402 when the plan is missing). Plans: `free` / `hledac` / `profi` (`UserPlans`). Blazor App logs in via form POST `/account/login` (cookie with the API token as claim) or via Stalwart OIDC (`/account/login-blackies` → `/api/auth/oidc`, owners only, see `docs/BLACKIES_SSO.md`); `ApiAuthHandler` adds the Bearer to API calls. Owner-only UI is wrapped in `<AuthorizeView Policy="Admin">`.
 
 Legal constraints: the original listing text is returned only to admins – public UI shows `summary` (Ollama, filled by `AiSummaryHostedService`); listing photos are displayed from the source URL, stored copies are deleted after classification and `/uploads/listings/*/photos` returns 404.
 
@@ -150,6 +150,7 @@ Environment variables used by API (set in `docker-compose.yml` or `.env`):
 | `SKIP_EF_MIGRATIONS` | `true` = přeskočí bootstrap schématu při startu API |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Výchozí admin účet (Id `…0001`); heslo se při startu API srovná s proměnnou |
 | `AUTH_SECRET` | Podpis bearer tokenů (prázdné = odvozeno z `API_KEY`) |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_ADMIN_EMAILS` | Přihlášení vlastníků účtem Blackies pošta (Stalwart OIDC); adresy v seznamu dostanou admin. Bez `OIDC_CLIENT_ID` se tlačítko neukáže. Návrh v `docs/BLACKIES_SSO.md` |
 | `APP_PUBLIC_URL` | Odkazy v e-mailech, návrat ze Stripe (`https://realestate.sudata.eu`) |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_*` | Předplatné tarifů Hledač/Profi; bez klíče checkout vrací 503 |
 | `SMTP_HOST/PORT/USER/PASSWORD/FROM` | E-mailová upozornění uložených hledání, přeposílání leadů (`LEADS_NOTIFY_EMAIL`) |

@@ -22,6 +22,11 @@ public static class AuthEndpoints
             .WithSummary("Přihlášení e-mailem a heslem; vrací bearer token.")
             .RequireRateLimiting("auth");
 
+        group.MapPost("/oidc", OidcLogin)
+            .WithName("AuthOidcLogin")
+            .WithSummary("Přihlášení účtem Blackies pošta: access token ze Stalwartu → userinfo → bearer token (jen OIDC_ADMIN_EMAILS).")
+            .RequireRateLimiting("auth");
+
         group.MapGet("/me", Me)
             .WithName("AuthMe")
             .WithSummary("Profil přihlášeného uživatele (tarif, admin, Telegram).")
@@ -65,6 +70,45 @@ public static class AuthEndpoints
         return error is null
             ? Results.Ok(result)
             : Results.Problem(title: "Login failed", detail: error, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    /// <summary>
+    /// App udělá OIDC authorization code + PKCE proti Stalwartu (mail.blackies.cz) a pošle sem access token.
+    /// API ho ověří tím, že se jím zeptá userinfo endpointu (OIDC_USERINFO_URL) – token cizího vydavatele tam neprojde.
+    /// </summary>
+    private static async Task<IResult> OidcLogin(
+        [FromBody] OidcLoginRequestDto request, [FromServices] IAuthService auth,
+        [FromServices] IHttpClientFactory httpFactory, [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.AccessToken) || request.AccessToken.Length > 4096)
+            return Results.Problem(title: "Login failed", detail: "Chybí access token.", statusCode: StatusCodes.Status400BadRequest);
+
+        var userinfoUrl = Environment.GetEnvironmentVariable("OIDC_USERINFO_URL") ?? "https://mail.blackies.cz/auth/userinfo";
+        System.Text.Json.JsonElement info;
+        try
+        {
+            using var http = httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(15);
+            using var req = new HttpRequestMessage(HttpMethod.Get, userinfoUrl);
+            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", request.AccessToken);
+            using var res = await http.SendAsync(req, ct);
+            if (!res.IsSuccessStatusCode)
+                return Results.Problem(title: "Login failed", detail: "Přihlášení u poskytovatele neprošlo.", statusCode: StatusCodes.Status401Unauthorized);
+            info = await res.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(cancellationToken: ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            loggerFactory.CreateLogger("Auth").LogWarning(ex, "OIDC userinfo call failed ({Url})", userinfoUrl);
+            return Results.Problem(title: "Login failed", detail: "Poskytovatel přihlášení neodpovídá.", statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        var email = info.TryGetProperty("email", out var e) ? e.GetString()
+                  : info.TryGetProperty("preferred_username", out var pu) ? pu.GetString() : null;
+        var name = info.TryGetProperty("name", out var n) ? n.GetString() : null;
+        var (result, error) = await auth.LoginExternalAsync(email ?? "", name, ct);
+        return result is not null
+            ? Results.Ok(result)
+            : Results.Problem(title: "Login failed", detail: error, statusCode: StatusCodes.Status403Forbidden);
     }
 
     private static async Task<IResult> Me([FromServices] ICurrentUser user, [FromServices] IAuthService auth, CancellationToken ct)

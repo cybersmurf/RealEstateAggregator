@@ -13,6 +13,9 @@ namespace RealEstate.App.Services;
 /// </summary>
 public static class AccountEndpoints
 {
+    /// <summary>Schéma OIDC přihlášení účtem Blackies pošta (Stalwart); registruje se jen s Oidc__ClientId.</summary>
+    public const string BlackiesScheme = "Blackies";
+
     public static IEndpointRouteBuilder MapAccountEndpoints(this IEndpointRouteBuilder app)
     {
         // Antiforgery vypnuté záměrně: formuláře renderuje interaktivní Blazor a token by
@@ -21,6 +24,13 @@ public static class AccountEndpoints
         app.MapPost("/account/register", RegisterAsync).DisableAntiforgery();
         // Odhlášení i přes GET – odkaz z menu; riziko „cizího odhlášení" je zanedbatelné
         app.MapMethods("/account/sign-out", ["GET", "POST"], LogoutAsync).DisableAntiforgery();
+        // Přihlášení účtem Blackies pošta: výzva OIDC schématu, zbytek dělá OnTokenValidated v Program.cs
+        app.MapGet("/account/login-blackies", (HttpContext ctx, string? returnUrl) =>
+        {
+            if (ctx.RequestServices.GetRequiredService<IConfiguration>()["Oidc:ClientId"] is null or "")
+                return Results.Redirect("/login?error=" + Uri.EscapeDataString("Přihlášení účtem Blackies pošta není nastavené."));
+            return Results.Challenge(new AuthenticationProperties { RedirectUri = SafeReturnUrl(returnUrl) }, [BlackiesScheme]);
+        });
         return app;
     }
 
@@ -80,6 +90,20 @@ public static class AccountEndpoints
 
     private static async Task SignInAsync(HttpContext ctx, AuthResponseDto auth)
     {
+        await ctx.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            BuildPrincipal(auth),
+            new AuthenticationProperties
+            {
+                IsPersistent = true,
+                ExpiresUtc = auth.ExpiresAt,
+                AllowRefresh = false,
+            });
+    }
+
+    /// <summary>Identita do cookie z odpovědi API – společné pro přihlášení heslem i účtem Blackies pošta.</summary>
+    public static ClaimsPrincipal BuildPrincipal(AuthResponseDto auth)
+    {
         var u = auth.User;
         var claims = new List<Claim>
         {
@@ -90,16 +114,7 @@ public static class AccountEndpoints
             new(ApiAuthHandler.AdminClaim, u.IsAdmin ? "true" : "false"),
             new(ApiAuthHandler.TokenClaim, auth.Token),
         };
-        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-        await ctx.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            new ClaimsPrincipal(identity),
-            new AuthenticationProperties
-            {
-                IsPersistent = true,
-                ExpiresUtc = auth.ExpiresAt,
-                AllowRefresh = false,
-            });
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
     }
 
     private static string SafeReturnUrl(string? value) =>

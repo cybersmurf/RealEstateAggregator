@@ -4,6 +4,9 @@ public sealed record RegisterRequestDto(string Email, string Password, string? D
 
 public sealed record LoginRequestDto(string Email, string Password);
 
+/// <summary>Přihlášení účtem Blackies pošta (OIDC přes Stalwart): access token z autorizačního kolečka, API si z něj přečte userinfo.</summary>
+public sealed record OidcLoginRequestDto(string AccessToken);
+
 /// <param name="Token">Bearer token pro API (HMAC, platnost dle ExpiresAt).</param>
 public sealed record AuthResponseDto(string Token, DateTime ExpiresAt, UserProfileDto User);
 

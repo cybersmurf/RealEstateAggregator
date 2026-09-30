@@ -1,4 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.AspNetCore.Components.Authorization;
 using MudBlazor.Services;
 using RealEstate.App.Components;
@@ -17,7 +20,7 @@ builder.Services.AddMudServices();
 builder.Services.AddSingleton<RealEstate.App.Services.SourceLogoProvider>();
 
 // ─── Účty: cookie přihlášení, stav do komponent, politika Admin ───────────────
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+var authBuilder = builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.LoginPath = "/login";
@@ -29,6 +32,67 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     });
+
+// ─── Přihlášení účtem Blackies pošta (OIDC proti Stalwartu, jen vlastníci) ───
+// Oidc__ClientId prázdné = tlačítko se neukáže a schéma se neregistruje.
+// Kolečko: /account/login-blackies → Stalwart /login → /signin-blackies (code+PKCE)
+// → App vezme access token, API /api/auth/oidc ho ověří přes userinfo a vydá
+// svůj bearer token → stejná cookie jako u přihlášení heslem (BuildPrincipal).
+var oidcClientId = builder.Configuration["Oidc:ClientId"];
+if (!string.IsNullOrWhiteSpace(oidcClientId))
+{
+    authBuilder.AddOpenIdConnect(AccountEndpoints.BlackiesScheme, options =>
+    {
+        options.Authority = builder.Configuration["Oidc:Authority"] ?? "https://mail.blackies.cz";
+        options.ClientId = oidcClientId;
+        options.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+        options.ResponseType = OpenIdConnectResponseType.Code;
+        options.UsePkce = true;
+        options.CallbackPath = "/signin-blackies";
+        options.SignedOutCallbackPath = "/signout-blackies";
+        options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.SaveTokens = false;
+        options.GetClaimsFromUserInfoEndpoint = false;   // userinfo volá API, ne App
+        options.Scope.Clear();
+        options.Scope.Add("openid");
+        options.Scope.Add("email");
+        options.Scope.Add("profile");
+        options.MapInboundClaims = false;
+        options.Events = new OpenIdConnectEvents
+        {
+            OnTokenValidated = async ctx =>
+            {
+                var accessToken = ctx.TokenEndpointResponse?.AccessToken;
+                var api = ctx.HttpContext.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient("RealEstateApi");
+                using var response = await api.PostAsJsonAsync("api/auth/oidc",
+                    new RealEstate.Api.Contracts.Auth.OidcLoginRequestDto(accessToken ?? ""), ctx.HttpContext.RequestAborted);
+                var auth = response.IsSuccessStatusCode
+                    ? await response.Content.ReadFromJsonAsync<RealEstate.Api.Contracts.Auth.AuthResponseDto>(cancellationToken: ctx.HttpContext.RequestAborted)
+                    : null;
+                if (auth is null)
+                {
+                    var detail = response.StatusCode == System.Net.HttpStatusCode.Forbidden
+                        ? "Tento účet nemá k aplikaci přístup."
+                        : "Přihlášení účtem Blackies pošta se nezdařilo.";
+                    ctx.HandleResponse();
+                    ctx.Response.Redirect("/login?error=" + Uri.EscapeDataString(detail));
+                    return;
+                }
+                // Nahradit OIDC claimy naší identitou (token API, admin, tarif) – stejné jako u hesla
+                ctx.Principal = AccountEndpoints.BuildPrincipal(auth);
+                ctx.Properties!.IsPersistent = true;
+                ctx.Properties.ExpiresUtc = auth.ExpiresAt;
+                ctx.Properties.AllowRefresh = false;
+            },
+            OnRemoteFailure = ctx =>
+            {
+                ctx.HandleResponse();
+                ctx.Response.Redirect("/login?error=" + Uri.EscapeDataString("Přihlášení účtem Blackies pošta se nezdařilo."));
+                return Task.CompletedTask;
+            },
+        };
+    });
+}
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Admin", policy => policy.RequireClaim(ApiAuthHandler.AdminClaim, "true"));
 builder.Services.AddCascadingAuthenticationState();
@@ -83,6 +147,14 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+
+// Za Traefikem: schéma https z X-Forwarded-Proto, jinak by OIDC redirect_uri
+// (a cookie Secure) vycházely z http. Do kontejneru vede jen Traefik (127.0.0.1:5002
+// a traefik-network), proto bez omezení KnownProxies.
+var forwarded = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost };
+forwarded.KnownNetworks.Clear();
+forwarded.KnownProxies.Clear();
+app.UseForwardedHeaders(forwarded);
 
 app.UseAuthentication();
 app.UseAuthorization();

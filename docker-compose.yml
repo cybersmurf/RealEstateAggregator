@@ -63,6 +63,8 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@realestate.local}   # přihlášení vlastníka (výchozí admin účet)
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}                    # při každém startu se heslo admina srovná s touto hodnotou
       - AUTH_SECRET=${AUTH_SECRET:-}                          # podpis bearer tokenů (prázdné = odvozeno z API_KEY)
+      - OIDC_ADMIN_EMAILS=${OIDC_ADMIN_EMAILS:-}              # kdo se smí přihlásit účtem Blackies pošta (dostane admin)
+      - OIDC_USERINFO_URL=${OIDC_USERINFO_URL:-https://mail.blackies.cz/auth/userinfo}
       - APP_PUBLIC_URL=${APP_PUBLIC_URL:-http://localhost:5002}  # odkazy v e-mailech, návrat ze Stripe
       - Stripe__SecretKey=${STRIPE_SECRET_KEY:-}
       - Stripe__WebhookSecret=${STRIPE_WEBHOOK_SECRET:-}
@@ -110,6 +112,9 @@ services:
       - ApiBaseUrl=http://realestate-api:8080
       - ApiPublicUrl=${PUBLIC_API_URL:-http://localhost:5001}
       - ScrapingApiKey=${API_KEY:-dev-key-change-me}
+      - Oidc__Authority=${OIDC_AUTHORITY:-https://mail.blackies.cz}   # přihlášení účtem Blackies pošta (Stalwart OIDC)
+      - Oidc__ClientId=${OIDC_CLIENT_ID:-}                             # prázdné = tlačítko se neukáže
+      - Oidc__ClientSecret=${OIDC_CLIENT_SECRET:-}
       - MortgagePartnerUrl=${MORTGAGE_PARTNER_URL:-}         # odkaz na hypotečního partnera (UTM se doplní)
       - MortgageDefaultRate=${MORTGAGE_DEFAULT_RATE:-4.79}
       - ContactEmail=${CONTACT_EMAIL:-}                     # kontakt v podmínkách a GDPR
