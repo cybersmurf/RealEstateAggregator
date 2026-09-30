@@ -13,7 +13,8 @@ namespace RealEstate.App.Services;
 /// proto se HttpClient skládá ručně v Program.cs místo přes IHttpClientFactory
 /// (handlery z factory žijí v jiném DI scope a stav přihlášení by neviděly).
 /// </summary>
-public sealed class ApiAuthHandler(AuthenticationStateProvider authState, string scrapingApiKey) : DelegatingHandler
+public sealed class ApiAuthHandler(AuthenticationStateProvider authState, string scrapingApiKey,
+    Microsoft.AspNetCore.Components.NavigationManager? navigation = null) : DelegatingHandler
 {
     public const string TokenClaim = "api_token";
     public const string AdminClaim = "is_admin";
@@ -46,6 +47,17 @@ public sealed class ApiAuthHandler(AuthenticationStateProvider authState, string
             }
         }
 
-        return await base.SendAsync(request, cancellationToken);
+        var response = await base.SendAsync(request, cancellationToken);
+
+        // Cookie nese token, který API už nezná (smazaný účet, rotace AUTH_SECRET, restart s jiným
+        // klíčem): každé volání vrací 401 a uživatel vidí jen červené toasty, dokud se ručně
+        // neodhlásí (30. 9. 2026 po sloučení účtů). Proto se sami odhlásíme a pustíme ho na login.
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+            && request.Headers.Authorization?.Scheme == "Bearer" && navigation is not null)
+        {
+            try { navigation.NavigateTo("/account/sign-out", forceLoad: true); }
+            catch { /* mimo okruh (prerender) navigace není možná – toast stačí */ }
+        }
+        return response;
     }
 }

@@ -124,7 +124,8 @@ var sharedHandler = new SocketsHttpHandler
 };
 builder.Services.AddScoped(sp =>
 {
-    var handler = new ApiAuthHandler(sp.GetRequiredService<AuthenticationStateProvider>(), scrapingApiKey)
+    var handler = new ApiAuthHandler(sp.GetRequiredService<AuthenticationStateProvider>(), scrapingApiKey,
+        sp.GetService<Microsoft.AspNetCore.Components.NavigationManager>())
     {
         InnerHandler = sharedHandler,
     };
