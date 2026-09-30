@@ -148,7 +148,7 @@ Environment variables used by API (set in `docker-compose.yml` or `.env`):
 | `Anthropic__ApiKey` / `OllamaCloud__ApiKey` | Cloud LLM fallback |
 | `SLACK_WEBHOOK_URL` | Slack notifikace chyb ze scraperu |
 | `SKIP_EF_MIGRATIONS` | `true` = přeskočí bootstrap schématu při startu API |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Výchozí admin účet (Id `…0001`); heslo se při startu API srovná s proměnnou |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Výchozí admin účet (Id `…0001`, na něm jsou Petrovy stavy inzerátů); e-mail i heslo se při startu API srovnají s proměnnými. Na produkci `petr@blackies.cz` = stejný účet jako přihlášení přes Blackies |
 | `AUTH_SECRET` | Podpis bearer tokenů (prázdné = odvozeno z `API_KEY`) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_ADMIN_EMAILS` | Přihlášení vlastníků účtem Blackies pošta (Stalwart OIDC); adresy v seznamu dostanou admin. Bez `OIDC_CLIENT_ID` se tlačítko neukáže. Návrh v `docs/BLACKIES_SSO.md` |
 | `APP_PUBLIC_URL` | Odkazy v e-mailech, návrat ze Stripe (`https://realestate.sudata.eu`) |

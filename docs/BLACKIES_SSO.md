@@ -52,6 +52,13 @@ Proč takhle:
 | API env | `OIDC_ADMIN_EMAILS`, `OIDC_USERINFO_URL` (výchozí `https://mail.blackies.cz/auth/userinfo`) |
 | App env | `Oidc__Authority`, `Oidc__ClientId`, `Oidc__ClientSecret` |
 
+**Petr = původní admin účet** (`Id …0001`, na něm jsou stavy inzerátů, analýzy):
+`ADMIN_EMAIL=petr@blackies.cz`, takže `DbInitializer` ten účet při startu přejmenoval
+z Gmailu a přihlášení přes Blackies ho najde podle e-mailu. Heslem se do něj jde
+dál s `ADMIN_PASSWORD`. (30. 9. 2026 vznikl při prvním přihlášení nový prázdný
+účet petr@blackies.cz vedle Gmailu — smazán, „ztracené“ inzeráty byly jen u
+starého účtu.)
+
 Nový vlastník = adresa do `OIDC_ADMIN_EMAILS` + `docker compose up -d api`.
 Odebrání = adresa pryč (účet zůstane, ale přes Blackies se nepřihlásí; heslo
 nemá, `PasswordHash` je null → přihlášení heslem taky neprojde).
