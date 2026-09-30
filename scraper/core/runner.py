@@ -80,6 +80,8 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             "CENTURY21",
             "REAS",
             "BAZOS",
+            "REALINGO",
+            "REALMIX",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
@@ -97,6 +99,8 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         from core.scrapers.century21_scraper import Century21Scraper
         from core.scrapers.reas_scraper import ReasScraper
         from core.scrapers.bazos_scraper import BazosScraper
+        from core.scrapers.realingo_scraper import RealingoScraper
+        from core.scrapers.realmix_scraper import RealmixScraper
 
         # Vybuduj tasku pro paralelní scraping
         tasks = []
@@ -234,6 +238,16 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             logger.info(f"Job {job_id}: Scheduling Bazos.cz scraper...")
             scraper = BazosScraper()
             tasks.append(("BAZOS", scraper.run(full_rescan=request.full_rescan)))
+
+        if "REALINGO" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling Realingo scraper...")
+            scraper = RealingoScraper()
+            tasks.append(("REALINGO", scraper.run(full_rescan=request.full_rescan)))
+
+        if "REALMIX" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling REALmix (reality-znojmo.cz) scraper...")
+            scraper = RealmixScraper()
+            tasks.append(("REALMIX", scraper.run(full_rescan=request.full_rescan)))
 
         # Čas před spuštěním scrapingu – slouží pro deaktivaci neviděných inzerátů
         scrape_started_at = datetime.utcnow()

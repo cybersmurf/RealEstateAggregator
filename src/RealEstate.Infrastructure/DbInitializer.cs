@@ -136,6 +136,26 @@ public static class DbInitializer
                 SupportsListScrape = true,
                 ScraperType = "Python",
             },
+            new()
+            {
+                Code = "REALINGO",
+                Name = "Realingo",
+                BaseUrl = "https://www.realingo.cz",
+                IsActive = true,
+                SupportsUrlScrape = false,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
+            new()
+            {
+                Code = "REALMIX",
+                Name = "Reality Znojmo (REALmix)",
+                BaseUrl = "https://www.reality-znojmo.cz",
+                IsActive = true,
+                SupportsUrlScrape = false,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
         };
 
         var newSources = allSources.Where(s => !existingCodes.Contains(s.Code)).ToList();

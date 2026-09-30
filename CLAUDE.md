@@ -64,7 +64,7 @@ src/RealEstate.App/           # Blazor Web App (MudBlazor 9)
 src/RealEstate.Export/        # Export content builders (Markdown, Word)
 src/RealEstate.Background/    # Background job services
 tests/RealEstate.Tests/       # xUnit tests
-scraper/                      # Python FastAPI scraping service (14 sources)
+scraper/                      # Python FastAPI scraping service (16 sources)
 mcp/server.py                 # FastMCP 3.x MCP server (15 tools)
 ```
 
@@ -86,7 +86,7 @@ EF Core configuration is done manually in `RealEstateDbContext.OnModelCreating` 
 
 ### Python scraper
 
-Each scraper is a class in `scraper/core/scrapers/`. The runner (`scraper/core/runner.py`) orchestrates all scrapers, calling `full_rescan` (deactivates unseen listings) or incremental mode. Scrapers write directly to PostgreSQL via `asyncpg` using upsert patterns. Max 20 photos per listing are stored.
+Each scraper is a class in `scraper/core/scrapers/` (new source = class + import/task in `runner.py` + seed row in `DbInitializer.cs` + logo in `SourceLogoProvider.cs`). Realingo (`REALINGO`, Next.js `__NEXT_DATA__`) skips offers whose `externalUrl` points to a source we scrape ourselves; REALmix (`REALMIX`, reality-znojmo.cz = sousede.cz = jihomoravskereality.cz) covers the small agencies without Sreality. The runner (`scraper/core/runner.py`) orchestrates all scrapers, calling `full_rescan` (deactivates unseen listings) or incremental mode. Scrapers write directly to PostgreSQL via `asyncpg` using upsert patterns. Max 20 photos per listing are stored.
 
 ### AI/RAG pipeline
 

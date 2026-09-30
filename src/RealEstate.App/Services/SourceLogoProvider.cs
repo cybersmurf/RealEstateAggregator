@@ -20,6 +20,8 @@ public sealed class SourceLogoProvider
         { "HVREALITY",     "/images/logos/HVREALITY.png" },
         { "ZNOJMOREALITY", "/images/logos/ZNOJMOREALITY.png" },
         { "NEMZNOJMO",     "/images/logos/NEMZNOJMO.png" },
+        { "REALINGO",      "/images/logos/REALINGO.png" },
+        { "REALMIX",       "/images/logos/REALMIX.svg" },
         { "REAS",          "/images/logos/REAS.svg" },
         { "BAZOS",         "/images/logos/BAZOS.svg" },
     };

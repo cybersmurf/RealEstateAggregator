@@ -9,7 +9,7 @@
 
 Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu realitních inzerátů ze 14 českých zdrojů. Podporuje centralizované vyhledávání, filtrování, AI chat nad inzeráty (RAG), prostorové analýzy (PostGIS), export do cloudu a integraci s Claude Desktop přes MCP.
 
-**Aktuální stav (25. 8. 2026):** ~2 249 aktivních inzerátů (6 803 celkem) · 14 zdrojů · AI enrichment 91 %
+**Aktuální stav (25. 8. 2026):** ~2 249 aktivních inzerátů (6 803 celkem) · 16 zdrojů · AI enrichment 91 %
 
 > **Kde to běží:** produkce je na domácím serveru **sudgate** (`192.168.11.2`, `realestate.sudata.eu`) za Traefikem.
 > Infrastruktura (Traefik, TLS, DDNS, monitoring) je verzovaná v samostatném repu `zupagate`, viz [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
@@ -17,7 +17,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 
 ### Klíčové funkce
 
-✅ **Automatický scraping** – 14 zdrojů (SReality, IDNES, REMAX, Century21, MMR, Premiera Reality, Bazoš aj.)  
+✅ **Automatický scraping** – 16 zdrojů (SReality, IDNES, REMAX, Century21, MMR, Premiera Reality, Bazoš aj.)  
 ✅ **Jednotný datový model** – normalizace PropertyType/OfferType včetně dražeb (Auction)  
 ✅ **Pokročilé filtrování** – typ, nabídka, cena, lokalita, fulltextový GIN index  
 ✅ **RAG + AI chat** – lokální Ollama (nomic-embed-text + qwen2.5:14b), pgvector 768 dim  
@@ -54,7 +54,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 ┌─▼──────────┐  ┌─────▼──────┐  ┌───────▼──────┐  ┌───────▼──────────┐
 │ PostgreSQL │  │Google Drive │  │ Ollama :11434│  │ Python Scraper   │
 │ PostGIS 3.4│  │  (export)   │  │nomic-embed   │  │ FastAPI :8001    │
-│ + pgvector │  │             │  │qwen2.5:14b   │  │ 14 zdrojů        │
+│ + pgvector │  │             │  │qwen2.5:14b   │  │ 16 zdrojů        │
 │ ~2 249 inz │  │(retry 3×)   │  │llama3.2-vis  │  │ APScheduler 3 AM │
 └────────────┘  └────────────┘  └──────────────┘  │ Slack alerting   │
                                                    └──────────────────┘
@@ -352,7 +352,7 @@ AI analýza inzerátu
 ## 🔄 Workflow scrapingu
 
 1. **APScheduler** spustí scraping denně v 3:00 (weekly full_rescan neděle 2:00)
-2. **Runner** projde všechny aktivní scrapers (14 zdrojů)
+2. **Runner** projde všechny aktivní scrapers (16 zdrojů)
 3. Pro každý scraper:
    - Fetch listings (paginace přes listing stránky)
    - Fetch detail (HTML/JSON detailu)
@@ -466,4 +466,4 @@ Pro otázky a podporu kontaktujte vlastníka projektu.
 
 **Vytvořeno**: Únor 2026  
 **Verze**: 1.3.0 (25. května 2026 – Price History + Monitoring + 14 scraperů)  
-**DB stav**: ~1 558 inzerátů · 14 zdrojů · GPS 97 % · AI 91 % · testy: 79 C# + 97 Python
+**DB stav**: ~1 558 inzerátů · 16 zdrojů · GPS 97 % · AI 91 % · testy: 79 C# + 97 Python
