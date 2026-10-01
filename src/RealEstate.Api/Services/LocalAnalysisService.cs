@@ -735,7 +735,10 @@ public sealed class LocalAnalysisService(
 
         foreach (var p in withDesc)
         {
-            result.Add((p.Order, p.PhotoCategory ?? "foto", p.PhotoDescription!));
+            // Vizualizace (render) nepopisuje skutečný stav – model to musí vědět, jinak hodnotí render jako realitu
+            var isRender = (p.PhotoLabels ?? "").Contains("\"visualization\"", StringComparison.OrdinalIgnoreCase);
+            var category = isRender ? $"VIZUALIZACE ({p.PhotoCategory ?? "foto"}) – render, ne skutečný stav" : p.PhotoCategory ?? "foto";
+            result.Add((p.Order, category, p.PhotoDescription!));
         }
 
         // Pro fotky bez popisu: zavolej vision model (všechny, žádný limit)

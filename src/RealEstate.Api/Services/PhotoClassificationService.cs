@@ -94,7 +94,7 @@ public sealed class PhotoClassificationService(
         You label one photo from a Czech real-estate listing. Report only what is clearly visible in THIS photo. Never guess, never embellish, never invent objects. Ignore watermarks and agency logos.
 
         Respond with JSON only:
-        {"category":"...","labels":[...],"damage_detected":false,"damage_evidence":null,"description":"...","confidence":0.9}
+        {"category":"...","labels":[...],"is_visualization":false,"damage_detected":false,"damage_evidence":null,"description":"...","confidence":0.9}
 
         "category" - exactly one of:
         exterior, interior, kitchen, bathroom, living_room, bedroom, attic, basement, garage, land, floor_plan, damage, other
@@ -103,6 +103,8 @@ public sealed class PhotoClassificationService(
         "labels" - 0-5 tags, ONLY those you can actually see, from:
         mold, water_damage, crack, broken_windows, damaged_roof, renovation_needed, garden, pool, fireplace, wooden_beams, new_construction, renovated, brick_walls, wooden_construction, panel_building
         An empty array is a good answer. Do not add a tag because it is on the list.
+
+        "is_visualization" - true when the image is NOT a photograph of the real property: a 3D render, architectural visualization, computer-generated interior/exterior, staged render, or a photo of a brochure, plan or screen. Tell-tale signs: perfectly clean surfaces, no wear, uniform lighting, furniture that looks modelled, text overlays like "vizualizace". When true, never report damage and start the description with "Vizualizace:".
 
         "damage_detected" - true ONLY for a visible physical defect: missing or peeling plaster, cracks, mold, water stains, rot, broken windows, damaged roof. A dated, unfinished, cluttered or modest room is NOT damage.
         "damage_evidence" - if damage_detected, a short English phrase naming the defect and where it is; otherwise null.
@@ -473,6 +475,7 @@ public sealed class PhotoClassificationService(
         PhotoClassificationJson? classification = null;
         try { classification = JsonSerializer.Deserialize<PhotoClassificationJson>(classifyRaw, _jsonOptions); }
         catch (JsonException) { classification = TryParsePartialJson(classifyRaw); }
+        if (classification is not null) ApplyVisualizationFlag(classification);
 
         if (classification == null || string.IsNullOrWhiteSpace(classification.Category))
         {
@@ -698,6 +701,8 @@ public sealed class PhotoClassificationService(
             raw, @"""description""\s*:\s*""((?:[^""\\]|\\.)*)");
         var damageMatch = System.Text.RegularExpressions.Regex.Match(
             raw, @"""damage_detected""\s*:\s*(true|false)");
+        var visMatch = System.Text.RegularExpressions.Regex.Match(
+            raw, @"""is_visualization""\s*:\s*(true|false)");
         var confMatch = System.Text.RegularExpressions.Regex.Match(
             raw, @"""confidence""\s*:\s*([0-9.]+)");
         // Štítky potřebuje PhotoDamageValidator – bez nich by useknutý JSON poškození nikdy nepotvrdil
@@ -719,6 +724,9 @@ public sealed class PhotoClassificationService(
             DamageDetected = damageMatch.Success &&
                              string.Equals(damageMatch.Groups[1].Value, "true",
                                  StringComparison.OrdinalIgnoreCase),
+            IsVisualization = visMatch.Success &&
+                              string.Equals(visMatch.Groups[1].Value, "true",
+                                  StringComparison.OrdinalIgnoreCase),
             Confidence = confMatch.Success && double.TryParse(
                 confMatch.Groups[1].Value,
                 System.Globalization.NumberStyles.Float,
@@ -726,6 +734,28 @@ public sealed class PhotoClassificationService(
                 out var conf) ? conf : null,
         };
     }
+
+    /// <summary>
+    /// Vizualizace (render) není fotka skutečného stavu: dostane štítek "visualization", žádné
+    /// poškození a popis začíná „Vizualizace:". Reálný případ (Lechovice 5+1, 1. 10. 2026): rendery
+    /// obýváku a kuchyně prošly jako skutečné místnosti a zkreslily hodnocení stavu.
+    /// </summary>
+    internal static void ApplyVisualizationFlag(PhotoClassificationJson c)
+    {
+        var labels = c.Labels ?? [];
+        var flagged = c.IsVisualization || labels.Any(l => string.Equals(l?.Trim(), VisualizationLabel, StringComparison.OrdinalIgnoreCase));
+        if (!flagged) return;
+        c.IsVisualization = true;
+        if (!labels.Any(l => string.Equals(l?.Trim(), VisualizationLabel, StringComparison.OrdinalIgnoreCase)))
+            labels.Insert(0, VisualizationLabel);
+        c.Labels = labels;
+        c.DamageDetected = false;
+        c.DamageEvidence = null;
+        if (!string.IsNullOrWhiteSpace(c.Description) && !c.Description.TrimStart().StartsWith("Vizualizace", StringComparison.OrdinalIgnoreCase))
+            c.Description = "Vizualizace: " + c.Description.Trim();
+    }
+
+    public const string VisualizationLabel = "visualization";
 
     /// <summary>
     /// Normalizuje kategorii – pokud model vrátí neznámou hodnotu, fallback na "other".
@@ -963,7 +993,7 @@ public sealed class PhotoClassificationService(
         return s.Trim();
     }
 
-    private sealed class PhotoClassificationJson
+    internal sealed class PhotoClassificationJson
     {
         [JsonPropertyName("category")]
         public string? Category { get; set; }
@@ -976,6 +1006,10 @@ public sealed class PhotoClassificationService(
 
         [JsonPropertyName("damage_detected")]
         public bool DamageDetected { get; set; }
+
+        /// <summary>Render / vizualizace místo fotky – ukládá se jako štítek "visualization".</summary>
+        [JsonPropertyName("is_visualization")]
+        public bool IsVisualization { get; set; }
 
         [JsonPropertyName("damage_evidence")]
         public string? DamageEvidence { get; set; }

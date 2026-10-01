@@ -4,6 +4,7 @@ Strategie: httpx + BeautifulSoup, WordPress/Elementor SSR stránky
 """
 import asyncio
 import logging
+import html as html_mod
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +20,11 @@ from ..http_utils import http_retry
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://hvreality.cz"
+
+REST_POST_TYPES = ("prodej-nemovitosti", "pronajem-nemovitosti")
+# Jen okresy, které pustí geografický filtr (settings.yaml target_districts) – zbytek ČR nestahujeme
+TARGET_DISTRICT_SLUGS = {"znojmo", "brno-venkov", "brno-mesto"}
+INCREMENTAL_LIMIT = 40
 
 # Slug okresu v URL → název (jen ty, které se liší od prostého Title Case)
 HV_DISTRICT_SLUGS = {
@@ -62,10 +68,10 @@ class HvRealityScraper:
 
     async def run(self, full_rescan: bool = False) -> int:
         max_pages = 20 if full_rescan else 3
-        return await self.scrape(max_pages=max_pages)
+        return await self.scrape(max_pages=max_pages, full_rescan=full_rescan)
 
-    async def scrape(self, max_pages: int = 3) -> int:
-        logger.info("Starting HV Reality scraper (max_pages=%s)", max_pages)
+    async def scrape(self, max_pages: int = 3, full_rescan: bool = False) -> int:
+        logger.info("Starting HV Reality scraper (max_pages=%s, full_rescan=%s)", max_pages, full_rescan)
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
                 timeout=30,
@@ -73,7 +79,30 @@ class HvRealityScraper:
                 headers=DEFAULT_HEADERS,
             ) as client:
                 self._http_client = client
-                
+
+                # Výpis na webu načítá další nabídky AJAXem („načíst další"), HTML dá jen první
+                # dávku – plný rescan pak 1. 10. 2026 „neviděl" a deaktivoval živé znojemské
+                # inzeráty. WordPress REST API vrací všechny (357 prodej + 170 pronájem v celé ČR);
+                # detail stahujeme jen u okresů, které filtr vůbec pustí (slug „-okres-znojmo-" apod.).
+                rest_items = await self._enumerate_rest(full_rescan)
+                if rest_items is not None:
+                    logger.info("HV Reality REST: %s nabídek v cílových okresech", len(rest_items))
+                    for item in rest_items:
+                        try:
+                            detail_html = await self._fetch(item["url"])
+                            normalized = self._parse_detail_page(detail_html, item)
+                            await self._save_listing(normalized)
+                            self.scraped_count += 1
+                            metrics.increment_scraped()
+                            await asyncio.sleep(0.5)
+                        except Exception as exc:
+                            logger.error("Error processing %s: %s", item.get("url"), exc)
+                            metrics.increment_failed()
+                    self._http_client = None
+                    logger.info("HV Reality scraper done (REST). Scraped %s", self.scraped_count)
+                    return self.scraped_count
+
+                logger.warning("HV Reality REST API nedostupné – záložní procházení HTML výpisu")
                 for start_url in START_URLS:
                     page = 1
                     current_url = start_url
@@ -119,6 +148,50 @@ class HvRealityScraper:
         self._http_client = None
         logger.info("HV Reality scraper done. Scraped %s", self.scraped_count)
         return self.scraped_count
+
+    async def _enumerate_rest(self, full_rescan: bool) -> Optional[List[Dict[str, Any]]]:
+        """Seznam nabídek z WordPress REST (`prodej-nemovitosti`, `pronajem-nemovitosti`).
+        None = API nefunguje (záloha HTML). Incrementální běh bere jen naposledy upravené."""
+        if self._http_client is None:
+            raise RuntimeError("HTTP client not initialized")
+        items: List[Dict[str, Any]] = []
+        for post_type in REST_POST_TYPES:
+            page = 1
+            while True:
+                url = (f"{BASE_URL}/wp-json/wp/v2/{post_type}?per_page=100&page={page}"
+                       f"&orderby=modified&order=desc&_fields=id,link,title,modified")
+                try:
+                    resp = await self._http_client.get(url)
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as exc:
+                    logger.warning("HV Reality REST %s page %s selhalo: %s", post_type, page, exc)
+                    return None if not items else items
+                if not isinstance(data, list):
+                    return None
+                items.extend(self.parse_rest_items(data))
+                total_pages = int(resp.headers.get("X-WP-TotalPages", "1") or 1)
+                if page >= total_pages or (not full_rescan and page >= 1):
+                    break
+                page += 1
+                await asyncio.sleep(0.5)
+        target = [it for it in items if it["district_slug"] in TARGET_DISTRICT_SLUGS]
+        return target if full_rescan else target[:INCREMENTAL_LIMIT]
+
+    @staticmethod
+    def parse_rest_items(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """REST položky → {url, title, district_slug, modified}. Slug okresu je v URL („-okres-znojmo-")."""
+        out: List[Dict[str, Any]] = []
+        for row in data:
+            link = str(row.get("link") or "")
+            if not link:
+                continue
+            title = html_mod.unescape(str((row.get("title") or {}).get("rendered") or ""))
+            m = re.search(r"-okres-([a-z-]+?)-(?:prodej|pronajem|drazba|\d)", link) or re.search(r"-okres-([a-z]+)", link)
+            slug = m.group(1) if m else ""
+            slug = next((k for k in HV_DISTRICT_SLUGS if slug == k or slug.startswith(k + "-")), slug.split("-")[0] if slug else "")
+            out.append({"url": link, "title": title[:200], "district_slug": slug, "modified": row.get("modified")})
+        return out
 
     @http_retry
     async def _fetch(self, url: str) -> str:

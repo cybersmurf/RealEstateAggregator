@@ -33,3 +33,23 @@ class TestHvRealityLocality:
     def test_bez_informace_vraci_none(self):
         soup = BeautifulSoup("<html></html>", "html.parser")
         assert HvRealityScraper._parse_locality(soup, "https://hvreality.cz/x/") == (None, None)
+
+
+class TestHvRealityRest:
+    def test_rest_polozky_maji_url_titulek_a_okres(self):
+        import json
+        data = json.loads((FIX / "rest_prodej.json").read_text(encoding="utf-8"))
+        items = HvRealityScraper.parse_rest_items(data)
+        assert len(items) == len(data) == 100
+        first = items[0]
+        assert first["url"].startswith("https://hvreality.cz/prodej-nemovitosti/")
+        assert "&#8211;" not in first["title"] and "–" in first["title"]
+        assert first["district_slug"] == "znojmo"
+
+    def test_okresy_mimo_cil_se_poznaji(self):
+        items = HvRealityScraper.parse_rest_items([
+            {"link": "https://hvreality.cz/prodej-nemovitosti/prodej-domu-krelovice-okres-pelhrimov-prodej-domu-1/", "title": {"rendered": "x"}},
+            {"link": "https://hvreality.cz/prodej-nemovitosti/prodej-bytu-brno-okres-brno-venkov-prodej-bytu-2/", "title": {"rendered": "y"}},
+            {"link": "https://hvreality.cz/prodej-nemovitosti/prodej-bytu-zdar-okres-zdar-nad-sazavou-prodej-3/", "title": {"rendered": "z"}},
+        ])
+        assert [i["district_slug"] for i in items] == ["pelhrimov", "brno-venkov", "zdar-nad-sazavou"]

@@ -45,6 +45,10 @@ public static partial class PhotoDamageValidator
     {
         if (!damageFlag) return false;
 
+        // Render / vizualizace neukazuje skutečný stav – poškození z něj nikdy nepotvrzujeme
+        if (labels is not null && labels.Any(l => string.Equals(l?.Trim(), "visualization", StringComparison.OrdinalIgnoreCase)))
+            return false;
+
         if (string.Equals(category?.Trim(), "damage", StringComparison.OrdinalIgnoreCase))
             return true;
 

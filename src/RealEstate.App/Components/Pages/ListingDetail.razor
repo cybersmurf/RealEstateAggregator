@@ -141,6 +141,13 @@
                                 @PhotoDamageCount poškození
                             </MudChip>
                         }
+                        @if (PhotoRenderCount > 0)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info"
+                                     Icon="@Icons.Material.Filled.ViewInAr">
+                                @PhotoRenderCount vizualizací
+                            </MudChip>
+                        }
                         @if (PhotoFeedbackWrongCount > 0)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Warning"
@@ -256,8 +263,9 @@
                                                     @foreach (var lbl in lbls)
                                                     {
                                                         var isDanger = lbl is "mold" or "water_damage" or "crack" or "damaged_roof" or "broken_windows";
-                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                                                 Color="@(isDanger ? Color.Error : Color.Default)"
+                                                        var isRender = lbl == "visualization";
+                                                        <MudChip T="string" Size="Size.Small" Variant="@(isRender ? Variant.Filled : Variant.Outlined)"
+                                                                 Color="@(isDanger ? Color.Error : isRender ? Color.Info : Color.Default)"
                                                                  Style="height:18px;font-size:9px;margin:1px;padding:0 6px;">
                                                             @TranslateLabel(lbl)
                                                         </MudChip>
@@ -1466,6 +1474,7 @@
     // Computed – nelze @{var=} uvnitř @if v Razor, proto computed properties v @code
     private int PhotoClassifiedCount      => _listing?.Photos.Count(p => p.IsClassified) ?? 0;
     private int PhotoDamageCount          => _listing?.Photos.Count(p => p.DamageDetected) ?? 0;
+    private int PhotoRenderCount          => _listing?.Photos.Count(p => (p.PhotoLabels ?? "").Contains("\"visualization\"")) ?? 0;
     private int PhotoFeedbackWrongCount   => _photoFeedbacks.Values.Count(f => f == "wrong");
 
     private Task ToggleCorrectFeedbackAsync(Guid photoId) =>
@@ -1530,6 +1539,7 @@
         "brick_walls"         => "cihla",
         "wooden_construction" => "dřevo",
         "panel_building"      => "panel",
+        "visualization"       => "vizualizace",
         _                     => label
     };
 
