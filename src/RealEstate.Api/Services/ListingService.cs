@@ -189,6 +189,17 @@ public class ListingService : IListingService
         var photoSet = await _duplicateGroups.GetGroupPhotoSetAsync(entity.Id, cancellationToken);
         var location = await ResolveLocationAsync(entity, cancellationToken);
 
+        // Nejstarší spatření téhož domu ve skupině duplicit (Bazoš kopii vkládají znovu každých pár týdnů)
+        var groupPrimaryId = entity.DuplicateOfListingId ?? entity.Id;
+        var oldest = await _dbContext.Listings
+            .AsNoTracking()
+            .Where(l => l.Id == groupPrimaryId || l.DuplicateOfListingId == groupPrimaryId)
+            .OrderBy(l => l.FirstSeenAt)
+            .Select(l => new { l.Id, l.FirstSeenAt, l.SourceCode })
+            .FirstOrDefaultAsync(cancellationToken);
+        var marketFirstSeen = oldest is not null && oldest.FirstSeenAt < entity.FirstSeenAt ? oldest.FirstSeenAt : entity.FirstSeenAt;
+        var marketFirstSeenSource = oldest is not null && oldest.Id != entity.Id && oldest.FirstSeenAt < entity.FirstSeenAt ? oldest.SourceCode : null;
+
         // Kontakt na makléře: jen správci. Zdroj, který ho neumí (zatím vše kromě Sreality),
         // si ho půjčí od člena skupiny duplicit – stejný dům, stejný makléř.
         string? sellerName = null, sellerEmail = null, sellerPhone = null, sellerCompany = null, sellerFrom = null;
@@ -255,7 +266,9 @@ SellerName = sellerName,
             IsActive = entity.IsActive,
             LastSeenAt = entity.LastSeenAt,
             DeactivatedAt = entity.DeactivatedAt,
-            DaysOnMarket = DaysOnMarket(entity),
+            DaysOnMarket = DaysOnMarket(entity, marketFirstSeen),
+            MarketFirstSeenAt = marketFirstSeen,
+            MarketFirstSeenSourceCode = marketFirstSeenSource,
             AuctionDate = entity.AuctionDate,
             AuctionStartingPrice = entity.AuctionStartingPrice,
             AuctionDeposit = entity.AuctionDeposit,
@@ -812,20 +825,24 @@ SellerName = sellerName,
         if (!exists)
             return null;
 
+        // Historie za celou skupinu duplicit – zlevnění zaznamenané u Sreality je vidět i v detailu
+        // bazošové kopie. Zdroj = kód portálu, u kterého byla cena zaznamenána.
         var rows = await _dbContext.Database
             .SqlQueryRaw<PriceHistoryRow>(
                 """
-                SELECT price, recorded_at, source
-                FROM re_realestate.listing_price_history
-                WHERE listing_id = {0}
-                ORDER BY recorded_at ASC
+                SELECT h.price, h.recorded_at, m.source_code AS source
+                FROM re_realestate.listings l
+                JOIN re_realestate.listings m
+                  ON m.id = COALESCE(l.duplicate_of_listing_id, l.id)
+                  OR m.duplicate_of_listing_id = COALESCE(l.duplicate_of_listing_id, l.id)
+                JOIN re_realestate.listing_price_history h ON h.listing_id = m.id
+                WHERE l.id = {0}
+                ORDER BY h.recorded_at ASC
                 """,
                 listingId)
             .ToListAsync(cancellationToken);
 
-        return rows
-            .Select(r => new PriceHistoryDto(r.price, r.recorded_at, r.source))
-            .ToList();
+        return MergePriceHistory(rows.Select(r => new PriceHistoryDto(r.price, r.recorded_at, r.source)));
     }
 
     private static bool IsPreciseGps(string sourceCode, string? geocodeSource)
@@ -945,10 +962,31 @@ SellerName = sellerName,
     }
 
     /// <summary>Doba na trhu ve dnech: aktivní = do teď, stažený = do deaktivace.</summary>
-    public static int DaysOnMarket(Listing l)
+    public static int DaysOnMarket(Listing l) => DaysOnMarket(l, l.FirstSeenAt);
+
+    /// <summary>Doba na trhu od zadaného prvního spatření (nejstarší člen skupiny duplicit).</summary>
+    public static int DaysOnMarket(Listing l, DateTime firstSeenAt)
     {
         var end = l.IsActive ? DateTime.UtcNow : (l.DeactivatedAt ?? l.LastSeenAt ?? DateTime.UtcNow);
-        return Math.Max(0, (int)(end - l.FirstSeenAt).TotalDays);
+        return Math.Max(0, (int)(end - firstSeenAt).TotalDays);
+    }
+
+    /// <summary>
+    /// Sloučí historii cen všech členů skupiny do jedné časové řady: řadí podle data a vynechá
+    /// záznam, který cenu nemění (každý zdroj hlásí tutéž cenu ve svůj den).
+    /// </summary>
+    public static List<PriceHistoryDto> MergePriceHistory(IEnumerable<PriceHistoryDto> rows)
+    {
+        var result = new List<PriceHistoryDto>();
+        foreach (var row in rows.Where(r => r.Price is > 0).OrderBy(r => r.RecordedAt))
+        {
+            if (result.Count > 0 && result[^1].Price == row.Price) continue;
+            // Kopie se starou cenou (portál zlevnění propsal později) nesmí řadu vrátit zpět:
+            // cenu, kterou už řada opustila, bereme jen když ji hlásí zdroj, který ji předtím neměl.
+            if (result.Count > 1 && result[^2].Price == row.Price && result[^2].Source != row.Source) continue;
+            result.Add(row);
+        }
+        return result;
     }
 
     // Internal projection type for raw SQL query

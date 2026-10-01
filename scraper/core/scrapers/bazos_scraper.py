@@ -588,7 +588,12 @@ class BazosScraper:
                     continue
                 # Jen úsek od konce předchozí věty / předchozí plochy – "zahrada 450 m². Dům má 120 m²"
                 own_clause = re.split(r"[.;!?]\s|m[²2]|㎡", context)[-1]
-                if property_type != "Pozemek" and (val == area_land or _LAND_CONTEXT_RE.search(own_clause)):
+                # "o celkové výměře 322 m² (dle výpisu z katastru nemovitostí)" – katastr eviduje pozemek
+                # (zastavěná plocha a nádvoří), ne užitnou plochu domu. Znojmo centrum 1. 10. 2026:
+                # dům 150 m² se uložil jako 322 m² a nespároval se Sreality.
+                after = description[m.end():m.end() + 60]
+                cadastral = bool(re.search(r"katastr|\bLV\b|list[ue]? vlastnictví", after, re.IGNORECASE))
+                if property_type != "Pozemek" and (val == area_land or cadastral or _LAND_CONTEXT_RE.search(own_clause)):
                     if area_land is None and 10 <= val <= 100000:
                         area_land = val
                     continue  # výměra pozemku, ne plocha domu

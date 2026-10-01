@@ -968,3 +968,20 @@ class TestSrealitySeller:
         assert merged["seller_email"] == "miklik@nemovitostiznojmo.cz"
         without = scraper._merge_detail({"title": "Prodej rodinného domu 120 m²", "external_id": "1"}, {})
         assert "seller_email" not in without
+
+
+class TestBazosCadastralArea:
+    """Znojmo centrum (1. 10. 2026): „o celkové výměře 322 m² (dle výpisu z katastru nemovitostí)"
+    je pozemek – dům má 150 m²; jako plocha domu to rozbilo párování se Sreality i Kč/m²."""
+
+    def test_vymera_dle_katastru_je_pozemek(self):
+        desc = ("Jedinečný rodinný dům se dvěma bytovými jednotkami o dispozicích 3+1 a 1+kk o celkové výměře 322 m² "
+                "(dle výpisu z katastru nemovitostí), situovaný v samotném historickém centru.")
+        built, land = BazosScraper()._extract_areas("Znojmo, RD 3+1 a 1+kk", desc, "Dům")
+        assert built is None
+        assert land == 322
+
+    def test_bezna_plocha_domu_zustava(self):
+        built, land = BazosScraper()._extract_areas("Rodinný dům", "Dům má 140 m² a stojí v klidné ulici.", "Dům")
+        assert built == 140
+        assert land is None

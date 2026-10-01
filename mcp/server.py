@@ -598,7 +598,9 @@ async def get_listing(listing_id: str) -> str:
     # ── Doba na trhu ─────────────────────────────────────────────────────────
     days_on_market = listing.get("daysOnMarket")
     if days_on_market is not None:
-        first_seen = (listing.get("firstSeenAt") or "")[:10]
+        first_seen = (listing.get("marketFirstSeenAt") or listing.get("firstSeenAt") or "")[:10]
+        if listing.get("marketFirstSeenSourceCode"):
+            first_seen += f", poprvé na {listing['marketFirstSeenSourceCode']}"
         if listing.get("isActive", True):
             result_lines.append(f"**Na trhu:** {days_on_market} dní (od {first_seen})")
         else:

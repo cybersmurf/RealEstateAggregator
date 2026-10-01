@@ -49,8 +49,15 @@ public sealed class ListingDetailDto
     public bool IsActive { get; set; }
     /// <summary>Kdy inzerát zmizel ze zdroje (null u aktivních).</summary>
     public DateTime? DeactivatedAt { get; set; }
-    /// <summary>Dny na trhu: aktivní od prvního spatření do teď, stažený do deaktivace.</summary>
+    /// <summary>
+    /// Dny na trhu: od nejstaršího spatření téhož domu v kterémkoli zdroji (skupina duplicit)
+    /// do teď, u staženého do deaktivace. Kopie znovu vložená na Bazoš jinak tvrdí „51 dní".
+    /// </summary>
     public int DaysOnMarket { get; set; }
+    /// <summary>Kdy byl dům poprvé spatřen v kterémkoli zdroji skupiny.</summary>
+    public DateTime MarketFirstSeenAt { get; set; }
+    /// <summary>Zdroj nejstaršího spatření (null = tento inzerát).</summary>
+    public string? MarketFirstSeenSourceCode { get; set; }
 
     // Dražba
     public DateTime? AuctionDate { get; set; }

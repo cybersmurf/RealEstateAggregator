@@ -70,7 +70,7 @@
                         <MudChip T="string" Size="Size.Small" Color="Color.Info">@GetOfferTypeLabel(_listing.OfferType)</MudChip>
                         <MudTooltip Text="@($"Poprvé viděno {_listing.FirstSeenAt.ToLocalTime():d. M. yyyy}")">
                             <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Schedule">
-                                @(_listing.IsActive ? $"Na trhu {_listing.DaysOnMarket} dní" : $"Byl na trhu {_listing.DaysOnMarket} dní")
+                                @(_listing.IsActive ? $"Na trhu {_listing.DaysOnMarket} dní" : $"Byl na trhu {_listing.DaysOnMarket} dní")@(_listing.MarketFirstSeenSourceCode is not null ? $" (poprvé {_listing.MarketFirstSeenAt.ToLocalTime():d. M. yyyy} na {_listing.MarketFirstSeenSourceCode})" : "")
                             </MudChip>
                         </MudTooltip>
                     </MudStack>
