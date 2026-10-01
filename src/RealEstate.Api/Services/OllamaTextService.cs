@@ -376,7 +376,9 @@ public sealed class OllamaTextService(
             }
 
             var notes = listing.UserStates.FirstOrDefault()?.Notes;
+            // "auto" = RAG snímek popisu inzerátu (stará plocha/stav) – není to analýza, jen kopie dat
             var analysisSnippets = listing.Analyses
+                .Where(a => a.Source != "auto")
                 .OrderByDescending(a => a.CreatedAt)
                 .Take(3)
                 .Select(a => $"[{a.Title ?? "Analýza"}]: {a.Content[..Math.Min(600, a.Content.Length)]}");
@@ -424,6 +426,7 @@ public sealed class OllamaTextService(
 
         var notes = listing.UserStates.FirstOrDefault()?.Notes;
         var analysisSnippets = listing.Analyses
+            .Where(a => a.Source != "auto")   // RAG snímek popisu, ne analýza – nesl zastaralých 45 m²
             .OrderByDescending(a => a.CreatedAt)
             .Take(3)
             .Select(a => $"[{a.Title ?? "Analýza"}]: {a.Content[..Math.Min(600, a.Content.Length)]}");

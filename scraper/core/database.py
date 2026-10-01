@@ -53,6 +53,8 @@ _RE_CONDITION_MAP = [
     (re.compile(r'k demolici|velmi \u0161patn\xfd stav|havarijní', re.IGNORECASE), 'K demolici'),
     (re.compile(r'zachoval\xfd stav|dobr\xfd stav|udr\u017eovan\xfd stav|v dobr\xe9m stavu', re.IGNORECASE), 'Dobr\xfd stav'),
 ]
+# Negace před klíčovým slovem stavu: "není novostavba", "nejde o rekonstrukci", "bez rekonstrukce"
+_RE_NEGATED_BEFORE = re.compile(r'(?:\bnení|\bnejde o|\bnikoli|\bne\b|\bbez)\s*(?:\w+\s+)?$', re.IGNORECASE)
 _RE_CONSTRUCTION_MAP = [
     (re.compile(r'cihlová|cihlový|ciheln|cihla|z cihel', re.IGNORECASE), 'Cihla'),
     (re.compile(r'panel[oá]|panelový d\u016fm|panelová budova', re.IGNORECASE), 'Panel'),
@@ -122,10 +124,10 @@ def _enrich_listing_fields(data: Dict[str, Any]) -> None:
         if rm:
             data['rooms'] = int(rm.group(1))
 
-    # condition
+    # condition – klíčové slovo nesmí být negované ("dům není novostavba", "nejde o novostavbu")
     if not data.get('condition'):
         for pattern, value in _RE_CONDITION_MAP:
-            if pattern.search(text):
+            if any(not _RE_NEGATED_BEFORE.search(text[max(0, m.start() - 20):m.start()]) for m in pattern.finditer(text)):
                 data['condition'] = value
                 break
 

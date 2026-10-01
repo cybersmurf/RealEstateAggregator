@@ -70,3 +70,21 @@ if __name__ == "__main__":
         except AssertionError as e:
             print(f"  FAIL  {fn.__name__}: {e}")
     print(f"\n{passed}/{len(tests)} passed")
+
+
+def test_negovane_klicove_slovo_stavu_se_ignoruje():
+    d = {"title": "Rodinný dům 4+1", "description": "Dům z roku 1986, není novostavba, ale je udržovaný."}
+    _enrich_listing_fields(d)
+    assert d.get("condition") != "Novostavba"
+
+
+def test_nenegovane_klicove_slovo_stavu_plati():
+    d = {"title": "Rodinný dům 4+kk", "description": "Novostavba z roku 2025, kolaudace proběhla."}
+    _enrich_listing_fields(d)
+    assert d.get("condition") == "Novostavba"
+
+
+def test_negace_plati_jen_pro_dany_vyskyt():
+    d = {"title": "Dům", "description": "Není novostavba. Ale sousední objekt je novostavba po kolaudaci."}
+    _enrich_listing_fields(d)
+    assert d.get("condition") == "Novostavba"
