@@ -1597,34 +1597,8 @@
     }
 
     private async Task TriggerPhotoClassificationAsync()
-    {
-        _classifyLoading = true;
-        StateHasChanged();
-        try
-        {
-            var response = await Http.PostAsync(
-                $"api/photos/bulk-classify?batchSize=20&listingId={Id}", null, _cts.Token);
-            if (response.IsSuccessStatusCode)
-            {
-                var result = await response.Content.ReadFromJsonAsync<PhotoBatchResult>(_cts.Token);
-                await LoadListingAsync();
-                ShowPhotoBatchResult(result, "Klasifikováno");
-            }
-            else
-            {
-                Snackbar.Add("Klasifikace selhala (chyba API).", Severity.Warning);
-            }
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Chyba klasifikace: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _classifyLoading = false;
-            StateHasChanged();
-        }
-    }
+        => await StartBackgroundJobAsync($"api/photos/bulk-classify?batchSize=20&listingId={Id}&wait=false", "photo-classify",
+            "Klasifikace fotek běží na pozadí – můžeš stránku opustit.");
 
     private async Task SortPhotosByCategoryAsync()
     {
@@ -1656,34 +1630,8 @@
     }
 
     private async Task TriggerAltTextAsync()
-    {
-        _altTextLoading = true;
-        StateHasChanged();
-        try
-        {
-            var response = await Http.PostAsync(
-                $"api/photos/bulk-alt-text?batchSize=20&listingId={Id}", null, _cts.Token);
-            if (response.IsSuccessStatusCode)
-            {
-                var result = await response.Content.ReadFromJsonAsync<PhotoBatchResult>(_cts.Token);
-                await LoadListingAsync();
-                ShowPhotoBatchResult(result, "Alt text vygenerován");
-            }
-            else
-            {
-                Snackbar.Add("Generování alt textu selhalo (chyba API).", Severity.Warning);
-            }
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Chyba alt textu: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _altTextLoading = false;
-            StateHasChanged();
-        }
-    }
+        => await StartBackgroundJobAsync($"api/photos/bulk-alt-text?batchSize=20&listingId={Id}&wait=false", "photo-alt-text",
+            "Generování alt textů běží na pozadí.");
 
     // ── AI text helpers ────────────────────────────────────────────────────
 
@@ -1815,7 +1763,142 @@
         await LoadRagAnalysesAsync();
         await LoadCadastreDataAsync();
         await LoadPriceHistoryAsync();
+        await ResumeBackgroundJobsAsync();
     }
+
+    // ── Úlohy na pozadí (klasifikace, alt text, analýza, export na Drive) ──────────
+    // API je spouští nezávisle na požadavku (?wait=false → 202 + jobId); stránka jen sleduje
+    // stav přes GET api/jobs/{id}. Odchod ze stránky úlohu nepřeruší, po návratu se sledování obnoví.
+    private sealed record JobAccepted(Guid JobId);
+    private sealed record BackgroundJob(Guid Id, string Kind, string Status, string? Error, JsonElement? Result);
+    private readonly HashSet<Guid> _trackedJobs = new();
+
+    private async Task StartBackgroundJobAsync(string url, string kind, string startedMessage)
+    {
+        SetJobFlag(kind, true);
+        StateHasChanged();
+        try
+        {
+            var response = await Http.PostAsync(url, null, _cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                SetJobFlag(kind, false);
+                var err = await response.Content.ReadAsStringAsync(_cts.Token);
+                Snackbar.Add($"Spuštění selhalo ({(int)response.StatusCode}): {err}", Severity.Error);
+                return;
+            }
+            var accepted = await response.Content.ReadFromJsonAsync<JobAccepted>(_cts.Token);
+            if (accepted is null) { SetJobFlag(kind, false); return; }
+            Snackbar.Add(startedMessage, Severity.Info);
+            _ = TrackJobAsync(accepted.JobId, kind);
+        }
+        catch (OperationCanceledException) { /* stránka opuštěna – úloha na serveru běží dál */ }
+        catch (Exception ex)
+        {
+            SetJobFlag(kind, false);
+            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ResumeBackgroundJobsAsync()
+    {
+        try
+        {
+            var jobs = await Http.GetFromJsonAsync<List<BackgroundJob>>($"api/jobs?listingId={Id}&active=true", _cts.Token) ?? new();
+            foreach (var job in jobs)
+            {
+                SetJobFlag(job.Kind, true);
+                _ = TrackJobAsync(job.Id, job.Kind);
+            }
+            if (jobs.Count > 0) StateHasChanged();
+        }
+        catch { /* bez seznamu úloh se obejdeme */ }
+    }
+
+    private async Task TrackJobAsync(Guid jobId, string kind)
+    {
+        if (!_trackedJobs.Add(jobId)) return;
+        try
+        {
+            while (!_cts.IsCancellationRequested)
+            {
+                await Task.Delay(3000, _cts.Token);
+                var job = await Http.GetFromJsonAsync<BackgroundJob>($"api/jobs/{jobId}", _cts.Token);
+                if (job is null || job.Status is not ("Succeeded" or "Failed")) continue;
+
+                SetJobFlag(kind, false);
+                if (job.Status == "Failed")
+                    Snackbar.Add($"{JobLabel(kind)} selhalo: {job.Error}", Severity.Error);
+                else
+                    await OnJobFinishedAsync(kind, job.Result);
+                StateHasChanged();
+                return;
+            }
+        }
+        catch (OperationCanceledException) { /* stránka opuštěna */ }
+        catch (Exception ex)
+        {
+            SetJobFlag(kind, false);
+            Snackbar.Add($"{JobLabel(kind)}: {ex.Message}", Severity.Warning);
+        }
+        finally
+        {
+            _trackedJobs.Remove(jobId);
+        }
+    }
+
+    private async Task OnJobFinishedAsync(string kind, JsonElement? result)
+    {
+        var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        switch (kind)
+        {
+            case "photo-classify":
+                await LoadListingAsync();
+                ShowPhotoBatchResult(result?.Deserialize<PhotoBatchResult>(opts), "Klasifikováno");
+                break;
+            case "photo-alt-text":
+                await LoadListingAsync();
+                ShowPhotoBatchResult(result?.Deserialize<PhotoBatchResult>(opts), "Alt text vygenerován");
+                break;
+            case "local-analysis":
+                _localAnalysisResult = result?.Deserialize<LocalAnalysisResult>(opts);
+                Snackbar.Add(_localAnalysisResult is { } r ? $"✅ Analýza uložena do DB ({r.ElapsedSeconds:F0}s)" : "✅ Analýza uložena do DB", Severity.Success);
+                await LoadRagAnalysesAsync();
+                break;
+            case "drive-export":
+                _driveResult = result?.Deserialize<DriveExportResult>(opts);
+                Snackbar.Add("Export na Google Drive byl úspěšný!", Severity.Success);
+                await LoadExportStateAsync();
+                await LoadDriveAnalysisFilesAsync();
+                break;
+            case "drive-analysis-export":
+                Snackbar.Add("Analýza nahrána na Google Drive.", Severity.Success);
+                await LoadDriveAnalysisFilesAsync();
+                break;
+        }
+    }
+
+    private void SetJobFlag(string kind, bool running)
+    {
+        switch (kind)
+        {
+            case "photo-classify": _classifyLoading = running; break;
+            case "photo-alt-text": _altTextLoading = running; break;
+            case "local-analysis": _localAnalysisRunning = running; break;
+            case "drive-export":
+            case "drive-analysis-export": _driveExporting = running; break;
+        }
+    }
+
+    private static string JobLabel(string kind) => kind switch
+    {
+        "photo-classify" => "Klasifikace fotek",
+        "photo-alt-text" => "Alt texty",
+        "local-analysis" => "Analýza",
+        "drive-export" => "Export na Drive",
+        "drive-analysis-export" => "Nahrání analýzy na Drive",
+        _ => kind,
+    };
 
     private bool _ocrJsInitialized;
 
@@ -2188,42 +2271,9 @@
 
     private async Task RunLocalAnalysisAsync()
     {
-        _localAnalysisRunning = true;
         _localAnalysisResult = null;
-        StateHasChanged();
-        try
-        {
-            var response = await Http.PostAsync(
-                $"api/listings/{Id}/analyze-local?model=mistral-tools%2Fmistral-large-latest",
-                null,
-                _cts.Token);
-
-            if (response.IsSuccessStatusCode)
-            {
-                var result = await response.Content.ReadFromJsonAsync<LocalAnalysisResult>(_cts.Token);
-                if (result is not null)
-                {
-                    _localAnalysisResult = result;
-                    Snackbar.Add($"✅ Analýza uložena do DB ({result.ElapsedSeconds:F0}s)", Severity.Success);
-                    // Načíst RAG analýzy znovu (nová analýza přibyla)
-                    await LoadRagAnalysesAsync();
-                }
-            }
-            else
-            {
-                var err = await response.Content.ReadAsStringAsync(_cts.Token);
-                Snackbar.Add($"Chyba {(int)response.StatusCode}: {err}", Severity.Error);
-            }
-        }
-        catch (OperationCanceledException) { /* stránka opuštěna */ }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _localAnalysisRunning = false;
-        }
+        await StartBackgroundJobAsync($"api/listings/{Id}/analyze-local?model=mistral-tools%2Fmistral-large-latest&wait=false", "local-analysis",
+            "Analýza běží na pozadí (několik minut) – můžeš stránku opustit, výsledek se uloží do DB.");
     }
 
     private async Task DownloadAnalysisMdAsync()
@@ -2304,12 +2354,16 @@
         StateHasChanged();
         try
         {
-            var response = await Http.PostAsync($"api/listings/{Id}/export-drive", null, _cts.Token);
+            var response = await Http.PostAsync($"api/listings/{Id}/export-drive?wait=false", null, _cts.Token);
             if (response.IsSuccessStatusCode)
             {
-                _driveResult = await response.Content.ReadFromJsonAsync<DriveExportResult>(_cts.Token);
-                Snackbar.Add("Export na Google Drive byl úspěšný!", Severity.Success);
-                await LoadDriveAnalysisFilesAsync();
+                var accepted = await response.Content.ReadFromJsonAsync<JobAccepted>(_cts.Token);
+                Snackbar.Add("Export na Google Drive běží na pozadí – můžeš stránku opustit.", Severity.Info);
+                if (accepted is not null)
+                {
+                    _ = TrackJobAsync(accepted.JobId, "drive-export");
+                    return;
+                }
             }
             else
             {
@@ -2348,11 +2402,16 @@
         try
         {
             var response = await Http.PostAsync(
-                $"api/listings/{Id}/export-analysis-to-drive?analysisId={analysisId}", null, _cts.Token);
+                $"api/listings/{Id}/export-analysis-to-drive?analysisId={analysisId}&wait=false", null, _cts.Token);
             if (response.IsSuccessStatusCode)
             {
-                Snackbar.Add("Analýza nahrána na Google Drive.", Severity.Success);
-                await LoadDriveAnalysisFilesAsync();
+                var accepted = await response.Content.ReadFromJsonAsync<JobAccepted>(_cts.Token);
+                Snackbar.Add("Nahrávání analýzy na Drive běží na pozadí.", Severity.Info);
+                if (accepted is not null)
+                {
+                    _ = TrackJobAsync(accepted.JobId, "drive-analysis-export");
+                    return;
+                }
             }
             else
             {

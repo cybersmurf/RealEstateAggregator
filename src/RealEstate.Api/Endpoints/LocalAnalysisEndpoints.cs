@@ -28,27 +28,35 @@ public static class LocalAnalysisEndpoints
         return app;
     }
 
-    private static async Task<Results<Ok<LocalAnalysisResultDto>, NotFound<string>, StatusCodeHttpResult>> RunAnalysis(
+    private static async Task<IResult> RunAnalysis(
         Guid listingId,
         [FromQuery] string? model,
+        [FromQuery] bool? wait,
         [FromServices] ILocalAnalysisService service,
+        [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs,
         [FromServices] ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         var logger = loggerFactory.CreateLogger("LocalAnalysisEndpoints");
         try
         {
-            var result = await service.AnalyzeAsync(listingId, model, ct);
-            return TypedResults.Ok(result);
+            // Analýza trvá minuty (popisy fotek + text model) – běží jako úloha na pozadí,
+            // odchod ze stránky ji nepřeruší. ?wait=false vrátí 202 + jobId.
+            var jobId = jobs.Enqueue("local-analysis", listingId, async (sp, token) =>
+                await sp.GetRequiredService<ILocalAnalysisService>().AnalyzeAsync(listingId, model, token));
+            if (wait == false)
+                return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
+            var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(45), ct);
+            return Results.Ok(job.Result);
         }
         catch (KeyNotFoundException ex)
         {
-            return TypedResults.NotFound(ex.Message);
+            return Results.NotFound(ex.Message);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "RunAnalysis selhal pro listing {ListingId} model {Model}", listingId, model);
-            return TypedResults.StatusCode(StatusCodes.Status500InternalServerError);
+            return Results.StatusCode(StatusCodes.Status500InternalServerError);
         }
     }
 

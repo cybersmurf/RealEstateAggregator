@@ -149,8 +149,10 @@ public static class ExportEndpoints
     private static async Task<IResult> ExportAnalysisToDrive(
         Guid id,
         [FromQuery] Guid? analysisId,
+        [FromQuery] bool? wait,
         [FromServices] IGoogleDriveExportService driveService,
         [FromServices] RealEstateDbContext db,
+        [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs,
         CancellationToken ct)
     {
         // Načteme analýzu z DB – buď konkrétní (dle analysisId) nebo poslední non-auto
@@ -171,8 +173,18 @@ public static class ExportEndpoints
         try
         {
             var title = analysis.Title ?? $"Analýza_{id}";
-            var fileUrl = await driveService.SaveAnalysisAsync(id, analysis.Content, title, ct);
-            return Results.Ok(new { fileUrl, analysisId = analysis.Id, title, source = analysis.Source });
+            var content = analysis.Content;
+            var chosenId = analysis.Id;
+            var source = analysis.Source;
+            var jobId = jobs.Enqueue("drive-analysis-export", id, async (sp, token) =>
+            {
+                var fileUrl = await sp.GetRequiredService<IGoogleDriveExportService>().SaveAnalysisAsync(id, content, title, token);
+                return new { fileUrl, analysisId = chosenId, title, source };
+            });
+            if (wait == false)
+                return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
+            var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(30), ct);
+            return Results.Ok(job.Result);
         }
         catch (InvalidOperationException ex)
         {
@@ -186,13 +198,21 @@ public static class ExportEndpoints
 
     private static async Task<IResult> ExportToDrive(
         Guid id,
+        [FromQuery] bool? wait,
         [FromServices] IGoogleDriveExportService exportService,
+        [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs,
         CancellationToken ct)
     {
         try
         {
-            var result = await exportService.ExportListingToDriveAsync(id, ct);
-            return Results.Ok(result);
+            // Úloha na pozadí: zavření stránky export nepřeruší (dřív zrušený požadavek nechal
+            // rozdělanou složku na Drive). ?wait=false vrátí 202 + jobId, výchozí čeká jako dřív.
+            var jobId = jobs.Enqueue("drive-export", id, async (sp, token) =>
+                await sp.GetRequiredService<IGoogleDriveExportService>().ExportListingToDriveAsync(id, token));
+            if (wait == false)
+                return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
+            var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(30), ct);
+            return Results.Ok(job.Result);
         }
         catch (KeyNotFoundException ex)
         {

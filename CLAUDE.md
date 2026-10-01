@@ -72,6 +72,8 @@ mcp/server.py                 # FastMCP 3.x MCP server (15 tools)
 
 Endpoints are registered in `src/RealEstate.Api/Endpoints/` as extension methods on `WebApplication`, then wired in `Program.cs`. Services are in `src/RealEstate.Api/Services/` behind interfaces registered in `ServiceCollectionExtensions.cs`.
 
+Long-running listing actions (photo classification `bulk-classify`, alt texts, `analyze-local`, `export-drive`, `export-analysis-to-drive`) run as server-side background jobs (`IBackgroundJobService`, in-memory, cancelled only on app shutdown). `?wait=false` returns 202 + `jobId`, default waits as before; status via `GET /api/jobs/{id}` and `GET /api/jobs?listingId=&active=true`. The Blazor detail page starts jobs with `wait=false`, polls them and resumes tracking after navigation, so leaving the page never aborts the work.
+
 ### Accounts, plans, authorization
 
 `CurrentUserMiddleware` fills scoped `ICurrentUser`: `Authorization: Bearer` (HMAC token from `/api/auth/login`) → user; master `X-Api-Key` (= `API_KEY`) → default admin (used by Blazor App for `/api/scraping`, MCP, scraper); customer key `rea_…` → its owner with a daily quota; nothing → anonymous (no personal states, no original description). Gate endpoints with `.RequireAuth()`, `.RequireAdmin()`, `.RequirePlan(UserPlans.Hledac|Profi)` from `Helpers/AuthorizationFilters.cs` (402 when the plan is missing). Plans: `free` / `hledac` / `profi` (`UserPlans`). Blazor App logs in via form POST `/account/login` (cookie with the API token as claim) or via Stalwart OIDC (`/account/login-blackies` → `/api/auth/oidc`, owners only, see `docs/BLACKIES_SSO.md`); `ApiAuthHandler` adds the Bearer to API calls. Owner-only UI is wrapped in `<AuthorizeView Policy="Admin">`.

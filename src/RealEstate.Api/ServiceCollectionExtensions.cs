@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions
 
         // Sloučená karta duplicit, mazání stažených fotek, průběžné AI shrnutí
         services.AddScoped<IDuplicateGroupService, DuplicateGroupService>();
+        services.AddSingleton<Services.Jobs.IBackgroundJobService, Services.Jobs.BackgroundJobService>();
         services.AddScoped<IPhotoPurgeService, PhotoPurgeService>();
         services.AddHostedService<AiSummaryHostedService>();
         services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();

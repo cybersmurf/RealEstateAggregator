@@ -123,8 +123,10 @@ public static class PhotoEndpoints
         [FromQuery] int batchSize = 20,
         [FromQuery] Guid? listingId = null,
         [FromQuery] bool onlyMyListings = false,
+        [FromQuery] bool wait = true,
         [FromServices] IPhotoClassificationService service = default!,
         [FromServices] RealEstate.Api.Services.Duplicates.IDuplicateGroupService groups = default!,
+        [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs = default!,
         CancellationToken cancellationToken = default)
     {
         listingId = await ResolvePhotoOwnerAsync(groups, listingId, cancellationToken);
@@ -136,8 +138,13 @@ public static class PhotoEndpoints
                 detail: "batchSize musí být v rozmezí 1–50 (Vision model je pomalý).",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var result = await service.ClassifyBatchAsync(batchSize, cancellationToken, listingId, onlyMyListings);
-        return Results.Ok(result);
+        // Běží jako úloha na pozadí – odchod ze stránky (zrušený požadavek) klasifikaci nezastaví.
+        var jobId = jobs.Enqueue("photo-classify", listingId, async (sp, ct) =>
+            await sp.GetRequiredService<IPhotoClassificationService>().ClassifyBatchAsync(batchSize, ct, listingId, onlyMyListings));
+        if (!wait)
+            return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
+        var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(45), cancellationToken);
+        return Results.Ok(job.Result);
     }
 
     private static async Task<IResult> GetClassificationStats(
@@ -220,8 +227,10 @@ public static class PhotoEndpoints
     private static async Task<IResult> BulkAltText(
         [FromQuery] int batchSize = 20,
         [FromQuery] Guid? listingId = null,
+        [FromQuery] bool wait = true,
         [FromServices] IPhotoClassificationService service = default!,
         [FromServices] RealEstate.Api.Services.Duplicates.IDuplicateGroupService groups = default!,
+        [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs = default!,
         CancellationToken cancellationToken = default)
     {
         listingId = await ResolvePhotoOwnerAsync(groups, listingId, cancellationToken);
@@ -231,8 +240,12 @@ public static class PhotoEndpoints
                 detail: "batchSize musí být v rozmezí 1–50.",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var result = await service.BulkAltTextAsync(batchSize, cancellationToken, listingId);
-        return Results.Ok(result);
+        var jobId = jobs.Enqueue("photo-alt-text", listingId, async (sp, ct) =>
+            await sp.GetRequiredService<IPhotoClassificationService>().BulkAltTextAsync(batchSize, ct, listingId));
+        if (!wait)
+            return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
+        var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(45), cancellationToken);
+        return Results.Ok(job.Result);
     }
 
     /// <summary>
