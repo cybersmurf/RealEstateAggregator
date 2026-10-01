@@ -9,7 +9,7 @@ import asyncpg
 import httpx
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Mapping, Sequence, Tuple
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
@@ -211,6 +211,32 @@ def _enrich_areas(data: Dict[str, Any]) -> None:
             data['area_built_up'] = None
 
 logger = logging.getLogger(__name__)
+
+
+def _match_rotated_photos(existing: Sequence[Mapping[str, Any]], photo_urls: Sequence[str]) -> Dict[Any, Tuple[str, int]]:
+    """
+    Najde klasifikované fotky, jejichž URL ze zdroje zmizela, a na stejném order_index přišla
+    nová (neznámá) URL – typicky rotace CDN cesty u Sreality. Vrací {id řádku: (nová URL, index)}.
+    Páruje se jen podle pozice, proto jen když počet fotek sedí (jinak se pořadí mohlo posunout).
+    """
+    existing_urls = {row["original_url"] for row in existing}
+    new_by_index = {idx: url for idx, url in enumerate(photo_urls) if url not in existing_urls}
+    if not new_by_index:
+        return {}
+    orphans = [row for row in existing if row["original_url"] not in set(photo_urls) and row["classified_at"] is not None]
+    distinct_indexes = {row["order_index"] for row in existing}
+    if len(photo_urls) != len(distinct_indexes):
+        return {}
+    result: Dict[Any, Tuple[str, int]] = {}
+    used: set = set()
+    for row in sorted(orphans, key=lambda r: r["order_index"]):
+        idx = row["order_index"]
+        url = new_by_index.get(idx)
+        if url is None or url in used:
+            continue
+        result[row["id"]] = (url, idx)
+        used.add(url)
+    return result
 
 
 class DatabaseManager:
@@ -724,8 +750,25 @@ class DatabaseManager:
             existing_by_url = {row["original_url"]: row for row in existing}
             new_urls_set = set(photo_urls[:50])
 
+            # 0. Rotace CDN URL (Sreality mění cestu k téže fotce, stará vrací 404):
+            #    klasifikovaná fotka, jejíž URL zmizela, a na stejném order_index přišla nová URL
+            #    → přepíšeme URL na stávajícím řádku, klasifikace zůstane. Dřív se nová URL
+            #    vložila jako další řádek a mrtvý zůstal – v UI pak byly „černé" fotky.
+            rotated = _match_rotated_photos(existing, photo_urls[:50])
+            for row_id, (photo_url, idx) in rotated.items():
+                await conn.execute(
+                    "UPDATE re_realestate.listing_photos SET original_url = $1, order_index = $2, stored_url = COALESCE($3, stored_url) WHERE id = $4",
+                    photo_url, idx, new_urls_to_download.get(photo_url), row_id,
+                )
+            rotated_urls = {url for url, _ in rotated.values()}
+            rotated_old_urls = {row["original_url"] for row in existing if row["id"] in rotated}
+            for url in rotated_old_urls:
+                existing_by_url.pop(url, None)
+
             # 1. UPDATE existujících fotek (změněný order_index nebo retry stored_url)
             for idx, photo_url in enumerate(photo_urls[:50]):
+                if photo_url in rotated_urls:
+                    continue
                 if photo_url in existing_by_url:
                     row = existing_by_url[photo_url]
                     new_order = row["order_index"] != idx
@@ -748,7 +791,7 @@ class DatabaseManager:
 
             # 2. INSERT nových fotek (které ještě nejsou v DB)
             for idx, photo_url in enumerate(photo_urls[:50]):
-                if photo_url not in existing_by_url:
+                if photo_url not in existing_by_url and photo_url not in rotated_urls:
                     photo_id = uuid4()
                     stored_url = new_urls_to_download.get(photo_url)  # None pokud download selhal
                     await conn.execute(
@@ -766,12 +809,12 @@ class DatabaseManager:
                         datetime.utcnow(),
                     )
 
-            # 3. DELETE fotek, které zmizely (ale JEN ty bez klasifikace)
-            #    → Klasifikované fotky ponecháváme, i kdyby scraper přestal vracet URL
+            # 3. DELETE fotek, které zmizely. Klasifikovanou fotku necháme jen tehdy, když máme
+            #    uloženou kopii (jinak není co zobrazit – původní URL už neexistuje a v UI by byla černá).
             urls_to_delete = set(existing_by_url.keys()) - new_urls_set
             for url in urls_to_delete:
                 row = existing_by_url[url]
-                if row["classified_at"] is None:
+                if row["classified_at"] is None or row["stored_url"] is None:
                     await conn.execute(
                         "DELETE FROM re_realestate.listing_photos WHERE id = $1",
                         row["id"],
