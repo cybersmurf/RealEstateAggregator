@@ -93,7 +93,7 @@ Each scraper is a class in `scraper/core/scrapers/` (new source = class + import
 1. `OllamaEmbeddingService` (or `OpenAIEmbeddingService`) generates 768-dim vectors.
 2. Vectors stored in `listings.description_embedding` and `listing_analyses.embedding`.
 3. `RagService` performs cosine similarity search via pgvector IVFFlat index.
-4. `PhotoClassificationService` classifies listing photos into 13 categories with a cloud vision model: `google/gemini-3.1-flash-lite` via OpenRouter, falling back to Mistral (`mistral-medium-latest`). `PhotoDamageValidator` keeps `damage_detected` only when the model backed it with a damage label, `damage_evidence`, or the description. Model choice comes from a 9-model benchmark (Sept 2026); local Ollama vision models were too slow (~20 s/photo).
+4. `PhotoClassificationService` classifies listing photos into 13 categories with a cloud vision model: `google/gemini-3.1-flash-lite` via OpenRouter, falling back to Mistral (`mistral-medium-latest`). `PhotoDamageValidator` keeps `damage_detected` only when the model backed it with a damage label, `damage_evidence`, or the description, and never on a render (label `visualization`, set from the prompt's `is_visualization`; such photos get description "Vizualizace: …" and the analysis prompt marks them as not the real condition). Model choice comes from a 9-model benchmark (Sept 2026); local Ollama vision models were too slow (~20 s/photo).
 5. Embedding provider is selected at startup: `Embedding:Provider=ollama` → Ollama, otherwise OpenAI.
 
 ## Code Conventions
