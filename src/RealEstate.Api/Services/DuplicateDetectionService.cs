@@ -24,7 +24,9 @@ public sealed record DuplicateCandidate(
     double? AreaLand,
     DateTime FirstSeenAt,
     bool PreciseGps = true,
-    string? District = null);
+    string? District = null,
+    string? Title = null,
+    string? Disposition = null);
 
 public sealed class DuplicateDetectionService(
     RealEstateDbContext ctx,
@@ -52,6 +54,21 @@ public sealed class DuplicateDetectionService(
 
     /// <summary>Opakovaný inzerát téhož domu v jednom zdroji: GPS musí být prakticky totožná.</summary>
     private const double RepeatGpsMaxMeters = 100;
+
+    /// <summary>
+    /// Nad tuhle vzdálenost dvě „přesné" GPS vylučují shodu. Mezi 300 m a touto mezí rozhodují
+    /// další důkazy – špendlík realitky bývá o stovky metrů vedle (Nemovitosti Znojmo, Jevišovice: 480 m).
+    /// </summary>
+    private const double PreciseGpsRejectMeters = 1_500;
+
+    /// <summary>Shodná dispozice + cena na korunu stačí jen do této vzdálenosti.</summary>
+    private const double DispositionGpsMaxMeters = 1_000;
+
+    /// <summary>Pod touto cenou se „cena na korunu" opakuje příliš často (nájmy, garáže, zahrádky).</summary>
+    private const decimal ExactPriceEvidenceMin = 500_000m;
+
+    /// <summary>Titulek kratší než tohle je moc obecný na to, aby byl důkazem („Prodej domu Znojmo").</summary>
+    private const int TitleEvidenceMinLength = 30;
 
     /// <summary>
     /// Zdroje, které posílají GPS, ale je to jen střed obce geokódovaný portálem
@@ -82,7 +99,7 @@ public sealed class DuplicateDetectionService(
                 l.Price, l.Latitude, l.Longitude,
                 l.Municipality, l.AreaBuiltUp, l.AreaLand, l.FirstSeenAt,
                 l.GeocodeSource != "nominatim" && !ApproxGpsSources.Contains(l.SourceCode),
-                l.District))
+                l.District, l.Title, l.Disposition))
             .ToListAsync(cancellationToken);
 
         var mapping = BuildClusters(candidates); // dupId -> primaryId
@@ -138,10 +155,24 @@ public sealed class DuplicateDetectionService(
                 ? GpsDistanceMeters(a.Latitude.Value, a.Longitude.Value, b.Latitude.Value, b.Longitude.Value)
                 : null;
 
-        // Evidence 1: přesná GPS od zdroje u obou. Pak rozhoduje výhradně vzdálenost –
-        // dva inzeráty 2 km od sebe nejsou tentýž dům, ani když sedí cena, obec i plocha.
+        // Dvě přesné GPS dál než 1,5 km shodu vylučují bez ohledu na titulek, cenu i plochy
+        if (distance > PreciseGpsRejectMeters && a.PreciseGps && b.PreciseGps)
+            return false;
+
+        // Evidence 0: stejný dlouhý titulek a cena na korunu – realitka exportuje tentýž inzerát
+        // na svůj web i na Bazoš („Prodej dvougeneračního rodinného domu s výhledem na…").
+        // Platí i když Bazoš vytáhl z popisu jinou výměru; okresy se nesmí lišit.
+        if (priceDiff == 0 && a.Price >= ExactPriceEvidenceMin && TitlesMatch(a.Title, b.Title)
+            && !DistrictsDiffer(a.District, b.District))
+            return true;
+
+        // Evidence 1: přesná GPS od zdroje u obou. Do 300 m je to tentýž dům, nad 1,5 km určitě ne
+        // (dva inzeráty 2 km od sebe nejsou tentýž dům, ani když sedí cena, obec i plocha).
+        // Mezi tím rozhodují přísnější důkazy níž – špendlík realitky bývá o stovky metrů vedle.
         if (distance is not null && a.PreciseGps && b.PreciseGps)
-            return distance <= GpsMaxMeters;
+        {
+            if (distance <= GpsMaxMeters) return true;
+        }
 
         // Evidence 2 (GPS chybí, nebo je jen geokódovaná z obce/PSČ): cena na korunu stejná
         // a plochy si neodporují. Přísnější než GPS větev, protože „7 490 000 Kč ve Znojmě"
@@ -153,6 +184,12 @@ public sealed class DuplicateDetectionService(
 
         // Do 300 m stačí cena na korunu – řada zdrojů plochy vůbec nemá (PRODEJMETO, MMR…)
         if (distance <= GpsMaxMeters)
+            return true;
+
+        // Bez ploch (Nemovitosti Znojmo je neuvádí): prodej za stejnou cenu na korunu, stejná
+        // dispozice a do 1 km – „3+kk za 7 900 000 Kč v Jevišovicích" dvakrát není náhoda.
+        if (a.OfferType == OfferType.Sale && a.Price >= ExactPriceEvidenceMin
+            && distance <= DispositionGpsMaxMeters && DispositionsMatch(a.Disposition, b.Disposition))
             return true;
 
         // Dál už je potřeba i shodná plocha, plus blízkost nebo stejná obec
@@ -181,11 +218,17 @@ public sealed class DuplicateDetectionService(
     public static bool IsSameSourceRepeat(DuplicateCandidate a, DuplicateCandidate b)
     {
         if (a.SourceId != b.SourceId) return false;
-        if (a.PropertyType != b.PropertyType || a.OfferType != b.OfferType) return false;
+        // Tentýž dům bývá v jednom zdroji veden jako „rodinný dům" i „chalupa" (Reality Čechy, REALmix)
+        if (!TypesCompatible(a.PropertyType, b.PropertyType) || a.OfferType != b.OfferType) return false;
         // Pozemky (parcelace: stejná cena, výměra i poloha) a byty (developer: shodné jednotky
         // v jednom domě) se legitimně opakují – opakování řešíme jen u budov.
-        if (a.PropertyType is PropertyType.Land or PropertyType.Apartment) return false;
+        if (a.PropertyType is PropertyType.Land or PropertyType.Apartment
+            || b.PropertyType is PropertyType.Land or PropertyType.Apartment) return false;
         if (a.Price is not > 0 || b.Price is not > 0 || a.Price != b.Price) return false;
+
+        // Znovu vložený inzerát (Bazoš): stejný dlouhý titulek a cena, i když parser vytáhl jinou výměru
+        if (a.Price >= ExactPriceEvidenceMin && TitlesMatch(a.Title, b.Title))
+            return true;
 
         var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
         var land = CompareAreas(a.AreaLand, b.AreaLand);
@@ -203,6 +246,25 @@ public sealed class DuplicateDetectionService(
 
     public static bool TypesCompatible(PropertyType a, PropertyType b)
         => a == b || CompatibleTypes.Contains((a, b));
+
+    /// <summary>Titulky se shodují po normalizaci a jsou dost dlouhé, aby to nebyla šablona.</summary>
+    public static bool TitlesMatch(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+        var na = NormalizeText(a);
+        var nb = NormalizeText(b);
+        if (na.Length < TitleEvidenceMinLength || nb.Length < TitleEvidenceMinLength) return false;
+        // Bazoš titulek ořezává na 60 znaků – stačí, když je jeden prefixem druhého
+        return na == nb || (Math.Min(na.Length, nb.Length) >= 45 && (na.StartsWith(nb, StringComparison.Ordinal) || nb.StartsWith(na, StringComparison.Ordinal)));
+    }
+
+    /// <summary>„3+KK" = „3+kk"; prázdná dispozice se neshoduje s ničím.</summary>
+    public static bool DispositionsMatch(string? a, string? b)
+        => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
+           && string.Equals(a.Replace(" ", ""), b.Replace(" ", ""), StringComparison.OrdinalIgnoreCase);
+
+    private static bool DistrictsDiffer(string? a, string? b)
+        => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b) && NormalizeText(a) != NormalizeText(b);
 
     /// <summary>
     /// Obce se shodují, když má některá část („ulice, obec" / „obec, okresní město" – Realingo,
@@ -349,7 +411,7 @@ public sealed class DuplicateDetectionService(
             return x;
         }
 
-        foreach (var group in candidates.Where(c => c.Price is > 0).GroupBy(c => (c.SourceId, c.PropertyType, c.OfferType, c.Price)))
+        foreach (var group in candidates.Where(c => c.Price is > 0).GroupBy(c => (c.SourceId, c.OfferType, c.Price)))
         {
             var members = group.ToList();
             if (members.Count < 2) continue;
@@ -368,7 +430,14 @@ public sealed class DuplicateDetectionService(
         {
             var members = cluster.Select(id => byId[id]).ToList();
             if (members.Count < 2) continue;
-            var rep = members.OrderBy(m => m.FirstSeenAt).ThenBy(m => m.Id).First();
+            // Zástupce = nejúplnější data (GPS, plochy), pak nejstarší – s ním se páruje napříč zdroji,
+            // a kopie se špatně vytaženou výměrou by shodu zmařila.
+            var rep = members
+                .OrderByDescending(m => m.Latitude is not null && m.PreciseGps)
+                .ThenByDescending(m => m.Latitude is not null)
+                .ThenByDescending(m => m.AreaBuiltUp is > 0)
+                .ThenByDescending(m => m.AreaLand is > 0)
+                .ThenBy(m => m.FirstSeenAt).ThenBy(m => m.Id).First();
             foreach (var m in members.Where(m => m.Id != rep.Id))
                 result[m.Id] = rep.Id;
         }

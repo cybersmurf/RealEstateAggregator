@@ -458,3 +458,92 @@ public class DuplicateDetectionRelaxedRuleTests
         Assert.DoesNotContain("SREALITY", DuplicateDetectionService.ApproxGpsSources);
     }
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  Jevišovice (1. 10. 2026): dům za 7,9 mil. na Sreality, Nemovitostech Znojmo a 2× na Bazoši
+//  zůstal nespárovaný – web realitky nemá plochy a GPS má o 480 m vedle, druhá bazošová kopie
+//  má jinou výměru. Dům za 4,718 mil. vedou Reality Čechy a REALmix jako dům i jako chalupu.
+// ─────────────────────────────────────────────────────────────────
+public class DuplicateDetectionJevisoviceTests
+{
+    private static readonly Guid Sreality = Guid.NewGuid();
+    private static readonly Guid NemZnojmo = Guid.NewGuid();
+    private static readonly Guid Bazos = Guid.NewGuid();
+    private static readonly Guid RealityCechy = Guid.NewGuid();
+    private const string LongTitle = "Prodej dvougeneračního rodinného domu s výhledem na zámek Jevišovice";
+
+    private static DuplicateCandidate Make(Guid source, decimal price = 7_900_000m, double? lat = 48.9874, double? lon = 15.9899,
+        string? municipality = "Jevišovice", double? builtUp = 350, double? land = 868, bool precise = true,
+        string? title = "Prodej vícegeneračního domu 350 m², pozemek 868 m²", string? disposition = "3+KK",
+        PropertyType type = PropertyType.House, int daysOld = 0)
+        => new(Guid.NewGuid(), source, type, OfferType.Sale, price, lat, lon, municipality, builtUp, land,
+            new DateTime(2026, 9, 1).AddDays(-daysOld), precise, "Znojmo", title, disposition);
+
+    [Fact]
+    public void NoAreas_Gps480m_SameDispositionAndExactPrice_IsDuplicate()
+    {
+        var sreality = Make(Sreality);
+        var web = Make(NemZnojmo, lat: 48.9915, lon: 15.9879, municipality: null, builtUp: null, land: null, title: LongTitle);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(sreality, web));
+    }
+
+    [Fact]
+    public void NoAreas_DifferentDisposition_NotDuplicate()
+    {
+        var sreality = Make(Sreality);
+        var web = Make(NemZnojmo, lat: 48.9915, lon: 15.9879, municipality: null, builtUp: null, land: null, title: LongTitle, disposition: "5+1");
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(sreality, web));
+    }
+
+    [Fact]
+    public void PreciseGps_Over1500m_StillRejected()
+    {
+        var a = Make(Sreality);
+        var b = Make(NemZnojmo, lat: 48.9874 + 0.018, builtUp: null, land: null, municipality: null);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
+    }
+
+    [Fact]
+    public void SameLongTitle_ExactPrice_IsDuplicate_EvenWithConflictingLand()
+    {
+        var web = Make(NemZnojmo, builtUp: null, land: null, municipality: null, title: LongTitle);
+        var bazos = Make(Bazos, lat: null, lon: null, municipality: null, builtUp: null, land: 450, title: LongTitle, disposition: "2+KK");
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(web, bazos));
+    }
+
+    [Theory]
+    [InlineData("Prodej domu Znojmo", "Prodej domu Znojmo", false)]                    // moc krátký = šablona
+    [InlineData("Prodej dvougeneračního rodinného domu s výhledem na zámek", "PRODEJ DVOUGENERAČNÍHO RODINNÉHO DOMU S VÝHLEDEM NA ZÁMEK", true)]
+    [InlineData("Prodej dvougeneračního rodinného domu s výhledem na zámek Jevišovice", "Prodej dvougeneračního rodinného domu s výhledem n", true)]  // Bazoš ořezává
+    [InlineData("Prodej dvougeneračního rodinného domu s výhledem na zámek", "Prodej prostorného rodinného domu se zahradou a garáží", false)]
+    public void TitlesMatch_Cases(string a, string b, bool expected)
+        => Assert.Equal(expected, DuplicateDetectionService.TitlesMatch(a, b));
+
+    [Fact]
+    public void SameSource_HouseAndCottage_AreOneRepeat()
+    {
+        var house = Make(RealityCechy, 4_718_000m, builtUp: 94, land: 202, precise: false, title: "prodej rodinného domu/chalupy (4+ KK), JEVIŠOVICE", disposition: "4+kk");
+        var cottage = house with { Id = Guid.NewGuid(), PropertyType = PropertyType.Cottage };
+
+        Assert.True(DuplicateDetectionService.IsSameSourceRepeat(house, cottage));
+    }
+
+    [Fact]
+    public void FullScenario_AllCopiesEndInOneGroup()
+    {
+        var sreality = Make(Sreality, daysOld: 30);
+        var web = Make(NemZnojmo, lat: 48.9915, lon: 15.9879, municipality: null, builtUp: null, land: null, title: LongTitle, daysOld: 20);
+        var bazos1 = Make(Bazos, lat: 48.9879, lon: 16.0012, precise: false, municipality: null, builtUp: null, land: 868, title: LongTitle, daysOld: 10);
+        var bazos2 = Make(Bazos, lat: null, lon: null, municipality: null, builtUp: null, land: 450, title: LongTitle, disposition: "2+KK", daysOld: 5);
+
+        var mapping = DuplicateDetectionService.BuildClusters([sreality, web, bazos1, bazos2]);
+
+        Assert.Equal(3, mapping.Count);
+        Assert.All(new[] { web, bazos1, bazos2 }, c => Assert.Equal(sreality.Id, mapping[c.Id]));
+    }
+}
+
