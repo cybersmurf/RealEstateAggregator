@@ -129,6 +129,9 @@ public static class PhotoEndpoints
         [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs = default!,
         CancellationToken cancellationToken = default)
     {
+        // Úloha se eviduje pod inzerátem, který uživatel otevřel – detail se na ni ptá svým Id,
+        // i když fotky patří jinému členovi skupiny duplicit (vlastník s nejvíce fotkami).
+        var requestedListingId = listingId;
         listingId = await ResolvePhotoOwnerAsync(groups, listingId, cancellationToken);
         // Validace batchSize jen pro globální bulk (bez listingId).
         // Když je listingId zadáno, service zpracuje VŠECHNY fotky listingu bez omezení.
@@ -139,7 +142,7 @@ public static class PhotoEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
 
         // Běží jako úloha na pozadí – odchod ze stránky (zrušený požadavek) klasifikaci nezastaví.
-        var jobId = jobs.Enqueue("photo-classify", listingId, async (sp, ct) =>
+        var jobId = jobs.Enqueue("photo-classify", requestedListingId, async (sp, ct) =>
             await sp.GetRequiredService<IPhotoClassificationService>().ClassifyBatchAsync(batchSize, ct, listingId, onlyMyListings));
         if (!wait)
             return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
@@ -233,6 +236,7 @@ public static class PhotoEndpoints
         [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs = default!,
         CancellationToken cancellationToken = default)
     {
+        var requestedListingId = listingId;
         listingId = await ResolvePhotoOwnerAsync(groups, listingId, cancellationToken);
         if (!listingId.HasValue && (batchSize < 1 || batchSize > 50))
             return Results.Problem(
@@ -240,7 +244,7 @@ public static class PhotoEndpoints
                 detail: "batchSize musí být v rozmezí 1–50.",
                 statusCode: StatusCodes.Status400BadRequest);
 
-        var jobId = jobs.Enqueue("photo-alt-text", listingId, async (sp, ct) =>
+        var jobId = jobs.Enqueue("photo-alt-text", requestedListingId, async (sp, ct) =>
             await sp.GetRequiredService<IPhotoClassificationService>().BulkAltTextAsync(batchSize, ct, listingId));
         if (!wait)
             return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
