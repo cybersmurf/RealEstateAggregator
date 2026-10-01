@@ -40,6 +40,12 @@ public sealed class DuplicateDetectionService(
     /// <summary>Max. relativní rozdíl ceny (2 %) – pokrývá drobné rozdíly typu „vč./bez provize".</summary>
     private const double PriceTolerance = 0.02;
 
+    /// <summary>
+    /// Širší tolerance ceny pro kopii se zpožděnou cenou: realitka zlevní na Sreality, ale na iDNES
+    /// nechá starou cenu (Znojmo centrum: 7,43 vs. 6,90 mil., 7 %). Platí jen s přísnou shodou ploch.
+    /// </summary>
+    private const double LaggingPriceTolerance = 0.10;
+
     /// <summary>Max. vzdálenost GPS bodů v metrech.</summary>
     private const double GpsMaxMeters = 300;
 
@@ -147,13 +153,15 @@ public sealed class DuplicateDetectionService(
         if (a.Price is not > 0 || b.Price is not > 0) return false;
         var maxPrice = (double)Math.Max(a.Price.Value, b.Price.Value);
         var priceDiff = (double)Math.Abs(a.Price.Value - b.Price.Value);
-        if (priceDiff > maxPrice * PriceTolerance) return false;
 
         double? distance =
             a.Latitude is not null && a.Longitude is not null &&
             b.Latitude is not null && b.Longitude is not null
                 ? GpsDistanceMeters(a.Latitude.Value, a.Longitude.Value, b.Latitude.Value, b.Longitude.Value)
                 : null;
+
+        if (priceDiff > maxPrice * PriceTolerance)
+            return priceDiff <= maxPrice * LaggingPriceTolerance && IsLaggingPriceCopy(a, b, distance);
 
         // Dvě přesné GPS dál než 1,5 km shodu vylučují bez ohledu na titulek, cenu i plochy
         if (distance > PreciseGpsRejectMeters && a.PreciseGps && b.PreciseGps)
@@ -208,6 +216,22 @@ public sealed class DuplicateDetectionService(
         return municipalityMissing
             && builtUp == true && land == true
             && DistrictMatches(a.District, b.District);
+    }
+
+    /// <summary>
+    /// Kopie téhož domu, kde jeden portál ještě drží starou cenu. Bez shody ceny musí sedět všechno
+    /// ostatní: prodej, užitná plocha i pozemek na metr, dispozice, okres a poloha (do 5 km nebo obec).
+    /// </summary>
+    private static bool IsLaggingPriceCopy(DuplicateCandidate a, DuplicateCandidate b, double? distance)
+    {
+        if (a.OfferType != OfferType.Sale || a.Price < ExactPriceEvidenceMin || b.Price < ExactPriceEvidenceMin) return false;
+        if (a.AreaBuiltUp is not > 0 || b.AreaBuiltUp is not > 0 || a.AreaLand is not > 0 || b.AreaLand is not > 0) return false;
+        if (Math.Abs(a.AreaBuiltUp.Value - b.AreaBuiltUp.Value) > 0.5 || Math.Abs(a.AreaLand.Value - b.AreaLand.Value) > 0.5) return false;
+        if (!DispositionsMatch(a.Disposition, b.Disposition)) return false;
+        if (!DistrictMatches(a.District, b.District)) return false;
+        if (distance is not null)
+            return distance <= ApproxGpsMaxMeters && !(a.PreciseGps && b.PreciseGps && distance > PreciseGpsRejectMeters);
+        return MunicipalityMatches(a.Municipality, b.Municipality);
     }
 
     /// <summary>
@@ -350,7 +374,8 @@ public sealed class DuplicateDetectionService(
             for (var i = 0; i < sorted.Count; i++)
             {
                 var a = sorted[i];
-                var maxPrice = (double)a.Price!.Value * (1 + PriceTolerance);
+                // Okno podle širší tolerance (kopie se zpožděnou cenou); o shodě rozhodne IsDuplicatePair
+                var maxPrice = (double)a.Price!.Value / (1 - LaggingPriceTolerance);
                 for (var j = i + 1; j < sorted.Count && (double)sorted[j].Price!.Value <= maxPrice; j++)
                 {
                     if (IsDuplicatePair(a, sorted[j]))

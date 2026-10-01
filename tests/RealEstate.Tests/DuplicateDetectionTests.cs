@@ -545,5 +545,28 @@ public class DuplicateDetectionJevisoviceTests
         Assert.Equal(3, mapping.Count);
         Assert.All(new[] { web, bazos1, bazos2 }, c => Assert.Equal(sreality.Id, mapping[c.Id]));
     }
-}
 
+    [Fact]
+    public void LaggingPrice_SameAreasDispositionDistrict_IsDuplicate()
+    {
+        // Znojmo centrum: Sreality 6 897 485 Kč, iDNES pořád 7 427 735 Kč (−7 %), jinak vše stejné
+        var sreality = Make(Sreality, 6_897_485m, lat: 48.8557, lon: 16.0462, municipality: "Znojmo", builtUp: 150, land: 322, disposition: "3+1");
+        var idnes = Make(NemZnojmo, 7_427_735m, lat: 48.8555, lon: 16.0488, municipality: null, builtUp: 150, land: 322, precise: false, disposition: "3+1");
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(sreality, idnes));
+        Assert.Single(DuplicateDetectionService.BuildClusters([sreality, idnes]));
+    }
+
+    [Theory]
+    [InlineData(150, 322, "4+1", 7_427_735)]   // jiná dispozice
+    [InlineData(160, 322, "3+1", 7_427_735)]   // jiná užitná plocha
+    [InlineData(150, 400, "3+1", 7_427_735)]   // jiný pozemek
+    [InlineData(150, 322, "3+1", 7_900_000)]   // rozdíl ceny nad 10 %
+    public void LaggingPrice_AnyMismatch_NotDuplicate(double builtUp, double land, string disposition, decimal price)
+    {
+        var sreality = Make(Sreality, 6_897_485m, lat: 48.8557, lon: 16.0462, municipality: "Znojmo", builtUp: 150, land: 322, disposition: "3+1");
+        var other = Make(NemZnojmo, price, lat: 48.8555, lon: 16.0488, municipality: null, builtUp: builtUp, land: land, precise: false, disposition: disposition);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(sreality, other));
+    }
+}
