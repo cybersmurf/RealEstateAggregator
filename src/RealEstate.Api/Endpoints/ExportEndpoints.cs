@@ -118,15 +118,17 @@ public static class ExportEndpoints
         Guid id,
         [FromQuery] string? folderUrl,
         [FromServices] RealEstateDbContext db,
+        [FromServices] RealEstate.Api.Services.Duplicates.IDuplicateGroupService duplicateGroups,
         CancellationToken ct)
     {
         var listing = await db.Listings
-            .Include(l => l.Photos)
             .Include(l => l.Source)
             .FirstOrDefaultAsync(l => l.Id == id, ct);
 
         if (listing is null)
             return Results.NotFound(new { error = $"Inzerát {id} nenalezen" });
+
+        listing.Photos = (await duplicateGroups.GetGroupPhotoSetAsync(id, ct)).Photos.ToList();
 
         var photos = listing.Photos
             .OrderBy(p => p.Order)

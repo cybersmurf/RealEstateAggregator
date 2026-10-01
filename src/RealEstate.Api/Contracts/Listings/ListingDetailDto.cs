@@ -50,6 +50,10 @@ public sealed class ListingDetailDto
     public decimal? AuctionDeposit { get; set; }
 
     public IReadOnlyList<ListingPhotoDto> Photos { get; set; } = Array.Empty<ListingPhotoDto>();
+    /// <summary>Fotky jsou převzaté od jiného člena skupiny duplicit (nejúplnější sada) – jeho ID.</summary>
+    public Guid? PhotosFromListingId { get; set; }
+    /// <summary>Zdroj, od kterého jsou fotky převzaté (null = vlastní fotky).</summary>
+    public string? PhotosFromSourceCode { get; set; }
 
     public ListingUserStateDto UserState { get; set; } = new();
 

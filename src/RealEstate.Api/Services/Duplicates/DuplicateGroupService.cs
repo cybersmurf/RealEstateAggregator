@@ -74,4 +74,55 @@ public sealed class DuplicateGroupService(RealEstateDbContext db) : IDuplicateGr
             items.Select(i => i.SourceCode).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
             items);
     }
+
+    public async Task<GroupPhotoSet> GetGroupPhotoSetAsync(Guid listingId, CancellationToken ct)
+    {
+        var anchor = await db.Listings
+            .AsNoTracking()
+            .Where(l => l.Id == listingId)
+            .Select(l => new { l.Id, l.SourceCode, l.DuplicateOfListingId })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new KeyNotFoundException($"Inzerát {listingId} nenalezen");
+
+        var primaryId = anchor.DuplicateOfListingId ?? anchor.Id;
+
+        var members = await db.Listings
+            .AsNoTracking()
+            .Where(l => l.Id == primaryId || l.DuplicateOfListingId == primaryId)
+            .Select(l => new PhotoOwnerCandidate(l.Id, l.SourceCode, l.Photos.Count, l.FirstSeenAt, l.IsActive))
+            .ToListAsync(ct);
+
+        var owner = ChoosePhotoOwner(listingId, primaryId, members) ?? listingId;
+        var ownerCode = members.FirstOrDefault(m => m.Id == owner)?.SourceCode ?? anchor.SourceCode;
+
+        var photos = await db.ListingPhotos
+            .AsNoTracking()
+            .Where(p => p.ListingId == owner)
+            .OrderBy(p => p.Order)
+            .ToListAsync(ct);
+
+        return new GroupPhotoSet(owner, ownerCode, photos, IsBorrowed: owner != listingId);
+    }
+
+    public sealed record PhotoOwnerCandidate(Guid Id, string SourceCode, int PhotoCount, DateTime FirstSeenAt, bool IsActive);
+
+    /// <summary>
+    /// Vlastník fotek: nejvíc fotek; při shodě sám inzerát, pak primár, pak nejstarší.
+    /// Stažené inzeráty jen když žádný aktivní fotky nemá (URL stažených bývají mrtvé).
+    /// </summary>
+    public static Guid? ChoosePhotoOwner(Guid listingId, Guid primaryId, IReadOnlyList<PhotoOwnerCandidate> members)
+    {
+        if (members.Count == 0) return null;
+        var pool = members.Where(m => m.IsActive && m.PhotoCount > 0).ToList();
+        if (pool.Count == 0) pool = members.Where(m => m.PhotoCount > 0).ToList();
+        if (pool.Count == 0) return listingId;
+
+        return pool
+            .OrderByDescending(m => m.PhotoCount)
+            .ThenByDescending(m => m.Id == listingId)
+            .ThenByDescending(m => m.Id == primaryId)
+            .ThenBy(m => m.FirstSeenAt)
+            .ThenBy(m => m.Id)
+            .First().Id;
+    }
 }

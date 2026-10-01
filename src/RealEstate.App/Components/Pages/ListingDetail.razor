@@ -93,7 +93,15 @@
             <!-- Photo Carousel -->
             @if (_listing.Photos.Any())
             {
-                <SectionCard Title="Fotografie" Icon="@Icons.Material.Filled.PhotoLibrary" IconColor="Color.Info">
+                <SectionCard Title="@($"Fotografie ({_listing.Photos.Count})")" Icon="@Icons.Material.Filled.PhotoLibrary" IconColor="Color.Info">
+                    @if (_listing.PhotosFromSourceCode is not null)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                            Fotky převzaté ze zdroje <b>@_listing.PhotosFromSourceCode</b> – nejúplnější sada ve skupině duplicit
+                            (tento zdroj jich má méně).
+                            <MudLink Href="@($"/listings/{_listing.PhotosFromListingId}")" Class="ml-1">Otevřít záznam</MudLink>
+                        </MudAlert>
+                    }
                     <MudCarousel TData="object" Style="height:400px;" ShowArrows="true" ShowBullets="true" EnableSwipeGesture="true" AutoCycle="false">
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {

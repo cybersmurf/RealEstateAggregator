@@ -74,8 +74,10 @@ public static class PhotoEndpoints
         [FromQuery] Guid? listingId = null,
         [FromQuery] bool onlyMyListings = false,
         [FromServices] IPhotoDownloadService service = default!,
+        [FromServices] RealEstate.Api.Services.Duplicates.IDuplicateGroupService groups = default!,
         CancellationToken cancellationToken = default)
     {
+        listingId = await ResolvePhotoOwnerAsync(groups, listingId, cancellationToken);
         if (batchSize < 1 || batchSize > 200)
             return Results.Problem(
                 title: "Neplatný batchSize",
@@ -122,8 +124,10 @@ public static class PhotoEndpoints
         [FromQuery] Guid? listingId = null,
         [FromQuery] bool onlyMyListings = false,
         [FromServices] IPhotoClassificationService service = default!,
+        [FromServices] RealEstate.Api.Services.Duplicates.IDuplicateGroupService groups = default!,
         CancellationToken cancellationToken = default)
     {
+        listingId = await ResolvePhotoOwnerAsync(groups, listingId, cancellationToken);
         // Validace batchSize jen pro globální bulk (bez listingId).
         // Když je listingId zadáno, service zpracuje VŠECHNY fotky listingu bez omezení.
         if (!listingId.HasValue && (batchSize < 1 || batchSize > 50))
@@ -198,8 +202,11 @@ public static class PhotoEndpoints
     private static async Task<IResult> SortByCategory(
         [FromQuery] Guid listingId,
         [FromServices] IPhotoClassificationService service = default!,
+        [FromServices] RealEstate.Api.Services.Duplicates.IDuplicateGroupService groups = default!,
         CancellationToken cancellationToken = default)
     {
+        if (listingId != Guid.Empty)
+            listingId = (await ResolvePhotoOwnerAsync(groups, listingId, cancellationToken))!.Value;
         if (listingId == Guid.Empty)
             return Results.Problem(
                 title: "Chybí listingId",
@@ -214,8 +221,10 @@ public static class PhotoEndpoints
         [FromQuery] int batchSize = 20,
         [FromQuery] Guid? listingId = null,
         [FromServices] IPhotoClassificationService service = default!,
+        [FromServices] RealEstate.Api.Services.Duplicates.IDuplicateGroupService groups = default!,
         CancellationToken cancellationToken = default)
     {
+        listingId = await ResolvePhotoOwnerAsync(groups, listingId, cancellationToken);
         if (!listingId.HasValue && (batchSize < 1 || batchSize > 50))
             return Results.Problem(
                 title: "Neplatný batchSize",
@@ -224,5 +233,23 @@ public static class PhotoEndpoints
 
         var result = await service.BulkAltTextAsync(batchSize, cancellationToken, listingId);
         return Results.Ok(result);
+    }
+
+    /// <summary>
+    /// Fotky se klasifikují/stahují u člena skupiny duplicit s nejúplnější sadou (Bazoš 20 vs. Sreality 49),
+    /// stejně jako je detail zobrazuje. Bez skupiny vrací totéž ID.
+    /// </summary>
+    private static async Task<Guid?> ResolvePhotoOwnerAsync(
+        RealEstate.Api.Services.Duplicates.IDuplicateGroupService groups, Guid? listingId, CancellationToken ct)
+    {
+        if (listingId is null || listingId == Guid.Empty) return listingId;
+        try
+        {
+            return (await groups.GetGroupPhotoSetAsync(listingId.Value, ct)).OwnerListingId;
+        }
+        catch (KeyNotFoundException)
+        {
+            return listingId;
+        }
     }
 }

@@ -18,15 +18,18 @@ public sealed class GoogleDriveExportService(
     IConfiguration configuration,
     IHttpClientFactory httpClientFactory,
     IWebHostEnvironment env,
-    ILogger<GoogleDriveExportService> logger) : IGoogleDriveExportService
+    ILogger<GoogleDriveExportService> logger,
+    Duplicates.IDuplicateGroupService duplicateGroups) : IGoogleDriveExportService
 {
     public async Task<DriveExportResultDto> ExportListingToDriveAsync(Guid listingId, CancellationToken ct = default)
     {
         var listing = await dbContext.Listings
-            .Include(l => l.Photos)
             .Include(l => l.Source)
             .FirstOrDefaultAsync(l => l.Id == listingId, ct)
             ?? throw new KeyNotFoundException($"Inzerát {listingId} nenalezen");
+
+        // Do exportu jde nejúplnější sada fotek ve skupině duplicit
+        listing.Photos = (await duplicateGroups.GetGroupPhotoSetAsync(listingId, ct)).Photos.ToList();
 
         // ── IDEMPOTENCE: pokud jsme už exportovali, vrátíme existující složku ──
         if (!string.IsNullOrWhiteSpace(listing.DriveFolderId))

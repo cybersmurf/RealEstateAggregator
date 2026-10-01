@@ -28,7 +28,8 @@ public sealed class LocalAnalysisService(
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
     IWebHostEnvironment env,
-    ILogger<LocalAnalysisService> logger) : ILocalAnalysisService
+    ILogger<LocalAnalysisService> logger,
+    Duplicates.IDuplicateGroupService duplicateGroups) : ILocalAnalysisService
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -589,10 +590,16 @@ public sealed class LocalAnalysisService(
 
         // 1. Načti inzerát
         var listing = await db.Listings
-            .Include(l => l.Photos.OrderBy(p => p.Order))
             .AsNoTracking()
             .FirstOrDefaultAsync(l => l.Id == listingId, ct)
             ?? throw new KeyNotFoundException($"Inzerát {listingId} nenalezen");
+
+        // Fotky = nejúplnější sada ve skupině duplicit (z 20 bazošových fotek se analýza dělat nedá)
+        var photoSet = await duplicateGroups.GetGroupPhotoSetAsync(listingId, ct);
+        listing.Photos = photoSet.Photos.ToList();
+        if (photoSet.IsBorrowed)
+            logger.LogInformation("Analýza {ListingId}: fotky převzaté z {Source} ({Count})",
+                listingId, photoSet.OwnerSourceCode, photoSet.Photos.Count);
 
         // 2. Popisy fotek
         var photoDescriptions = await DescribePhotosAsync(listing.Photos.ToList(), ct);

@@ -31,11 +31,15 @@ public class ListingService : IListingService
     /// <summary>Strop pro CSV export (dokumentovaný limit endpointu).</summary>
     private const int MaxExportPageSize = 5_000;
 
-    public ListingService(IListingRepository repository, RealEstateDbContext dbContext, ICurrentUser currentUser)
+    private readonly Duplicates.IDuplicateGroupService _duplicateGroups;
+
+    public ListingService(IListingRepository repository, RealEstateDbContext dbContext, ICurrentUser currentUser,
+        Duplicates.IDuplicateGroupService? duplicateGroups = null)
     {
         _repository = repository;
         _dbContext = dbContext;
         _currentUser = currentUser;
+        _duplicateGroups = duplicateGroups ?? new Duplicates.DuplicateGroupService(dbContext);
     }
 
     public Task<PagedResultDto<ListingSummaryDto>> SearchAsync(
@@ -182,6 +186,8 @@ public class ListingService : IListingService
             }
         }
 
+        var photoSet = await _duplicateGroups.GetGroupPhotoSetAsync(entity.Id, cancellationToken);
+
         return new ListingDetailDto
         {
             Id = entity.Id,
@@ -219,7 +225,10 @@ public class ListingService : IListingService
             AuctionDate = entity.AuctionDate,
             AuctionStartingPrice = entity.AuctionStartingPrice,
             AuctionDeposit = entity.AuctionDeposit,
-            Photos = entity.Photos
+            // Fotky = nejúplnější sada ve skupině duplicit (Bazoš 20 vs. Sreality 49)
+            PhotosFromListingId = photoSet.IsBorrowed ? photoSet.OwnerListingId : null,
+            PhotosFromSourceCode = photoSet.IsBorrowed ? photoSet.OwnerSourceCode : null,
+            Photos = photoSet.Photos
                 .OrderBy(p => p.Order)
                 .Select(p => new ListingPhotoDto
                 {
