@@ -62,6 +62,7 @@ public static class ServiceCollectionExtensions
             || (!string.IsNullOrWhiteSpace(ollamaBaseUrl) && string.IsNullOrWhiteSpace(openAiKey)))
         {
             services.AddHttpClient("Ollama");
+            services.AddSingleton<LlmProviderCooldown>();
             services.AddSingleton<IEmbeddingService, OllamaEmbeddingService>();
         }
         else

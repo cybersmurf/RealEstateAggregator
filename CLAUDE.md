@@ -144,7 +144,7 @@ Environment variables used by API (set in `docker-compose.yml` or `.env`):
 | `PHOTO_VISION_PROVIDER` | `mistral` / `openrouter` = force a single provider for photo classification |
 | `PHOTOS_PUBLIC_BASE_URL` | Base URL for serving stored photos |
 | `PUBLIC_API_URL` | Externí URL API – plní `PHOTOS_PUBLIC_BASE_URL` a `ApiPublicUrl` |
-| `OpenRouter__ApiKey` / `Groq__ApiKey` / `Mistral__ApiKey` | Cloud LLM fallback |
+| `OpenRouter__ApiKey` / `Groq__ApiKey` / `Mistral__ApiKey` | Cloud LLM. Text chat (shrnutí, štítky, normalizace, cenový signál) jde řetězcem Mistral → OpenRouter → Groq → Ollama Cloud (`*__ChatModel` přepíše model); poskytovatel s 401/402/403 je na 30 min vyřazen (`LlmProviderCooldown`) |
 | `Anthropic__ApiKey` / `OllamaCloud__ApiKey` | Cloud LLM fallback |
 | `SLACK_WEBHOOK_URL` | Slack notifikace chyb ze scraperu |
 | `SKIP_EF_MIGRATIONS` | `true` = přeskočí bootstrap schématu při startu API |
