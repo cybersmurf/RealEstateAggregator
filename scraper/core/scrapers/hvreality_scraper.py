@@ -19,6 +19,14 @@ from ..http_utils import http_retry
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://hvreality.cz"
+
+# Slug okresu v URL → název (jen ty, které se liší od prostého Title Case)
+HV_DISTRICT_SLUGS = {
+    "znojmo": "Znojmo", "brno-mesto": "Brno-město", "brno-venkov": "Brno-venkov", "breclav": "Břeclav",
+    "trebic": "Třebíč", "jihlava": "Jihlava", "pelhrimov": "Pelhřimov", "zdar-nad-sazavou": "Žďár nad Sázavou",
+    "havlickuv-brod": "Havlíčkův Brod", "jindrichuv-hradec": "Jindřichův Hradec", "vyskov": "Vyškov",
+    "hodonin": "Hodonín", "blansko": "Blansko", "prostejov": "Prostějov", "olomouc": "Olomouc",
+}
 START_URLS = [
     "https://hvreality.cz/prodej-nemovitosti/",
     "https://hvreality.cz/pronajem-nemovitosti/"
@@ -190,6 +198,24 @@ class HvRealityScraper:
                 return None
         return None
 
+    @staticmethod
+    def _parse_locality(soup: BeautifulSoup, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """(obec, okres) z meta description, záložně z URL slugu „…-<obec>-okres-<okres>-…"."""
+        for sel in ('meta[name="description"]', 'meta[property="og:description"]'):
+            tag = soup.select_one(sel)
+            content = (tag.get("content") or "") if tag else ""
+            m = re.search(r"^(?:Prodej|Pronájem|Dražba)\s+\S+(?:\s+\S+)*?\s+([A-ZÁ-Ž][^-,]+?)\s*-\s*okres\s+([^,.]+)", content)
+            if m:
+                return m.group(1).strip(), m.group(2).strip()
+        m = re.search(r"-okres-([a-z-]+?)-(?:prodej|pronajem|drazba|\d)", url) or re.search(r"-okres-([a-z]+)", url)
+        if m:
+            slug = m.group(1)
+            # známé víceslovné okresy mají přednost, jinak první slovo slugu
+            known = next((v for k, v in HV_DISTRICT_SLUGS.items() if slug == k or slug.startswith(k + "-")), None)
+            district = known or slug.split("-")[0].title()
+            return None, district
+        return None, None
+
     def _parse_detail_page(self, html: str, list_item: Dict[str, Any]) -> Dict[str, Any]:
         soup = BeautifulSoup(html, "html.parser")
         result: Dict[str, Any] = {
@@ -253,12 +279,19 @@ class HvRealityScraper:
                 if clean_text and len(clean_text) > 3:
                     result["location_text"] = clean_text.title()[:200]
 
-        if "location_text" not in result or not result["location_text"]:
-            loc_candidates = soup.find_all(string=re.compile(r'Znojmo|okres Znojmo', re.I))
-            if loc_candidates:
-                result["location_text"] = loc_candidates[0].strip()[:200]
-            else:
-                result["location_text"] = "Znojmo a okolí"
+        # Obec a okres: HV Reality (Horák & Vetchý) prodává po celé ČR, ne jen na Znojemsku.
+        # Dřívější fallback „Znojmo a okolí" pustil přes geografický filtr dům v Křelovicích
+        # (okres Pelhřimov). Spolehlivý zdroj je meta description:
+        # „Prodej rodinného domu Křelovice - okres Pelhřimov, Kraj Vysočina. …"
+        muni, district = self._parse_locality(soup, list_item.get("url") or result.get("url") or "")
+        if muni:
+            result["municipality"] = muni[:100]
+        if district:
+            result["district"] = district[:100]
+        if muni or district:
+            result["location_text"] = ", ".join(x for x in (muni, f"okres {district}" if district else "") if x)[:200]
+        elif not result.get("location_text"):
+            result["location_text"] = (result["title"].split("–")[-1].strip() or "neznámá lokalita")[:200]
 
         # Fotky
         photo_urls = []
