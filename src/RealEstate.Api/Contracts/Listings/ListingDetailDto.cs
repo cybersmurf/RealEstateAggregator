@@ -63,6 +63,14 @@ public sealed class ListingDetailDto
     /// <summary>Zdroj, od kterého jsou fotky převzaté (null = vlastní fotky).</summary>
     public string? PhotosFromSourceCode { get; set; }
 
+    /// <summary>GPS pro mapu v detailu; u duplicit přednostně přesná poloha od jiného zdroje.</summary>
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    /// <summary>Poloha je jen geokódovaný střed obce / PSČ (Nominatim, portály bez přesné GPS).</summary>
+    public bool LocationIsApproximate { get; set; }
+    /// <summary>Zdroj, od kterého je poloha převzatá (null = vlastní).</summary>
+    public string? LocationFromSourceCode { get; set; }
+
     public ListingUserStateDto UserState { get; set; } = new();
 
     // Google Drive export info

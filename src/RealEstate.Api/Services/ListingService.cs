@@ -187,6 +187,7 @@ public class ListingService : IListingService
         }
 
         var photoSet = await _duplicateGroups.GetGroupPhotoSetAsync(entity.Id, cancellationToken);
+        var location = await ResolveLocationAsync(entity, cancellationToken);
 
         // Kontakt na makléře: jen správci. Zdroj, který ho neumí (zatím vše kromě Sreality),
         // si ho půjčí od člena skupiny duplicit – stejný dům, stejný makléř.
@@ -261,6 +262,10 @@ SellerName = sellerName,
             // Fotky = nejúplnější sada ve skupině duplicit (Bazoš 20 vs. Sreality 49)
             PhotosFromListingId = photoSet.IsBorrowed ? photoSet.OwnerListingId : null,
             PhotosFromSourceCode = photoSet.IsBorrowed ? photoSet.OwnerSourceCode : null,
+            Latitude = location.Latitude,
+            Longitude = location.Longitude,
+            LocationIsApproximate = location.Approximate,
+            LocationFromSourceCode = location.FromSourceCode,
             Photos = photoSet.Photos
                 .OrderBy(p => p.Order)
                 .Select(p => new ListingPhotoDto
@@ -821,6 +826,36 @@ SellerName = sellerName,
         return rows
             .Select(r => new PriceHistoryDto(r.price, r.recorded_at, r.source))
             .ToList();
+    }
+
+    private static bool IsPreciseGps(string sourceCode, string? geocodeSource)
+        => geocodeSource != "nominatim" && !DuplicateDetectionService.ApproxGpsSources.Contains(sourceCode);
+
+    /// <summary>
+    /// Poloha pro mapu v detailu. Bazoš, iDNES apod. mají jen geokódovaný střed obce – když tentýž dům
+    /// existuje ve zdroji s přesnou GPS (typicky Sreality), vezme se odtud. Jinak vlastní (i přibližná).
+    /// </summary>
+    private async Task<(double? Latitude, double? Longitude, bool Approximate, string? FromSourceCode)> ResolveLocationAsync(
+        Listing entity, CancellationToken ct)
+    {
+        var ownPrecise = entity.Latitude is not null && IsPreciseGps(entity.SourceCode, entity.GeocodeSource);
+        if (ownPrecise)
+            return (entity.Latitude, entity.Longitude, false, null);
+
+        var primaryId = entity.DuplicateOfListingId ?? entity.Id;
+        var approxSources = DuplicateDetectionService.ApproxGpsSources;
+        var better = await _dbContext.Listings
+            .AsNoTracking()
+            .Where(l => l.Id != entity.Id && (l.Id == primaryId || l.DuplicateOfListingId == primaryId))
+            .Where(l => l.Latitude != null && l.Longitude != null && l.GeocodeSource != "nominatim" && !approxSources.Contains(l.SourceCode))
+            .OrderBy(l => l.SourceCode == "SREALITY" ? 0 : 1).ThenByDescending(l => l.IsActive)
+            .Select(l => new { l.Latitude, l.Longitude, l.SourceCode })
+            .FirstOrDefaultAsync(ct);
+
+        if (better is not null)
+            return (better.Latitude, better.Longitude, false, better.SourceCode);
+
+        return (entity.Latitude, entity.Longitude, entity.Latitude is not null, null);
     }
 
     public async Task<DeactivateDeadResult> DeactivateDeadListingsAsync(int daysOld, CancellationToken cancellationToken)

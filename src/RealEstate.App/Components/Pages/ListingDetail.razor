@@ -90,6 +90,32 @@
             <!-- Dražba: termín, vyvolávací cena, jistota -->
             <AuctionSection Listing="_listing" />
 
+            <!-- Poloha: ortofoto ČÚZK + katastrální mapa -->
+            @if (_listing.Latitude is not null && _listing.Longitude is not null)
+            {
+                <SectionCard Title="Poloha a ortofoto" Icon="@Icons.Material.Filled.Satellite" IconColor="Color.Success">
+                    @if (_listing.LocationIsApproximate)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                            Zdroj neuvádí přesnou polohu – kruh ukazuje střed obce, ne dům.
+                        </MudAlert>
+                    }
+                    else if (_listing.LocationFromSourceCode is not null)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1" Style="display:block">
+                            Přesná poloha převzatá ze zdroje @_listing.LocationFromSourceCode (stejný dům ve skupině duplicit).
+                        </MudText>
+                    }
+                    <div id="@DetailMapId" style="height:380px; border-radius:6px; overflow:hidden;"></div>
+                    <MudStack Row="true" Spacing="2" Class="mt-2" Wrap="Wrap.Wrap">
+                        <MudLink Href="@MapyCzUrl" Target="_blank" Typo="Typo.body2">Mapy.cz (letecká) ↗</MudLink>
+                        <MudLink Href="@IKatastrUrl" Target="_blank" Typo="Typo.body2">iKatastr ↗</MudLink>
+                        <MudLink Href="@StreetViewUrl" Target="_blank" Typo="Typo.body2">Street View ↗</MudLink>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Kliknutím do mapy zapneš přibližování kolečkem. Vrstvy přepneš vpravo nahoře.</MudText>
+                    </MudStack>
+                </SectionCard>
+            }
+
             <!-- Photo Carousel -->
             @if (_listing.Photos.Any())
             {
@@ -1928,8 +1954,30 @@
 
     private bool _ocrJsInitialized;
 
+    // ── Mapa v detailu (ortofoto ČÚZK + katastr) ───────────────────────────────────
+    private const string DetailMapId = "listing-detail-map";
+    private Guid _detailMapFor;
+    private static string Num(double? v) => (v ?? 0).ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+    private string MapyCzUrl => $"https://mapy.cz/letecka?x={Num(_listing?.Longitude)}&y={Num(_listing?.Latitude)}&z=19";
+    private string IKatastrUrl => $"https://www.ikatastr.cz/#kde={Num(_listing?.Latitude)},{Num(_listing?.Longitude)},19";
+    private string StreetViewUrl => $"https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={Num(_listing?.Latitude)},{Num(_listing?.Longitude)}";
+
+    private async Task InitDetailMapAsync()
+    {
+        if (_listing?.Latitude is null || _listing.Longitude is null || _detailMapFor == _listing.Id)
+            return;
+        try
+        {
+            var ok = await JS.InvokeAsync<bool>("leafletMap.initDetail", DetailMapId,
+                _listing.Latitude, _listing.Longitude, _listing.LocationIsApproximate, _listing.Title);
+            if (ok) _detailMapFor = _listing.Id;
+        }
+        catch { /* pre-rendering nebo stránka opuštěna */ }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        await InitDetailMapAsync();
         if (firstRender && !_ocrJsInitialized)
         {
             try

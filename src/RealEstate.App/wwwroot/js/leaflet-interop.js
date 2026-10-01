@@ -23,18 +23,78 @@ window.leafletMap = (() => {
             _maps[mapId].remove();
         }
 
-        const map = L.map(mapId, { preferCanvas: true }).setView([centerLat, centerLon], zoom);
+        const map = L.map(mapId, { preferCanvas: true, maxZoom: 21 }).setView([centerLat, centerLon], zoom);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            maxZoom: 18
-        }).addTo(map);
+        addBaseLayers(map, 'osm');
 
         _maps[mapId] = map;
         _markerLayers[mapId] = L.layerGroup().addTo(map);
         _corridorLayers[mapId] = L.layerGroup().addTo(map);
         _bboxLayers[mapId] = L.layerGroup().addTo(map);
 
+        return true;
+    }
+
+    /**
+     * Podkladové vrstvy s přepínačem: OpenStreetMap, ortofoto ČÚZK (dlaždice ve Web Mercatoru,
+     * služba ORTOFOTO_WM – původní ORTOFOTO je v S-JTSK a Leaflet ji neumí) a překryv
+     * katastrální mapy (WMS ČÚZK, kreslí se až od měřítka ulice). Volba se pamatuje v prohlížeči.
+     * @param {L.Map} map
+     * @param {'osm'|'orto'} defaultBase - výchozí podklad, když uživatel ještě nevolil
+     */
+    function addBaseLayers(map, defaultBase) {
+        const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            maxZoom: 21, maxNativeZoom: 19
+        });
+        const orto = L.tileLayer('https://ags.cuzk.gov.cz/arcgis1/rest/services/ORTOFOTO_WM/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Ortofoto © <a href="https://www.cuzk.gov.cz">ČÚZK</a>',
+            maxZoom: 21, maxNativeZoom: 20
+        });
+        const katastr = L.tileLayer.wms('https://services.cuzk.gov.cz/wms/local-KM-wms.asp', {
+            layers: 'KN', format: 'image/png', transparent: true,
+            attribution: 'Katastrální mapa © ČÚZK', minZoom: 17, maxZoom: 21
+        });
+
+        const prefKey = 're.map.base.' + defaultBase;
+        let chosen = defaultBase;
+        try { chosen = localStorage.getItem(prefKey) || defaultBase; } catch { /* soukromé okno */ }
+        (chosen === 'orto' ? orto : osm).addTo(map);
+        let katastrOn = defaultBase === 'orto';
+        try { const k = localStorage.getItem(prefKey + '.kn'); if (k !== null) katastrOn = k === '1'; } catch { /* ignore */ }
+        if (katastrOn) katastr.addTo(map);
+
+        L.control.layers(
+            { 'Mapa (OSM)': osm, 'Ortofoto ČÚZK': orto },
+            { 'Katastrální mapa': katastr },
+            { collapsed: true, position: 'topright' }
+        ).addTo(map);
+
+        map.on('baselayerchange', e => { try { localStorage.setItem(prefKey, e.layer === orto ? 'orto' : 'osm'); } catch { /* ignore */ } });
+        map.on('overlayadd', e => { if (e.layer === katastr) try { localStorage.setItem(prefKey + '.kn', '1'); } catch { /* ignore */ } });
+        map.on('overlayremove', e => { if (e.layer === katastr) try { localStorage.setItem(prefKey + '.kn', '0'); } catch { /* ignore */ } });
+    }
+
+    /**
+     * Malá mapa v detailu inzerátu: ortofoto + katastr, špendlík na domě.
+     * U přibližné polohy (geokódovaný střed obce) místo špendlíku kruh a menší přiblížení.
+     */
+    function initDetail(mapId, lat, lon, approximate, label) {
+        if (!document.getElementById(mapId)) return false;
+        if (_maps[mapId]) {
+            _maps[mapId].remove();
+            delete _maps[mapId];
+        }
+        const map = L.map(mapId, { maxZoom: 21, scrollWheelZoom: false }).setView([lat, lon], approximate ? 15 : 19);
+        addBaseLayers(map, 'orto');
+        if (approximate) {
+            L.circle([lat, lon], { radius: 400, color: '#ed6c02', weight: 2, fillOpacity: 0.08 })
+                .addTo(map).bindTooltip('Přibližná poloha (střed obce)');
+        } else {
+            L.marker([lat, lon]).addTo(map).bindTooltip(label || 'Nemovitost');
+        }
+        map.on('click', () => map.scrollWheelZoom.enable());
+        _maps[mapId] = map;
         return true;
     }
 
@@ -65,7 +125,7 @@ window.leafletMap = (() => {
                     <span style="color:#1976d2;font-weight:bold">${priceStr}</span><br>
                     <small>${escapeHtml(p.locationText)}</small><br>
                     <small style="color:#888">${escapeHtml(p.sourceCode)} · ${escapeHtml(p.propertyType)} · ${escapeHtml(p.offerType)}</small><br>
-                    <a href="/listing/${p.id}" target="_blank" style="font-size:12px">Otevřít inzerát ↗</a>
+                    <a href="/listings/${p.id}" target="_blank" style="font-size:12px">Otevřít inzerát ↗</a>
                 </div>`;
 
             marker.bindPopup(popupHtml);
@@ -417,7 +477,7 @@ window.leafletMap = (() => {
         map._boundsFilterHandler = null;
     }
 
-    return { init, setMarkers, drawCorridor, clearCorridor, fitMarkers, destroy, enableBboxSelect, disableBboxSelect, enableBoundsFilter, disableBoundsFilter, highlightMarker, unhighlightMarker, scrollCardIntoView };
+    return { init, initDetail, setMarkers, drawCorridor, clearCorridor, fitMarkers, destroy, enableBboxSelect, disableBboxSelect, enableBoundsFilter, disableBoundsFilter, highlightMarker, unhighlightMarker, scrollCardIntoView };
 })();
 
 /**
