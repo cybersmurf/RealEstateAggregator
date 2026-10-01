@@ -119,6 +119,7 @@ services:
       - MortgageDefaultRate=${MORTGAGE_DEFAULT_RATE:-4.79}
       - ContactEmail=${CONTACT_EMAIL:-}                     # kontakt v podmínkách a GDPR
       - PublicBaseUrl=${APP_PUBLIC_URL:-http://localhost:5002}  # sitemap.xml
+      - DataProtection__KeysPath=/app/keys                  # auth cookie přežije restart (viz volume app_keys)
     depends_on:
       api:
         condition: service_healthy
@@ -127,6 +128,7 @@ services:
       - traefik-network
     volumes:
       - /srv/realestate-uploads:/app/wwwroot/uploads:ro  # Serve stored photos directly from App (API port may not be publicly accessible)
+      - app_keys:/app/keys                               # Data Protection key ring (jinak každý deploy odhlásí uživatele)
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -215,6 +217,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  app_keys:
     driver: local
 
 networks:

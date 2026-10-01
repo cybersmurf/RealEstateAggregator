@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -15,6 +16,16 @@ builder.Services.AddRazorComponents()
 
 // Add MudBlazor services
 builder.Services.AddMudServices();
+
+// Klíče Data Protection (auth cookie, antiforgery) musí přežít restart kontejneru.
+// Bez toho každý deploy vygeneroval nový key ring, cookie vlastníka se nedala dešifrovat
+// a UI jen pro správce (klasifikace fotek…) zmizelo – 1. 10. 2026.
+var keysPath = builder.Configuration["DataProtection:KeysPath"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "keys");
+Directory.CreateDirectory(keysPath);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(keysPath))
+    .SetApplicationName("RealEstateApp");
 
 // Sdílené UI services
 builder.Services.AddSingleton<RealEstate.App.Services.SourceLogoProvider>();

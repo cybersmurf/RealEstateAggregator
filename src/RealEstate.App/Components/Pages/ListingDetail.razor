@@ -1790,8 +1790,15 @@
         catch { return new(); }
     }
 
-    protected override async Task OnInitializedAsync()
+    private Guid _loadedId;
+
+    // Odkaz na primární inzerát / člena skupiny duplicit vede na tutéž komponentu s jiným Id –
+    // OnInitializedAsync se znovu nevolá, proto načítáme v OnParametersSetAsync při změně Id.
+    protected override async Task OnParametersSetAsync()
     {
+        if (_loadedId == Id)
+            return;
+        _loadedId = Id;
         await LoadListingAsync();
         await LoadExportStateAsync();
         await LoadDriveAnalysisFilesAsync();
