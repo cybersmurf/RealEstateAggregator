@@ -835,3 +835,39 @@ class TestBazosExtractAreas:
     def test_land_context_in_fallback_goes_to_land(self):
         desc = "Rodinný dům 4+1. Součástí je zahrada 450 m². Dům má 120 m² obytné plochy."
         assert self.scraper._extract_areas("Titulek", desc, "Dům") == (120.0, 450.0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BazosScraper – plochy z exportu RK "(m2): N" a desetinné výměry místností
+# ═══════════════════════════════════════════════════════════════════════════
+class TestBazosExtractAreasStructured:
+    """Reálný případ Miroslav (1. 10. 2026): dům 170 m² se uložil jako 45 m² (desetinná část
+    výměry místnosti) a cenový signál spočítal 175 000 Kč/m²."""
+
+    DESCRIPTION = (
+        "Nabízíme k prodeji prostorný rodinný dům v Miroslavi.\n"
+        "pokoj – 8,74 m²\nkuchyně – 15,81 m²\nobývací pokoj – 25,83 m²\n"
+        "Celková plocha tohoto podlaží činí 96,24 m².\n"
+        "K tomuto podlaží náleží celkem dvě terasy o výměře 11,48 m² a 12,45 m².\n"
+        "prostorný suterén 118,45 m²\n"
+        "zastavěná plocha (m2): 145\nužitná plocha (m2): 170\nplocha parcely (m2): 551\n"
+    )
+
+    def test_uzitna_plocha_se_zavorkou_ma_prednost(self):
+        built, land = BazosScraper()._extract_areas("Rodinný dům 4+1", self.DESCRIPTION, "Dům")
+        assert built == 170
+        assert land == 551
+
+    def test_jen_zastavena_se_zavorkou(self):
+        built, _ = BazosScraper()._extract_areas("Dům", "zastavěná plocha (m2): 145\n", "Dům")
+        assert built == 145
+
+    def test_desetinna_vymera_mistnosti_nedava_zlomek(self):
+        desc = "pokoj – 12,45 m²\nterasa 11,48 m²\n"
+        built, _ = BazosScraper()._extract_areas("Rodinný dům", desc, "Dům")
+        assert built is None
+
+    def test_klasicky_zapis_stale_funguje(self):
+        built, land = BazosScraper()._extract_areas("Dům", "Dům s užitnou plochou 120 m² na pozemku o výměře 800 m².", "Dům")
+        assert built == 120
+        assert land == 800

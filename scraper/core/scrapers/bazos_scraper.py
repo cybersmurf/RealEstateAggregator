@@ -527,7 +527,12 @@ class BazosScraper:
         area_land: Optional[float] = None
         # pozem\w* / zahrad\w* pokrývá i 1. pád ("pozemek 800 m²") – původní
         # pozemk(?:u|em|y|ů|a) na "pozemek" vůbec nesedělo; (?:\w+\s+)? = "o celkové výměře"
+        # Strukturovaný zápis z exportu RK: "plocha parcely (m2): 551" / "pozemek (m2): 551"
         m_land = re.search(
+            r"(?:plocha\s+(?:parcely|pozemku)|pozem\w*|parcel\w*)\s*\(m[²2]\)\s*:?\s*(\d{2,6})",
+            full_text,
+            re.IGNORECASE,
+        ) or re.search(
             r"(?:pozem\w*|zahrad\w*|parcel\w*)\s+(?:o\s+(?:\w+\s+)?(?:výměře|velikosti|ploše)\s+)?([\d][\d\s\.]+)\s*(?:m[²2]|㎡)",
             full_text,
             re.IGNORECASE,
@@ -545,8 +550,18 @@ class BazosScraper:
         area_built_up: Optional[float] = None
         # ploch\w* pokrývá i 1. pád "užitná plocha" – dřívější (plochou?|plochem?)
         # matchovalo jen 7. pád, takže nejběžnější formulace propadla na fallback
+        # Nejdřív "užitná plocha (m2): 170" (jednotka PŘED číslem – export RK na Bazoši),
+        # užitná má přednost před zastavěnou; pak klasické "užitná plocha 170 m²".
         m_built = re.search(
-            r"(?:zastav[eě]n[oaáíé]+|u[žz]itn[aáíé]+|obytn[aáíé]+)\s+ploch\w*[^\d]*(\d{2,5})\s*(?:m[²2]|㎡)",
+            r"(?:u[žz]itn[aáíé]+|obytn[aáíé]+)\s+ploch\w*\s*\(m[²2]\)\s*:?\s*(\d{2,5})",
+            full_text,
+            re.IGNORECASE,
+        ) or re.search(
+            r"zastav[eě]n[oaáíé]+\s+ploch\w*\s*\(m[²2]\)\s*:?\s*(\d{2,5})",
+            full_text,
+            re.IGNORECASE,
+        ) or re.search(
+            r"(?:zastav[eě]n[oaáíé]+|u[žz]itn[aáíé]+|obytn[aáíé]+)\s+ploch\w*[^\d]*(?<![\d,.])(\d{2,5})(?:[,.]\d+)?\s*(?:m[²2]|㎡)",
             full_text,
             re.IGNORECASE,
         )
@@ -562,7 +577,8 @@ class BazosScraper:
         # POZOR: nesmí sebrat výměru MÍSTNOSTI – reálný případ: "kuchyní o výměře 10 m²"
         # se uložilo jako plocha domu a cenový signál pak počítal 730 000 Kč/m².
         if area_built_up is None:
-            for m in re.finditer(r"(\d{2,5})\s*(?:m[²2]|㎡)", description):
+            # (?<![\d,.]) – "pokoj 12,45 m²" nesmí dát 45 (desetinná část)
+            for m in re.finditer(r"(?<![\d,.])(\d{2,5})(?:[,.]\d+)?\s*(?:m[²2]|㎡)", description):
                 context = description[max(0, m.start() - 60):m.start()]
                 if _ROOM_CONTEXT_RE.search(context):
                     continue  # jde o pokoj/kuchyň/garáž, ne o celý dům
