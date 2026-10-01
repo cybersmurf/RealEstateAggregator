@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
                 id="daily_scrape",
                 name="Denní scraping (všechny zdroje)",
                 replace_existing=True,
-                kwargs={"full_rescan": False},
+                kwargs={"full_rescan": bool(sched_cfg.get("daily_full_rescan", True))},
             )
             # Týdenní full rescan – v neděli v 2:00
             weekly_cron = sched_cfg.get("weekly_cron", "0 2 * * 0")

@@ -203,9 +203,13 @@ scheduler:
   enabled: true
   timezone: Europe/Prague
 
-  # Denní quick scraping – všechny zdroje, bez full_rescan
+  # Denní scraping – všechny zdroje. Od 1. 10. 2026 jako full rescan (deaktivuje
+  # inzeráty, které zdroj už nevrací): inkrementální běh bere jen prvních 10 stránek,
+  # takže stažené inzeráty visely aktivní až do nedělního plného rescanu (~týden,
+  # mrtvé odkazy na Sreality). Plný rescan všech zdrojů trvá ~10–15 min.
   # Formát: "minuta hodina den měsíc den_týdne" (cron)
   daily_cron: "0 3 * * *"      # každý den ve 3:00
+  daily_full_rescan: true
 
   # Týdenní full rescan – deaktivuje expired inzeráty
   weekly_cron: "0 2 * * 0"     # každou neděli ve 2:00

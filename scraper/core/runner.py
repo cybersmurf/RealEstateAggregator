@@ -342,6 +342,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             # Přepočítej cross-source duplikáty (stejný dům na SREALITY + BAZOS + …).
             # Detekci vlastní .NET API; selhání nesmí shodit scrape job.
             await _trigger_duplicate_detection(job_id)
+            await _trigger_dead_listing_check(job_id)
 
             # Uložená hledání uživatelů – nové inzeráty a zlevnění (e-mail / Telegram)
             await _trigger_saved_search_notifications(job_id)
@@ -407,6 +408,31 @@ async def _trigger_saved_search_notifications(job_id: UUID) -> None:
             )
     except Exception as exc:  # noqa: BLE001 – upozornění jsou best-effort, job už uspěl
         logger.warning("Job %s: Saved search notification call failed: %s", job_id, exc)
+
+
+async def _trigger_dead_listing_check(job_id: UUID) -> None:
+    """Po scrapu nechá API ověřit HEADem inzeráty, které žádný běh 2 dny neviděl.
+
+    Inkrementální běh projde jen prvních N stránek; dům stažený ze Sreality tak
+    zůstal aktivní s mrtvým odkazem až do plného rescanu. HEAD 404/410 → deaktivace,
+    cokoli jiného (301, 403, timeout) nechá inzerát být.
+    """
+    api_base_url = os.environ.get("API_BASE_URL", "http://realestate-api:8080")
+    url = f"{api_base_url.rstrip('/')}/api/listings/deactivate-dead?daysOld=2"
+    headers = _api_key_headers()
+    try:
+        async with httpx.AsyncClient(timeout=1800) as client:
+            resp = await client.post(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info(
+                "Job %s: Dead listing check – %s zkontrolováno, %s deaktivováno",
+                job_id,
+                data.get("checked", data.get("Checked")),
+                data.get("deactivated", data.get("Deactivated")),
+            )
+    except Exception as exc:  # noqa: BLE001 – kontrola je best-effort, job už uspěl
+        logger.warning("Job %s: Dead listing check call failed: %s", job_id, exc)
 
 
 async def _trigger_duplicate_detection(job_id: UUID) -> None:
