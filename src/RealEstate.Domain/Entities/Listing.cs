@@ -34,6 +34,12 @@ public class Listing
     public string? ConstructionType { get; set; }
     public string? Condition { get; set; }
     
+    // Kontakt na prodávajícího (makléř + realitka) – plní scraper z detailu zdroje
+    public string? SellerName { get; set; }
+    public string? SellerEmail { get; set; }
+    public string? SellerPhone { get; set; }
+    public string? SellerCompany { get; set; }
+
     public DateTime? CreatedAtSource { get; set; }
     public DateTime? UpdatedAtSource { get; set; }
     public DateTime FirstSeenAt { get; set; } = DateTime.UtcNow;

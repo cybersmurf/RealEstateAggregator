@@ -444,11 +444,12 @@ class DatabaseManager:
                     view_count, date_created_source,
                     first_seen_at, last_seen_at, is_active,
                     district, municipality,
-                    auction_date, auction_starting_price, auction_deposit
+                    auction_date, auction_starting_price, auction_deposit,
+                    seller_name, seller_email, seller_phone, seller_company
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                         $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, true,
-                        $27, $28, $29, $30, $31)
+                        $27, $28, $29, $30, $31, $32, $33, $34, $35)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
                     url               = EXCLUDED.url,
@@ -483,7 +484,13 @@ class DatabaseManager:
                     municipality = COALESCE(EXCLUDED.municipality, re_realestate.listings.municipality),
                     auction_date           = COALESCE(EXCLUDED.auction_date,           re_realestate.listings.auction_date),
                     auction_starting_price = COALESCE(EXCLUDED.auction_starting_price, re_realestate.listings.auction_starting_price),
-                    auction_deposit        = COALESCE(EXCLUDED.auction_deposit,        re_realestate.listings.auction_deposit)
+                    auction_deposit        = COALESCE(EXCLUDED.auction_deposit,        re_realestate.listings.auction_deposit),
+                    -- Kontakt na makléře: scraper bez detailu (nebo zdroj, který ho neumí)
+                    -- posílá NULL a nesmí tím smazat to, co už známe
+                    seller_name    = COALESCE(EXCLUDED.seller_name,    re_realestate.listings.seller_name),
+                    seller_email   = COALESCE(EXCLUDED.seller_email,   re_realestate.listings.seller_email),
+                    seller_phone   = COALESCE(EXCLUDED.seller_phone,   re_realestate.listings.seller_phone),
+                    seller_company = COALESCE(EXCLUDED.seller_company, re_realestate.listings.seller_company)
                 RETURNING id
                 """,
                 listing_id,
@@ -517,6 +524,10 @@ class DatabaseManager:
                 listing_data.get("auction_date"),
                 listing_data.get("auction_starting_price"),
                 listing_data.get("auction_deposit"),
+                (listing_data.get("seller_name") or None) and listing_data["seller_name"][:200],
+                (listing_data.get("seller_email") or None) and listing_data["seller_email"][:200],
+                (listing_data.get("seller_phone") or None) and listing_data["seller_phone"][:100],
+                (listing_data.get("seller_company") or None) and listing_data["seller_company"][:200],
             )
 
             # Pokud UPDATE navrátil existující ID, použij to

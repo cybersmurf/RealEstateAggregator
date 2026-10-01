@@ -389,6 +389,32 @@
                             <td><strong>URL</strong></td>
                             <td><MudLink Href="@_listing.SourceUrl" Target="_blank">Otevřít původní inzerát</MudLink></td>
                         </tr>
+                        @if (!string.IsNullOrWhiteSpace(_listing.SellerName) || !string.IsNullOrWhiteSpace(_listing.SellerEmail) || !string.IsNullOrWhiteSpace(_listing.SellerPhone))
+                        {
+                            @* API kontakt vrací jen správci – ostatním je pole prázdné a řádek se nevykreslí *@
+                            <tr>
+                                <td><strong>Makléř</strong></td>
+                                <td>
+                                    @_listing.SellerName
+                                    @if (!string.IsNullOrWhiteSpace(_listing.SellerCompany))
+                                    {
+                                        <MudText Typo="Typo.caption" Class="d-block">@_listing.SellerCompany</MudText>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(_listing.SellerEmail))
+                                    {
+                                        <MudLink Href="@($"mailto:{_listing.SellerEmail}")" Class="d-block">@_listing.SellerEmail</MudLink>
+                                    }
+                                    @foreach (var phone in (_listing.SellerPhone ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                                    {
+                                        <MudLink Href="@($"tel:{phone}")" Class="d-block">@phone</MudLink>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(_listing.SellerFromSourceCode))
+                                    {
+                                        <MudText Typo="Typo.caption" Class="d-block">kontakt převzat z inzerátu @_listing.SellerFromSourceCode</MudText>
+                                    }
+                                </td>
+                            </tr>
+                        }
                     </tbody>
                 </MudSimpleTable>
             </SectionCard>

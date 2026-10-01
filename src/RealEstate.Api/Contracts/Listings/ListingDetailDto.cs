@@ -15,6 +15,14 @@ public sealed class ListingDetailDto
     /// <summary>Zdroj má popis (i když ho DTO nevrací) – UI ví, že shrnutí teprve vznikne.</summary>
     public bool HasDescription { get; set; }
 
+    // Kontakt na makléře – jen pro správce (osobní údaje třetí osoby), jinak null
+    public string? SellerName { get; set; }
+    public string? SellerEmail { get; set; }
+    public string? SellerPhone { get; set; }
+    public string? SellerCompany { get; set; }
+    /// <summary>Kontakt je převzatý od jiného člena skupiny duplicit – jeho zdroj (null = vlastní).</summary>
+    public string? SellerFromSourceCode { get; set; }
+
     public string LocationText { get; set; } = string.Empty;
     public string? Region { get; set; }
     public string? District { get; set; }

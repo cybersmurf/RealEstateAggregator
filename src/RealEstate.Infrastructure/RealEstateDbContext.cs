@@ -124,6 +124,10 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.AuctionDate).HasColumnName("auction_date").HasColumnType("timestamptz");
             entity.Property(e => e.AuctionStartingPrice).HasColumnName("auction_starting_price").HasColumnType("numeric(15,2)");
             entity.Property(e => e.AuctionDeposit).HasColumnName("auction_deposit").HasColumnType("numeric(15,2)");
+            entity.Property(e => e.SellerName).HasColumnName("seller_name");
+            entity.Property(e => e.SellerEmail).HasColumnName("seller_email");
+            entity.Property(e => e.SellerPhone).HasColumnName("seller_phone");
+            entity.Property(e => e.SellerCompany).HasColumnName("seller_company");
             entity.Property(e => e.Summary).HasColumnName("summary");
             entity.Property(e => e.SummaryAt).HasColumnName("summary_at").HasColumnType("timestamptz");
             entity.Property(e => e.DescriptionEmbedding).HasColumnName("description_embedding").HasColumnType("vector(768)");

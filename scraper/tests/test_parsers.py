@@ -871,3 +871,100 @@ class TestBazosExtractAreasStructured:
         built, land = BazosScraper()._extract_areas("Dům", "Dům s užitnou plochou 120 m² na pozemku o výměře 800 m².", "Dům")
         assert built == 120
         assert land == 800
+
+
+# ---------------------------------------------------------------------------
+# SrealityScraper – adresa detailu
+# ---------------------------------------------------------------------------
+
+class TestSrealityDetailUrl:
+    """Sreality vrátí 404, když v adrese chybí podtyp nebo je v ní hodnota, kterou nezná
+    (1. 10. 2026: vícegenerační dům v Jevišovicích měl adresu bez podtypu; „radovy",
+    „kancelar" a „drazba" neexistují). Platná, i když nepřesná hodnota se přesměruje."""
+
+    @staticmethod
+    def _url(main, sub, typ=1, locality="jevisovice", hash_id=3480125516):
+        scraper = SrealityScraper(fetch_details=False)
+        return scraper._build_detail_url(hash_id, {
+            "category_main_cb": main, "category_sub_cb": sub,
+            "category_type_cb": typ, "locality": locality,
+        })
+
+    def test_multigeneration_house(self):
+        assert self._url(2, 54) == "https://www.sreality.cz/detail/prodej/dum/vicegeneracni-dum/jevisovice/3480125516"
+
+    @pytest.mark.parametrize("main, sub, expected", [
+        (2, 37, "dum/rodinny"),
+        (2, 39, "dum/vila"),
+        (2, 33, "dum/chata"),
+        (2, 43, "dum/chalupa"),
+        (2, 44, "dum/zemedelska-usedlost"),
+        (2, 40, "dum/na-klic"),
+        (1, 16, "byt/atypicky"),
+        (3, 24, "pozemek/ostatni-pozemky"),
+        (3, 46, "pozemek/rybnik"),
+        (4, 25, "komercni/kancelare"),
+        (4, 38, "komercni/cinzovni-dum"),
+        (5, 34, "ostatni/garaz"),
+    ])
+    def test_verified_sub_slugs(self, main, sub, expected):
+        assert f"/detail/prodej/{expected}/jevisovice/" in self._url(main, sub)
+
+    def test_auction_type_slug(self):
+        assert "/detail/drazby/dum/rodinny/" in self._url(2, 37, typ=3)
+
+    def test_unknown_sub_never_drops_segment(self):
+        url = self._url(2, 9999)
+        assert url == "https://www.sreality.cz/detail/prodej/dum/rodinny/jevisovice/3480125516"
+
+    def test_missing_sub_and_locality_still_five_segments(self):
+        url = self._url(2, None, locality="")
+        assert url == "https://www.sreality.cz/detail/prodej/dum/rodinny/x/3480125516"
+
+    def test_every_slug_is_url_safe(self):
+        for slug in SrealityScraper._CAT_SUB_SLUG.values():
+            assert slug and "/" not in slug and " " not in slug
+
+
+# ---------------------------------------------------------------------------
+# SrealityScraper – kontakt na makléře
+# ---------------------------------------------------------------------------
+
+class TestSrealitySeller:
+    DETAIL = {
+        "user": {
+            "user_name": "PhDr. Ing. Gabriel  Miklík, MBA, MSc.",
+            "user_email": "Miklik@NemovitostiZnojmo.cz ",
+            "user_phones": [
+                {"phone": "+420775166801", "phone_type": "MOB"},
+                {"phone": "+420 775 166 801", "phone_type": "TEL"},
+                {"phone": "+420515222333", "phone_type": "TEL"},
+            ],
+        },
+        "premise": {"name": "Nemovitosti Znojmo - Miklík & Partneři", "web_url": "https://www.nemovitostiznojmo.cz"},
+    }
+
+    def test_extracts_name_email_phones_company(self):
+        seller = SrealityScraper._extract_seller(self.DETAIL)
+        assert seller == {
+            "seller_name": "PhDr. Ing. Gabriel Miklík, MBA, MSc.",
+            "seller_email": "miklik@nemovitostiznojmo.cz",
+            "seller_phone": "+420775166801, +420515222333",
+            "seller_company": "Nemovitosti Znojmo - Miklík & Partneři",
+        }
+
+    def test_missing_blocks_give_none(self):
+        assert SrealityScraper._extract_seller({}) == {
+            "seller_name": None, "seller_email": None, "seller_phone": None, "seller_company": None,
+        }
+        assert SrealityScraper._extract_seller({"user": None, "premise": "x"})["seller_company"] is None
+
+    def test_invalid_email_dropped(self):
+        assert SrealityScraper._extract_seller({"user": {"user_email": "neuvedeno"}})["seller_email"] is None
+
+    def test_merge_detail_fills_seller_and_keeps_missing_keys_out(self):
+        scraper = SrealityScraper(fetch_details=False)
+        merged = scraper._merge_detail({"title": "Prodej rodinného domu 120 m²", "external_id": "1"}, dict(self.DETAIL))
+        assert merged["seller_email"] == "miklik@nemovitostiznojmo.cz"
+        without = scraper._merge_detail({"title": "Prodej rodinného domu 120 m²", "external_id": "1"}, {})
+        assert "seller_email" not in without

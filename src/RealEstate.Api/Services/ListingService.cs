@@ -188,6 +188,34 @@ public class ListingService : IListingService
 
         var photoSet = await _duplicateGroups.GetGroupPhotoSetAsync(entity.Id, cancellationToken);
 
+        // Kontakt na makléře: jen správci. Zdroj, který ho neumí (zatím vše kromě Sreality),
+        // si ho půjčí od člena skupiny duplicit – stejný dům, stejný makléř.
+        string? sellerName = null, sellerEmail = null, sellerPhone = null, sellerCompany = null, sellerFrom = null;
+        if (_currentUser.IsAdmin)
+        {
+            (sellerName, sellerEmail, sellerPhone, sellerCompany) =
+                (entity.SellerName, entity.SellerEmail, entity.SellerPhone, entity.SellerCompany);
+
+            if (string.IsNullOrWhiteSpace(sellerEmail) && string.IsNullOrWhiteSpace(sellerPhone))
+            {
+                var groupRootId = entity.DuplicateOfListingId ?? entity.Id;
+                var donor = await _dbContext.Listings
+                    .AsNoTracking()
+                    .Where(l => l.Id != entity.Id
+                                && (l.Id == groupRootId || l.DuplicateOfListingId == groupRootId)
+                                && (l.SellerEmail != null || l.SellerPhone != null))
+                    .OrderByDescending(l => l.IsActive)
+                    .ThenByDescending(l => l.LastSeenAt)
+                    .Select(l => new { l.SellerName, l.SellerEmail, l.SellerPhone, l.SellerCompany, SourceCode = l.Source.Code })
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (donor is not null)
+                {
+                    (sellerName, sellerEmail, sellerPhone, sellerCompany, sellerFrom) =
+                        (donor.SellerName, donor.SellerEmail, donor.SellerPhone, donor.SellerCompany, donor.SourceCode);
+                }
+            }
+        }
+
         return new ListingDetailDto
         {
             Id = entity.Id,
@@ -200,7 +228,12 @@ public class ListingService : IListingService
             Description = _currentUser.IsAdmin ? entity.Description ?? string.Empty : string.Empty,
             Summary = entity.Summary,
             HasDescription = !string.IsNullOrWhiteSpace(entity.Description),
-            LocationText = entity.LocationText ?? string.Empty,
+SellerName = sellerName,
+            SellerEmail = sellerEmail,
+            SellerPhone = sellerPhone,
+            SellerCompany = sellerCompany,
+            SellerFromSourceCode = sellerFrom,
+                        LocationText = entity.LocationText ?? string.Empty,
             Region = entity.Region,
             District = entity.District,
             Municipality = entity.Municipality,

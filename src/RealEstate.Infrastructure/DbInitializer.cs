@@ -286,6 +286,7 @@ public static class DbInitializer
         // ── Účty, uložená hledání, API klíče, leady, doba na trhu, aukce, shrnutí ──
         // Stejný SQL jako scripts/migrate_accounts_market.sql (idempotentní).
         await dbContext.Database.ExecuteSqlRawAsync(AccountsMarketMigrationSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(SellerContactMigrationSql, cancellationToken);
 
         await SeedAdminAsync(dbContext, logger, cancellationToken);
     }
@@ -336,6 +337,15 @@ public static class DbInitializer
         if (dbContext.Entry(admin).State == EntityState.Added || changed)
             await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    /// <summary>Stejné příkazy jako scripts/migrate_seller_contact.sql – idempotentní.</summary>
+    private const string SellerContactMigrationSql = """
+        ALTER TABLE re_realestate.listings
+            ADD COLUMN IF NOT EXISTS seller_name    TEXT,
+            ADD COLUMN IF NOT EXISTS seller_email   TEXT,
+            ADD COLUMN IF NOT EXISTS seller_phone   TEXT,
+            ADD COLUMN IF NOT EXISTS seller_company TEXT;
+        """;
 
     private const string AccountsMarketMigrationSql = """
         -- Migration: účty, uložená hledání, API klíče, leady, doba na trhu, aukce, AI shrnutí

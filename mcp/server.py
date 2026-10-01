@@ -545,6 +545,7 @@ async def get_listing(listing_id: str) -> str:
     - 💰 Cena, plocha, dispozice, lokalita
     - 🏠 Typ nemovitosti + typ nabídky (prodej/pronájem/dražba)
     - 🌍 GPS + okres + okres katastr
+    - 👤 MAKLÉŘ: jméno, realitka, e-mail a telefon (pro domluvu prohlídky / dotaz e-mailem)
     - 📸 FOTKY Z INZERÁTU: seznam všech staženého fotek
     - 📷 FOTKY Z PROHLÍDKY: vlastní fotky nahrané během prohlídky
     - ☁️ GOOGLE DRIVE ODKAZ: přímý link na složku s analýzami
@@ -624,6 +625,22 @@ async def get_listing(listing_id: str) -> str:
         )
 
     result_lines.append(f"**URL:** {listing.get('sourceUrl') or listing.get('url', '')}")
+
+    # ── Makléř ───────────────────────────────────────────────────────────────
+    seller_bits = [
+        listing.get("sellerName"),
+        listing.get("sellerCompany"),
+        listing.get("sellerEmail"),
+        listing.get("sellerPhone"),
+    ]
+    if any(seller_bits):
+        borrowed = listing.get("sellerFromSourceCode")
+        result_lines.append(
+            "**Makléř:** " + " · ".join(b for b in seller_bits if b)
+            + (f" (kontakt z inzerátu {borrowed})" if borrowed else "")
+        )
+    else:
+        result_lines.append("**Makléř:** kontakt u inzerátu není uložený (zdroj ho neposkytuje nebo ještě neproběhl scrape detailu)")
 
     # ── Stejná nemovitost v dalších zdrojích ─────────────────────────────────
     try:

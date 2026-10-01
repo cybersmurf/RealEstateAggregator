@@ -328,27 +328,25 @@ class SrealityScraper:
         return normalized
 
     def _build_detail_url(self, hash_id: Any, seo: Dict[str, Any]) -> str:
+        """
+        Adresa detailu: /detail/{typ}/{hlavní}/{podtyp}/{lokalita}/{hash_id}.
+
+        Sreality přesměruje (301) na kanonickou adresu, kdykoli je každá ze čtyř částí
+        NĚJAKÁ platná hodnota – nemusí inzerátu odpovídat. Chybějící nebo neexistující
+        část (dřív „radovy", „kancelar", „drazba", nebo žádný podtyp u vícegeneračních
+        domů) končí 404. Proto se u neznámého kódu nikdy nic nevynechává: dosadí se
+        hodnota, o které víme, že existuje, a o zbytek se postará přesměrování.
+        """
         cat_main = seo.get("category_main_cb", self.category_main_cb or 2)
         cat_sub = seo.get("category_sub_cb")
         cat_type = seo.get("category_type_cb", self.category_type_cb)
-        locality_slug = seo.get("locality", "")
 
+        cat_type_slug = self._CAT_TYPE_SLUG.get(cat_type, "prodej")
         cat_main_slug = self._CAT_MAIN_SLUG.get(cat_main, "dum")
-        if cat_sub:
-            cat_sub_slug = (
-                self._CAT_SUB_SLUG_OVERRIDES.get(cat_main, {}).get(cat_sub)
-                or self._CAT_SUB_SLUG.get(cat_sub, "")
-            )
-        else:
-            cat_sub_slug = ""
-        cat_type_slug = {1: "prodej", 2: "pronajem", 3: "drazba"}.get(cat_type, "prodej")
+        cat_sub_slug = self._CAT_SUB_SLUG.get(cat_sub) or self._FALLBACK_SUB_SLUG
+        locality_slug = seo.get("locality") or self._FALLBACK_LOCALITY_SLUG
 
-        # Build canonical URL: /detail/{type}/{main}/{sub}/{locality}/{hash_id}
-        if cat_sub_slug and locality_slug:
-            return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{cat_sub_slug}/{locality_slug}/{hash_id}"
-        if locality_slug:
-            return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{locality_slug}/{hash_id}"
-        return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{hash_id}"
+        return f"{BASE_WEB}/detail/{cat_type_slug}/{cat_main_slug}/{cat_sub_slug}/{locality_slug}/{hash_id}"
 
     
     async def _fetch_estate_detail_with_semaphore(self, hash_id: int,
@@ -383,34 +381,39 @@ class SrealityScraper:
         5: "ostatni",
     }
 
-    # Mapping category_sub_cb → slug (SReality URL sub-type)
+    # category_type_cb → část adresy. Dražby jsou „drazby" (ne „drazba" – to je 404).
+    _CAT_TYPE_SLUG = {1: "prodej", 2: "pronajem", 3: "drazby"}
+
+    # category_sub_cb → část adresy. Ověřeno 1. 10. 2026 na živých inzerátech
+    # (Jihomoravský kraj, prodej + pronájem): pro každý kód jeden inzerát a adresa,
+    # na kterou Sreality přesměruje. Kódy jsou jedinečné napříč hlavními kategoriemi.
+    # Předchozí tabulka byla z éry v2 API a většina kódů v ní patřila jinému podtypu
+    # (43 = chalupa, ne řadový; 44 = zemědělská usedlost, ne bungalov; 54 chyběl úplně).
     _CAT_SUB_SLUG = {
         # Byty (cat_main=1)
         2: "1+kk", 3: "1+1", 4: "2+kk", 5: "2+1",
         6: "3+kk", 7: "3+1", 8: "4+kk", 9: "4+1",
-        10: "5+kk", 11: "5+1", 12: "6-a-vice", 16: "atypicke",
+        10: "5+kk", 11: "5+1", 12: "6-a-vice", 16: "atypicky", 47: "pokoj",
         # Domy (cat_main=2)
-        37: "rodinny", 39: "chata", 33: "vila",
-        38: "zemedelska-usedlost", 41: "jiny", 43: "radovy",
-        44: "bungalov", 45: "bytovy-dum", 46: "atypicky",
+        33: "chata", 35: "pamatka", 37: "rodinny", 39: "vila", 40: "na-klic",
+        43: "chalupa", 44: "zemedelska-usedlost", 54: "vicegeneracni-dum",
         # Pozemky (cat_main=3)
-        17: "bydleni", 18: "zemedelsky", 19: "komercni",
-        21: "ostatni", 22: "les", 23: "rybniky", 26: "vinice-sad",
+        18: "komercni", 19: "bydleni", 20: "pole", 21: "les", 22: "louka",
+        23: "zahrada", 24: "ostatni-pozemky", 46: "rybnik", 48: "sady-vinice",
         # Komerční (cat_main=4)
-        27: "kancelar", 28: "sklad", 29: "vyroba", 30: "obchodni",
-        31: "ubytovani", 32: "restaurace", 34: "zemedelsky",
-        35: "jina", 36: "bytovy-dum",
+        25: "kancelare", 26: "sklad", 27: "vyrobni-prostor", 28: "obchodni-prostor",
+        29: "ubytovani", 30: "restaurace", 31: "zemedelsky",
+        32: "ostatni-komercni-prostory", 38: "cinzovni-dum",
+        49: "virtualni-kancelar", 56: "ordinace", 57: "apartman",
         # Ostatní (cat_main=5)
-        24: "garaz", 25: "stani", 40: "parkovaci-misto",
+        34: "garaz", 36: "jine-nemovitosti", 50: "vinny-sklep",
+        51: "pudni-prostor", 52: "garazove-stani", 53: "mobilni-domek",
     }
 
-    # Overrides for category_sub_cb that depend on category_main_cb
-    _CAT_SUB_SLUG_OVERRIDES = {
-        # Domy (cat_main=2)
-        2: {
-            40: "na-klic",
-        },
-    }
+    # Neznámý podtyp / chybějící lokalita: libovolná existující hodnota stačí,
+    # Sreality podle hash_id přesměruje na správnou adresu.
+    _FALLBACK_SUB_SLUG = "rodinny"
+    _FALLBACK_LOCALITY_SLUG = "x"
 
     def _normalize_list_item(self, estate: Dict[str, Any]) -> Dict[str, Any]:
         hash_id = estate.get("hash_id")
@@ -510,6 +513,11 @@ class SrealityScraper:
         if description and isinstance(description, str):
             normalized["description"] = description[:5000]
 
+        # Makléř a realitka – v1 API je vrací v "user" a "premise"
+        for key, value in self._extract_seller(detail).items():
+            if value:
+                normalized[key] = value
+
         # Dražba: strukturované položky detailu (items[] = {name, value}) mají přednost
         # před regexem v _enrich_auction_fields, který doběhne jako fallback při upsertu.
         self._merge_auction_items(normalized, detail.get("items"))
@@ -561,6 +569,38 @@ class SrealityScraper:
             normalized["url"] = self._build_detail_url(hash_id, seo)
 
         return normalized
+
+    @staticmethod
+    def _extract_seller(detail: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        """
+        Kontakt na prodávajícího z detailu v1 API:
+          user    = {user_name, user_email, user_phones: [{phone, phone_type}]}
+          premise = {name, web_url, …}  (realitní kancelář; u soukromých inzerentů chybí)
+        Telefonů bývá víc a často se opakují – ukládáme nejvýš tři různé, oddělené čárkou.
+        """
+        user = detail.get("user") if isinstance(detail.get("user"), dict) else {}
+        premise = detail.get("premise") if isinstance(detail.get("premise"), dict) else {}
+
+        name = " ".join(str(user.get("user_name") or "").split()) or None
+        email = str(user.get("user_email") or "").strip().lower() or None
+        if email and "@" not in email:
+            email = None
+
+        phones: List[str] = []
+        for item in user.get("user_phones") or []:
+            number = item.get("phone") if isinstance(item, dict) else item
+            number = "".join(str(number or "").split())
+            if number and number not in phones:
+                phones.append(number)
+
+        company = " ".join(str(premise.get("name") or "").split()) or None
+
+        return {
+            "seller_name": name,
+            "seller_email": email,
+            "seller_phone": ", ".join(phones[:3]) or None,
+            "seller_company": company,
+        }
 
     @staticmethod
     def _merge_auction_items(normalized: Dict[str, Any], items: Any) -> None:
