@@ -15,8 +15,8 @@ public static class JobEndpoints
             .WithName("GetBackgroundJob")
             .WithSummary("Stav úlohy na pozadí (klasifikace fotek, export na Drive, lokální analýza).");
 
-        group.MapGet("", ([FromQuery] Guid? listingId, [FromQuery] bool active, [FromServices] IBackgroundJobService jobs)
-                => Results.Ok(jobs.List(listingId, active)))
+        group.MapGet("", ([FromQuery] Guid? listingId, [FromQuery] bool? active, [FromServices] IBackgroundJobService jobs)
+                => Results.Ok(jobs.List(listingId, active ?? false)))
             .WithName("ListBackgroundJobs")
             .WithSummary("Úlohy na pozadí; ?listingId= zúží na inzerát, ?active=true jen běžící.");
 
