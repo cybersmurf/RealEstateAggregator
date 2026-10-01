@@ -53,3 +53,26 @@ class TestHvRealityRest:
             {"link": "https://hvreality.cz/prodej-nemovitosti/prodej-bytu-zdar-okres-zdar-nad-sazavou-prodej-3/", "title": {"rendered": "z"}},
         ])
         assert [i["district_slug"] for i in items] == ["pelhrimov", "brno-venkov", "zdar-nad-sazavou"]
+
+
+class TestHvRealitySoldAndLocality:
+    def test_prodano_se_pozna(self):
+        html = (FIX / "detail_prodano.html").read_text(encoding="utf-8")
+        result = HvRealityScraper()._parse_detail_page(html, {"url": "https://hvreality.cz/prodej-nemovitosti/prodej-rodinneho-domu-znojmo-okres-znojmo-rd-4-1-s-moznosti-kancelare-ordinace-apod-1068/", "title": ""})
+        assert result["is_sold"] is True
+        assert result["municipality"] == "Znojmo"
+        assert result["district"] == "Znojmo"
+
+    def test_aktivni_neni_prodano(self):
+        html = (FIX / "detail_krelovice.html").read_text(encoding="utf-8")
+        assert HvRealityScraper._is_sold(BeautifulSoup(html, "html.parser")) is False
+
+    def test_obec_s_pomlckou(self):
+        soup = BeautifulSoup('<meta name="description" content="Prodej zahrady Nový Šaldorf-Sedlešovice - okres Znojmo, Jihomoravský kraj. Pozemek 2152 m2.">', "html.parser")
+        assert HvRealityScraper._parse_locality(soup, "") == ("Nový Šaldorf-Sedlešovice", "Znojmo")
+
+    def test_bez_okresu_vezme_obec_a_okres_ze_slugu(self):
+        soup = BeautifulSoup('<meta name="description" content="Prodej bytu 1+kk Brno - Jihomoravský kraj. Užitná plocha 22 m2.">', "html.parser")
+        muni, district = HvRealityScraper._parse_locality(soup, "https://hvreality.cz/prodej-nemovitosti/prodej-bytu-1-kk-brno-okres-brno-mesto-prodej-bytu-1-kk-22-m2-brno-1/")
+        assert muni == "Brno"
+        assert district is None or district == "Brno-město"

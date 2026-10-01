@@ -91,6 +91,10 @@ class HvRealityScraper:
                         try:
                             detail_html = await self._fetch(item["url"])
                             normalized = self._parse_detail_page(detail_html, item)
+                            if normalized.pop("is_sold", False):
+                                await get_db_manager().deactivate_listing(self.SOURCE_CODE, normalized["external_id"])
+                                self.scraped_count += 1
+                                continue
                             await self._save_listing(normalized)
                             self.scraped_count += 1
                             metrics.increment_scraped()
@@ -125,6 +129,10 @@ class HvRealityScraper:
                                 try:
                                     detail_html = await self._fetch(item["url"])
                                     normalized = self._parse_detail_page(detail_html, item)
+                                    if normalized.pop("is_sold", False):
+                                        await get_db_manager().deactivate_listing(self.SOURCE_CODE, normalized["external_id"])
+                                        self.scraped_count += 1
+                                        continue
                                     await self._save_listing(normalized)
                                     self.scraped_count += 1
                                     metrics.increment_scraped()
@@ -272,22 +280,46 @@ class HvRealityScraper:
         return None
 
     @staticmethod
+    def _is_sold(soup: BeautifulSoup) -> bool:
+        """HV nechává prodané nabídky online: meta description začíná „PRODÁNO:" a na stránce je
+        nadpis „Prodáno" / „Pronajato" / „Rezervováno"."""
+        tag = soup.select_one('meta[name="description"]')
+        content = (tag.get("content") or "") if tag else ""
+        if re.match(r"^\s*(PRODÁNO|PRONAJATO|REZERVOVÁNO)\s*:", content, flags=re.I):
+            return True
+        return any(h.get_text(strip=True).lower() in ("prodáno", "pronajato", "rezervováno")
+                   for h in soup.select("h2, h3, h4, .elementor-heading-title"))
+
+    @staticmethod
     def _parse_locality(soup: BeautifulSoup, url: str) -> Tuple[Optional[str], Optional[str]]:
         """(obec, okres) z meta description, záložně z URL slugu „…-<obec>-okres-<okres>-…"."""
         for sel in ('meta[name="description"]', 'meta[property="og:description"]'):
             tag = soup.select_one(sel)
             content = (tag.get("content") or "") if tag else ""
-            m = re.search(r"^(?:Prodej|Pronájem|Dražba)\s+\S+(?:\s+\S+)*?\s+([A-ZÁ-Ž][^-,]+?)\s*-\s*okres\s+([^,.]+)", content)
+            # „PRODÁNO: Prodej rodinného domu Nový Šaldorf-Sedlešovice - okres Znojmo, Jihomoravský kraj. …"
+            # „Prodej bytu 1+kk Brno - Jihomoravský kraj. …" (bez okresu)
+            head = re.sub(r"^\s*(?:PRODÁNO|PRONAJATO|REZERVOVÁNO)\s*:\s*", "", content, flags=re.I)
+            m = re.match(r"(?:Prodej|Pronájem|Dražba)\s+(.+?)\s+-\s+(?:okres\s+([^,.]+)|[^,.]*kraj)", head, flags=re.I)
             if m:
-                return m.group(1).strip(), m.group(2).strip()
+                # typ nemovitosti jsou malá slova / čísla („rodinného domu", „bytu 4+kk"); obec začíná velkým písmenem
+                tokens = m.group(1).split()
+                while tokens and (tokens[0][0].islower() or any(ch.isdigit() for ch in tokens[0])):
+                    tokens.pop(0)
+                muni = " ".join(tokens).strip() or None
+                district = m.group(2).strip() if m.group(2) else None
+                if muni or district:
+                    return muni, district or HvRealityScraper._district_from_url(url)
+        return None, HvRealityScraper._district_from_url(url)
+
+    @staticmethod
+    def _district_from_url(url: str) -> Optional[str]:
         m = re.search(r"-okres-([a-z-]+?)-(?:prodej|pronajem|drazba|\d)", url) or re.search(r"-okres-([a-z]+)", url)
-        if m:
-            slug = m.group(1)
-            # známé víceslovné okresy mají přednost, jinak první slovo slugu
-            known = next((v for k, v in HV_DISTRICT_SLUGS.items() if slug == k or slug.startswith(k + "-")), None)
-            district = known or slug.split("-")[0].title()
-            return None, district
-        return None, None
+        if not m:
+            return None
+        slug = m.group(1)
+        # známé víceslovné okresy mají přednost, jinak první slovo slugu
+        known = next((v for k, v in HV_DISTRICT_SLUGS.items() if slug == k or slug.startswith(k + "-")), None)
+        return known or slug.split("-")[0].title()
 
     def _parse_detail_page(self, html: str, list_item: Dict[str, Any]) -> Dict[str, Any]:
         soup = BeautifulSoup(html, "html.parser")
@@ -298,6 +330,7 @@ class HvRealityScraper:
 
         # External ID z URL
         result["external_id"] = list_item["url"].strip("/").split("/")[-1]
+        result["is_sold"] = self._is_sold(soup)
 
         title_el = soup.find("h1")
         result["title"] = (
