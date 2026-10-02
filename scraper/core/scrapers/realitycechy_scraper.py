@@ -302,6 +302,21 @@ class RealityCechyScraper:
                 return ptype
         return default
 
+    @staticmethod
+    def _extract_seller(soup: BeautifulSoup, rk_name: str) -> Dict[str, Optional[str]]:
+        """Makléř a e-mail z bloku „Realitní kancelář“; telefon portál vydává až po kliknutí (ajax), ten nečteme."""
+        block = soup.select_one(".detail-nabizi")
+        name_el = block.select_one("a[href*='/makler/']") if block else None
+        emails = [a.get_text(" ", strip=True) for a in block.select("a.email")] if block else []
+        emails = [e for e in emails if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", e)]
+        # e-mail makléře je v bloku až za e-mailem kanceláře
+        email = emails[-1] if emails else None
+        return {
+            "seller_name": (re.sub(r"\s+", " ", name_el.get_text(" ", strip=True)) if name_el else "") or None,
+            "seller_email": email,
+            "seller_company": rk_name or None,
+        }
+
     def parse_detail_page(self, html: str, item: Dict[str, Any], property_type: str, offer_type: str,
                           district: str) -> Dict[str, Any]:
         soup = BeautifulSoup(html, "html.parser")
@@ -360,7 +375,12 @@ class RealityCechyScraper:
             area_built_up = area_usable or area_living or self._parse_number(prehled.get("obytná plocha") or "")
             area_land = None
         else:
-            area_built_up = area_usable or area_built or self._parse_number(prehled.get("výměra") or "")
+            # „Výměra“ v rychlém přehledu je u domů výměra pozemku – jako plochu domu ji
+            # bereme jen tehdy, když se od pozemku liší
+            area_overview = self._parse_number(prehled.get("výměra") or "")
+            if area_overview is not None and area_overview == area_land:
+                area_overview = None
+            area_built_up = area_usable or area_built or area_living or area_overview
 
         # ── dispozice ──
         disposition = None
@@ -409,7 +429,8 @@ class RealityCechyScraper:
                 full = urljoin(BASE_URL, src)
                 if full not in photos:
                     photos.append(full)
-        if not photos and item.get("thumb"):
+        # inzerát bez fotek má ve výpisu zástupný obrázek portálu (default_foto.jpg)
+        if not photos and item.get("thumb") and "default_foto" not in item["thumb"]:
             photos.append(item["thumb"])
 
         # ── stav / konstrukce ──
@@ -443,6 +464,7 @@ class RealityCechyScraper:
             "construction_type": construction,
             "photos": photos[:50],
         }
+        result.update(self._extract_seller(soup, rk_name))
         gps = GPS_RE.search(html)
         if gps:
             lat, lon = float(gps.group(1)), float(gps.group(2))

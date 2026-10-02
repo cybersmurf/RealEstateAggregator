@@ -117,6 +117,41 @@ class TestRealitymixDetailDum:
         assert self.d["disposition"] == "3+1"
         assert self.d["rooms"] == 3
 
+    def test_kontakt_na_maklere(self):
+        assert self.d["seller_name"]
+        assert "@" in self.d["seller_email"]
+        assert len("".join(c for c in self.d["seller_phone"] if c.isdigit())) >= 9
+        assert self.d["seller_company"].startswith("Nemovitosti Znojmo")
+
+
+class TestRealitymixDetailDrazbaBezFotek:
+    """Šumná č. p. 9: dražebník inzeruje v sekci Prodej, bez fotek."""
+
+    def setup_method(self):
+        self.scraper = RealityMixScraper()
+        item = {"url": "https://realitymix.cz/detail/sumna/rodinny-dum-sumna-8694091.html",
+                "external_id": "8694091", "address": "Šumná, okr. Znojmo", "price_text": "5 680 000 Kč"}
+        self.d = self.scraper.parse_detail_page(
+            _load("detail_drazba_bez_fotek_8694091.html"), item, "Dům", "Prodej", "Znojmo")
+
+    def test_drazba_poznana_z_popisu(self):
+        assert self.d["title"] == "Rodinný dům , Šumná"
+        assert self.d["offer_type"] == "Dražba"
+
+    def test_obecny_obrazek_portalu_neni_fotka(self):
+        assert self.d["photos"] == []
+
+    def test_plochy_a_cena(self):
+        assert self.d["price"] == 5680000.0
+        assert self.d["area_built_up"] == 350.0
+        assert self.d["area_land"] == 1662.0
+
+    def test_kontakt_na_drazebnika(self):
+        assert self.d["seller_name"] == "Call centrum exdrazby.cz"
+        assert self.d["seller_email"] == "dotazy@exdrazby.cz"
+        assert self.d["seller_phone"] == "+420 774 740 636"
+        assert self.d["seller_company"] == "exdrazby.cz JURIS REAL Dražby, a. s."
+
 
 class TestRealitymixDetailByt:
 

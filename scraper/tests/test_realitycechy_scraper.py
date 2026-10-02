@@ -207,6 +207,32 @@ class TestRealityCechyDetailChata:
         assert self.d["disposition"] == "1+1"
 
 
+class TestRealityCechyDetailDumBezPlochy:
+    """Hrušovany n. J.: inzerát uvádí jen výměru pozemku, plochu domu ne."""
+
+    URL = "https://www.realitycechy.cz/nemovitost/prodej/hrusovany-nad-jevisovkou-rd-4-1-zahrada-garaz-rodinny-dum/20304653"
+
+    def setup_method(self):
+        self.scraper = RealityCechyScraper()
+        self.d = self.scraper.parse_detail_page(
+            _load("detail_dum_bez_plochy.html"), _item(self.URL, "20304653"), "Dům", "Prodej", "Znojmo")
+
+    def test_vymera_pozemku_neni_plocha_domu(self):
+        assert self.d["area_land"] == 986
+        assert self.d["area_built_up"] is None
+
+    def test_kontakt_na_maklere(self):
+        assert self.d["seller_name"] == "Radek Novák, Ing."
+        assert self.d["seller_email"] == "r.novak@rkcoloseum.cz"
+        assert self.d["seller_company"] == "COLOSEUM NEMOVITOSTI s.r.o."
+        assert "seller_phone" not in self.d
+
+    def test_zastupny_obrazek_z_vypisu_neni_fotka(self):
+        item = _item(self.URL, "20304653", thumb="https://www.realitycechy.cz/www/images/default_foto.jpg")
+        html = "<html><body><h1 class='entry-title'>Byt 2+kk</h1></body></html>"
+        assert self.scraper.parse_detail_page(html, item, "Byt", "Prodej", "Znojmo")["photos"] == []
+
+
 class TestRealityCechyPomocneMetody:
     def setup_method(self):
         self.scraper = RealityCechyScraper()

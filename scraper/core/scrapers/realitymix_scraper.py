@@ -16,7 +16,9 @@ parametry ul.detail-information__data (Užitná plocha, Plocha parcely, Stav
 objektu, Druh objektu, Dispozice bytu…), popis .advert-description__text-inner-inner,
 GPS div#print-map[data-gps-lat|lon], fotky st.realitymix.cz/i/<rk>/<id>/nab_<n>.jpg
 (bez přípony _nahled/_detail = plná velikost; filtrujeme podle <id>, protože
-v HTML jsou i náhledy „podobných nemovitostí“).
+v HTML jsou i náhledy „podobných nemovitostí“). Inzerát bez fotek (formulář
+„Mám zájem o více fotografií“) má v og:image jen obecný obrázek portálu.
+Kontakt: .offer-detail-sidebar__agent (jméno, telefon, e-mail) → seller_*.
 
 Proč: 30. 9. 2026 měl RealityMIX 844 domů v JMK (163 v okrese Znojmo),
 robots.txt scraping výpisů i detailů povoluje.
@@ -33,6 +35,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from ..utils import timer, scraper_metrics_context
+from ..auction_parsing import is_auction_context
 from ..database import get_db_manager
 from ..http_utils import http_retry
 
@@ -76,6 +79,9 @@ CITY_DISTRICT_MAP = {"Brno": "Brno-město", "Znojmo": "Znojmo"}
 DETAIL_ID_RE = re.compile(r"-(\d{5,})\.html(?:[#?].*)?$")
 NUMBER_RE = re.compile(r"(\d[\d\s\xa0]*(?:[.,]\d+)?)")
 DISPOSITION_RE = re.compile(r"\b(\d)\s*\+\s*(kk|\d)\b", re.I)
+AUCTION_SUBJECT_RE = re.compile(r"předmět\w*\s+dražby", re.I)
+AUCTION_AGENCY_RE = re.compile(r"dra[žz]b", re.I)
+PHOTO_HOST = "st.realitymix.cz/i/"
 
 
 class RealityMixScraper:
@@ -225,6 +231,21 @@ class RealityMixScraper:
         municipality = parts[-1] if parts else ""
         return municipality, district
 
+    @staticmethod
+    def _extract_seller(soup: BeautifulSoup, rk_name: str) -> Dict[str, Optional[str]]:
+        """Kontakt z bloku „Kontaktujte makléře nemovitosti“ (telefon a e-mail jsou v HTML, jen skryté CSS)."""
+        agent = soup.select_one(".offer-detail-sidebar__agent")
+        name_el = agent.select_one("a[href*='/profil-realitniho-maklere/']") if agent else None
+        phone_el = agent.select_one("a[href*='/trackredir/'][href*='/call/']") if agent else None
+        mail_el = agent.select_one("a[href^='mailto:']") if agent else None
+        phone = phone_el.get_text(" ", strip=True) if phone_el else ""
+        return {
+            "seller_name": (name_el.get_text(" ", strip=True) if name_el else "") or None,
+            "seller_email": (mail_el["href"][len("mailto:"):].split("?")[0].strip() if mail_el else "") or None,
+            "seller_phone": phone if re.search(r"\d{9}", re.sub(r"\D", "", phone)) else None,
+            "seller_company": rk_name or None,
+        }
+
     def parse_detail_page(self, html: str, item: Dict[str, Any], property_type: str, offer_type: str,
                           district: str) -> Dict[str, Any]:
         soup = BeautifulSoup(html, "html.parser")
@@ -256,8 +277,6 @@ class RealityMixScraper:
         lower_title = f"{title} {h1_text}".lower()
         if ptype == "Dům" and re.search(r"\bchat|\bchalup|rekrea", lower_title):
             ptype = "Chata"
-        if "dražb" in lower_title:
-            otype = "Dražba"
 
         params: Dict[str, str] = {}
         for li in soup.select("ul.detail-information__data li"):
@@ -290,6 +309,13 @@ class RealityMixScraper:
         description = desc_el.get_text("\n", strip=True) if desc_el else ""
         rk_name = next((a.get_text(" ", strip=True) for a in soup.select("a[href*='detail-realitni-kancelare']")
                         if a.get_text(strip=True)), "")
+
+        # Dražebníci (exdrazby.cz) inzerují v sekci Prodej s titulkem „Rodinný dům, Šumná“ –
+        # dražbu prozradí až popis („Předmětem dražby jsou…“) nebo jméno kanceláře.
+        if "dražb" in lower_title or AUCTION_SUBJECT_RE.search(description) \
+                or (AUCTION_AGENCY_RE.search(rk_name) and is_auction_context(description)):
+            otype = "Dražba"
+
         if rk_name:
             description = (description + f"\n\nRealitní kancelář: {rk_name[:100]}").strip()
 
@@ -309,9 +335,12 @@ class RealityMixScraper:
             if src not in photos:
                 photos.append(src)
         if not photos:
+            # inzerát bez fotek má v og:image obecný obrázek portálu (/build/images/rmix_og-image…),
+            # ten jako fotku nemovitosti neukládáme
             og_image = soup.find("meta", property="og:image")
-            if og_image and og_image.get("content"):
-                photos.append(og_image["content"].replace("http://", "https://"))
+            og_src = (og_image.get("content") or "") if og_image else ""
+            if PHOTO_HOST in og_src:
+                photos.append(og_src.replace("http://", "https://"))
 
         location_text = f"{municipality}, okres {final_district}" if municipality else f"okres {final_district}"
 
@@ -335,6 +364,7 @@ class RealityMixScraper:
             "construction_type": CONSTRUCTION_MAP.get((params.get("druh objektu") or "").lower()),
             "photos": photos[:50],
         }
+        result.update(self._extract_seller(soup, rk_name))
         if map_el:
             try:
                 result["latitude"] = float(map_el["data-gps-lat"])
