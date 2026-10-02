@@ -227,6 +227,16 @@ class TestRealityCechyDetailDumBezPlochy:
         assert self.d["seller_company"] == "COLOSEUM NEMOVITOSTI s.r.o."
         assert "seller_phone" not in self.d
 
+    def test_obytna_plocha_ma_prednost_pred_zastavenou(self):
+        html = ("<html><body><h1 class='entry-title'>RD s dvorem</h1><table class='detail_table_pravy'>"
+                "<tr><th>Druh:</th><td>rodinný dům</td></tr>"
+                "<tr><th>Zastavěná plocha:</th><td>373 m<sup>2</sup></td></tr>"
+                "<tr><th>Obytná plocha:</th><td>200 m<sup>2</sup></td></tr>"
+                "<tr><th>Výměra pozemku:</th><td>373 m<sup>2</sup></td></tr></table></body></html>")
+        d = self.scraper.parse_detail_page(html, _item(self.URL, "1"), "Dům", "Prodej", "Znojmo")
+        assert d["area_built_up"] == 200
+        assert d["area_land"] == 373
+
     def test_zastupny_obrazek_z_vypisu_neni_fotka(self):
         item = _item(self.URL, "20304653", thumb="https://www.realitycechy.cz/www/images/default_foto.jpg")
         html = "<html><body><h1 class='entry-title'>Byt 2+kk</h1></body></html>"

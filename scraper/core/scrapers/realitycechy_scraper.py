@@ -380,7 +380,9 @@ class RealityCechyScraper:
             area_overview = self._parse_number(prehled.get("výměra") or "")
             if area_overview is not None and area_overview == area_land:
                 area_overview = None
-            area_built_up = area_usable or area_built or area_living or area_overview
+            # obytná plocha vypovídá o domě víc než zastavěná: ta je půdorys i s dvorem
+            # a u řadových domů bývá stejná jako celý pozemek
+            area_built_up = area_usable or area_living or area_built or area_overview
 
         # ── dispozice ──
         disposition = None
