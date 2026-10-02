@@ -70,6 +70,19 @@ public class ListingDuplicateFilterTests
     }
 
     [Fact]
+    public void DeactivatedSince_FromJsonWithOffset_IsSentToDatabaseAsUtc()
+    {
+        // takhle datum posílá MCP server (isoformat s +00:00); System.Text.Json z něj udělá Kind=Local
+        var filter = System.Text.Json.JsonSerializer.Deserialize<ListingFilterDto>(
+            "{\"deactivatedSince\":\"2026-09-30T18:00:00.123456+00:00\"}",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var query = CreateService().BuildFilteredQuery(filter);
+
+        var parameters = query.ToQueryString().Split('\n').Where(l => l.StartsWith("-- @", StringComparison.Ordinal)).ToList();
+        Assert.Contains(parameters, p => p.Contains("2026-09-30T18:00:00.1234560Z") || p.Contains("DbType = DateTime") && p.Contains("Z'"));
+    }
+
+    [Fact]
     public void IncludeDuplicates_SkipsDuplicateFilter()
     {
         var where = WhereClause(new ListingFilterDto { IncludeDuplicates = true });

@@ -596,8 +596,10 @@ SellerName = sellerName,
         // Jen aktivní inzeráty – nebo naopak ty, které z trhu zmizely (prodáno / staženo).
         // Stažený inzerát, jehož kopie na jiném portálu ještě běží, zmizelý není:
         // makléři inzeráty mezi portály přesouvají a dům je pořád na prodej.
-        if (filter.DeactivatedSince is { } goneSince)
+        if (filter.DeactivatedSince is { } deactivatedSince)
         {
+            // JSON datum s posunem (+00:00) se načte jako Kind=Local; timestamptz bere jen UTC
+            var goneSince = deactivatedSince.ToUniversalTime();
             predicate = predicate.And(x =>
                 !x.IsActive && x.DeactivatedAt != null && x.DeactivatedAt >= goneSince
                 && !_dbContext.Listings.Any(o => o.IsActive
