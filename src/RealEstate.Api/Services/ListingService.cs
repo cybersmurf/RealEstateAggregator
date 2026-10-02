@@ -97,6 +97,12 @@ public class ListingService : IListingService
             "location" => filter.SortDescending
                             ? query.OrderByDescending(x => x.LocationText).ThenBy(x => x.Id)
                             : query.OrderBy(x => x.LocationText).ThenBy(x => x.Id),
+            "deactivated" => filter.SortDescending
+                            ? query.OrderBy(x => x.DeactivatedAt == null).ThenByDescending(x => x.DeactivatedAt).ThenBy(x => x.Id)
+                            : query.OrderBy(x => x.DeactivatedAt == null).ThenBy(x => x.DeactivatedAt).ThenBy(x => x.Id),
+            // zmizelé inzeráty: bez zadaného řazení od naposledy staženého
+            _ when filter.DeactivatedSince is not null
+                       => query.OrderByDescending(x => x.DeactivatedAt).ThenBy(x => x.Id),
             _          => query.OrderByDescending(x => x.FirstSeenAt)
                                .ThenBy(x => x.Price)
                                .ThenBy(x => x.Id),
@@ -587,8 +593,20 @@ SellerName = sellerName,
                 x.UserStates.Any(s => s.UserId == userId && s.Status == filter.UserStatus));
         }
 
-        // Jen aktivní inzeráty
-        predicate = predicate.And(x => x.IsActive);
+        // Jen aktivní inzeráty – nebo naopak ty, které z trhu zmizely (prodáno / staženo).
+        // Stažený inzerát, jehož kopie na jiném portálu ještě běží, zmizelý není:
+        // makléři inzeráty mezi portály přesouvají a dům je pořád na prodej.
+        if (filter.DeactivatedSince is { } goneSince)
+        {
+            predicate = predicate.And(x =>
+                !x.IsActive && x.DeactivatedAt != null && x.DeactivatedAt >= goneSince
+                && !_dbContext.Listings.Any(o => o.IsActive
+                    && (o.Id == (x.DuplicateOfListingId ?? x.Id) || o.DuplicateOfListingId == (x.DuplicateOfListingId ?? x.Id))));
+        }
+        else
+        {
+            predicate = predicate.And(x => x.IsActive);
+        }
 
         // Bounding box (mapa – obdélníková oblast výběrem na mapě)
         if (filter.BboxLatMin is not null)

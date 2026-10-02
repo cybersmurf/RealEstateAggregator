@@ -218,6 +218,11 @@ deploy-scraper:
 	@ssh $(SERVER) "curl -sf http://localhost:8001/v1/health/scrapers" \
 	  | python3 -c "import json,sys; d=json.load(sys.stdin); print('scrapery: %s, ok=%d/%d, stale/dead=%d' % (d['overall'], d['ok'], d['total_sources'], d['stale_or_dead']))"
 
+deploy-mcp:
+	@echo ">>> Deploy MCP serveru na $(SERVER)..."
+	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build mcp && $(COMPOSE_SRV) up -d --no-deps mcp && echo "DEPLOY MCP OK"'
+	@ssh $(SERVER) 'sleep 3; docker ps --filter name=realestate-mcp --format "{{.Names}} {{.Status}}"'
+
 deploy-both:
 	@echo ">>> Deploy API+App na $(SERVER)..."
 	ssh $(SERVER) '$(DEPLOY_BASE) && $(COMPOSE_SRV) build api app && $(COMPOSE_SRV) up -d --no-deps api app && docker cp $(REMOTE_DIR)/secrets/google-drive-sa.json realestate-api:/app/secrets/ && docker cp $(REMOTE_DIR)/secrets/google-drive-token.json realestate-api:/app/secrets/ && echo "DEPLOY OK"'

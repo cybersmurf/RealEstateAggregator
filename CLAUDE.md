@@ -72,6 +72,8 @@ mcp/server.py                 # FastMCP 3.x MCP server (15 tools)
 
 Endpoints are registered in `src/RealEstate.Api/Endpoints/` as extension methods on `WebApplication`, then wired in `Program.cs`. Services are in `src/RealEstate.Api/Services/` behind interfaces registered in `ServiceCollectionExtensions.cs`.
 
+**Zmizelé z trhu:** `POST /api/listings/search` s `deactivatedSince` vrací neaktivní inzeráty stažené od data, u kterých už neběží ani kopie ve skupině duplicit (řazení `deactivated`); MCP `search_listings(gone_in_days=N)`. Bez toho filtru hledání vrací jen aktivní.
+
 Long-running listing actions (photo classification `bulk-classify`, alt texts, `analyze-local`, `export-drive`, `export-analysis-to-drive`) run as server-side background jobs (`IBackgroundJobService`, in-memory, cancelled only on app shutdown). `?wait=false` returns 202 + `jobId`, default waits as before; status via `GET /api/jobs/{id}` and `GET /api/jobs?listingId=&active=true`. The Blazor detail page starts jobs with `wait=false`, polls them and resumes tracking after navigation, so leaving the page never aborts the work.
 
 ### Accounts, plans, authorization
@@ -171,7 +173,7 @@ Secrets (Google Drive) live in `secrets/` and `src/RealEstate.Api/secrets/` – 
 Aplikace neběží lokálně – produkce je na domácím serveru **sudgate** (`192.168.11.2`, `realestate.sudata.eu`)
 za Traefikem. Infrastruktura je verzovaná v samostatném repu `/Volumes/edata/dev/zupagate`
 (Traefik routy, TLS přes Wedos DNS-01, DDNS relay, Prometheus/Grafana/Alertmanager, UFW + DOCKER-USER).
-Lokální `make up` je jen pro vývoj. Deploy: `make deploy-api` / `make deploy-app`.
+Lokální `make up` je jen pro vývoj. Deploy: `make deploy-api` / `make deploy-app` / `make deploy-scraper` / `make deploy-mcp`.
 
 ## Database Migrations
 

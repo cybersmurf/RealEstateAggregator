@@ -49,6 +49,27 @@ public class ListingDuplicateFilterTests
     }
 
     [Fact]
+    public void DefaultSearch_ReturnsOnlyActiveListings()
+    {
+        var where = WhereClause(new ListingFilterDto { IncludeDuplicates = true });
+
+        Assert.Contains("is_active", where);
+        Assert.DoesNotContain("deactivated_at", where);
+    }
+
+    [Fact]
+    public void DeactivatedSince_ReturnsInactiveListingsWithNoActiveCopyInGroup()
+    {
+        var where = WhereClause(new ListingFilterDto { DeactivatedSince = new DateTime(2026, 9, 30, 0, 0, 0, DateTimeKind.Utc), IncludeDuplicates = true });
+
+        Assert.Contains("NOT (l.is_active)", where);
+        Assert.Contains("deactivated_at >= @", where);
+        // žádná aktivní kopie ve skupině duplicit (kořen = duplicate_of_listing_id nebo vlastní id)
+        Assert.Contains("NOT EXISTS", where);
+        Assert.Contains("COALESCE(l.duplicate_of_listing_id, l.id)", where);
+    }
+
+    [Fact]
     public void IncludeDuplicates_SkipsDuplicateFilter()
     {
         var where = WhereClause(new ListingFilterDto { IncludeDuplicates = true });

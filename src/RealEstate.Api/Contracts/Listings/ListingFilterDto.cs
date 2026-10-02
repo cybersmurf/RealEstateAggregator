@@ -32,6 +32,12 @@ public sealed class ListingFilterDto
     public string? UserStatus { get; set; }
     public DateTime? OnlyNewSince { get; set; }
 
+    /// <summary>
+    /// Zmizelé z trhu: jen neaktivní inzeráty stažené od tohoto data, u kterých už není aktivní
+    /// ani žádná jiná kopie téže nemovitosti (skupina duplicit). Bez hodnoty se hledá mezi aktivními.
+    /// </summary>
+    public DateTime? DeactivatedSince { get; set; }
+
     public string? SearchText { get; set; }
 
     /// <summary>Sloupec řazení: "price", "area", "land", "date", "title", "location"</summary>

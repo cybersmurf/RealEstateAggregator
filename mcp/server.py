@@ -233,7 +233,7 @@ _STATUS_ALIASES = {
     "visited": "Visited", "navstiveno": "Visited",
 }
 
-_SORTS_API = {"price", "area", "land", "date", "title", "location"}
+_SORTS_API = {"price", "area", "land", "date", "title", "location", "deactivated"}
 _SORTS_LOCAL = {"price_per_m2", "land_per_price"}
 
 
@@ -301,6 +301,10 @@ def _fmt_listing_v2(l: dict) -> str:
     if l.get("hasNotes"):
         status_txt += " 📝"
     seen = (l.get("firstSeenAt") or "")[:10]
+    if l.get("isActive") is False:
+        gone = (l.get("deactivatedAt") or "")[:10]
+        days = l.get("daysOnMarket")
+        seen += f"  |  ❌ staženo {gone}" + (f" (po {days} dnech na trhu)" if days else "")
     dups = l.get("otherSourceCodes") or []
     dup_txt = f" (+{', '.join(dups)})" if dups else ""
     signal = f"  |  cena: {l['priceSignal']}" if l.get("priceSignal") else ""
@@ -340,6 +344,7 @@ async def search_listings(
     user_status: Optional[str] = None,
     exclude_statuses: Optional[list[str] | str] = None,
     new_in_days: Optional[int] = None,
+    gone_in_days: Optional[int] = None,
     include_duplicates: bool = False,
     sort_by: Optional[str] = None,
     sort_desc: bool = False,
@@ -379,6 +384,10 @@ async def search_listings(
         user_status: jen daný stav: New | Liked | Disliked | ToVisit | Visited
         exclude_statuses: vyřadit stavy, např. ["Disliked", "Visited"]
         new_in_days: jen inzeráty poprvé viděné za posledních N dní
+        gone_in_days: ZMIZELÉ z trhu za posledních N dní (prodáno / staženo): jen neaktivní inzeráty,
+               u kterých už neběží ani kopie na jiném portálu. Ostatní filtry platí dál
+               (např. user_status="ToVisit" → domy z tvého výběru, které mezitím zmizely).
+               Řazení od naposledy staženého; u každého je datum stažení a dny na trhu.
         include_duplicates: ukázat i kopie téhož domu z dalších realitek (default ne)
     Řazení a stránky:
         sort_by: price | area | land | date | title | location | price_per_m2 | land_per_price
@@ -419,6 +428,8 @@ async def search_listings(
             payload["userStatus"] = st
     if new_in_days:
         payload["onlyNewSince"] = (_dt.now(_tz.utc) - _td(days=new_in_days)).isoformat()
+    if gone_in_days:
+        payload["deactivatedSince"] = (_dt.now(_tz.utc) - _td(days=gone_in_days)).isoformat()
     if area_preset:
         key = area_preset.strip().lower()
         if key not in AREA_PRESETS:
