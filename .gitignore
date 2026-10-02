@@ -213,3 +213,6 @@ benchmark_*.json
 
 # Worktrees agentů Claude Code
 .claude/worktrees/
+
+# dočasný soubor s údaji webhooku adresáře Claude (smazat po 5. 10. 2026)
+blrblr
