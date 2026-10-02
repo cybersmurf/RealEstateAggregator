@@ -580,9 +580,11 @@ SellerName = sellerName,
         }
 
         // Only New Since
-        if (filter.OnlyNewSince is not null)
+        if (filter.OnlyNewSince is { } onlyNewSince)
         {
-            predicate = predicate.And(x => x.FirstSeenAt >= filter.OnlyNewSince);
+            // JSON datum s posunem (+00:00, tak ho posílá MCP) se načte jako Kind=Local; timestamptz bere jen UTC
+            var newSince = onlyNewSince.ToUniversalTime();
+            predicate = predicate.And(x => x.FirstSeenAt >= newSince);
         }
 
         // User Status - přes navigační vlastnost UserStates
