@@ -83,6 +83,25 @@ public class ListingDuplicateFilterTests
     }
 
     [Fact]
+    public void PriceChangedSince_LooksForNewerHistoryRowWithDifferentPrice()
+    {
+        var where = WhereClause(new ListingFilterDto { PriceChangedSince = new DateTime(2026, 9, 28, 0, 0, 0, DateTimeKind.Utc), IncludeDuplicates = true });
+
+        Assert.Contains("listing_price_history", where);
+        Assert.Contains("recorded_at >= @", where);
+        Assert.Contains("<>", where);
+    }
+
+    [Fact]
+    public void PriceDropsOnly_ComparesWithEarlierHigherPrice()
+    {
+        var where = WhereClause(new ListingFilterDto { PriceChangedSince = DateTime.UtcNow.AddDays(-7), PriceDropsOnly = true, IncludeDuplicates = true });
+
+        Assert.Contains("listing_price_history", where);
+        Assert.Matches(@"price > l\d*\.price", where);
+    }
+
+    [Fact]
     public void IncludeDuplicates_SkipsDuplicateFilter()
     {
         var where = WhereClause(new ListingFilterDto { IncludeDuplicates = true });

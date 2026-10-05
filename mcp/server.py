@@ -311,6 +311,11 @@ def _fmt_listing_v2(l: dict) -> str:
     dups = l.get("otherSourceCodes") or []
     dup_txt = f" (+{', '.join(dups)})" if dups else ""
     signal = f"  |  cena: {l['priceSignal']}" if l.get("priceSignal") else ""
+    if l.get("previousPrice") and l.get("priceChangePct") is not None:
+        arrow = "⬇" if l["priceChangePct"] < 0 else "⬆"
+        changed = (l.get("priceChangedAt") or "")[:10]
+        prev = f"{l['previousPrice']:,.0f}".replace(",", " ")
+        price += f" ({arrow} z {prev} Kč, {l['priceChangePct']:+.1f} %, {changed})"
     return (
         f"🏠 **{l.get('title', '')}**\n"
         f"   ID: `{l['id']}`  |  od {seen}{status_txt}\n"
@@ -348,6 +353,8 @@ async def search_listings(
     exclude_statuses: Optional[list[str] | str] = None,
     new_in_days: Optional[int] = None,
     gone_in_days: Optional[int] = None,
+    price_changed_in_days: Optional[int] = None,
+    price_drops_only: bool = False,
     include_duplicates: bool = False,
     sort_by: Optional[str] = None,
     sort_desc: bool = False,
@@ -391,6 +398,9 @@ async def search_listings(
                u kterých už neběží ani kopie na jiném portálu. Ostatní filtry platí dál
                (např. user_status="ToVisit" → domy z tvého výběru, které mezitím zmizely).
                Řazení od naposledy staženého; u každého je datum stažení a dny na trhu.
+        price_changed_in_days: jen inzeráty, u kterých se za posledních N dní ZMĚNILA CENA
+               (v historii cen je novější záznam s jinou cenou). price_drops_only=True → jen
+               zlevnění. U každého výsledku je předchozí cena, změna v % a datum změny.
         include_duplicates: ukázat i kopie téhož domu z dalších realitek (default ne)
     Řazení a stránky:
         sort_by: price | area | land | date | title | location | price_per_m2 | land_per_price
@@ -433,6 +443,9 @@ async def search_listings(
         payload["onlyNewSince"] = (_dt.now(_tz.utc) - _td(days=new_in_days)).isoformat()
     if gone_in_days:
         payload["deactivatedSince"] = (_dt.now(_tz.utc) - _td(days=gone_in_days)).isoformat()
+    if price_changed_in_days:
+        payload["priceChangedSince"] = (_dt.now(_tz.utc) - _td(days=price_changed_in_days)).isoformat()
+        payload["priceDropsOnly"] = bool(price_drops_only)
     if area_preset:
         key = area_preset.strip().lower()
         if key not in AREA_PRESETS:

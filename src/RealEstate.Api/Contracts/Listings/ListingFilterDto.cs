@@ -38,6 +38,11 @@ public sealed class ListingFilterDto
     /// </summary>
     public DateTime? DeactivatedSince { get; set; }
 
+    /// <summary>Jen inzeráty, u kterých se od tohoto data změnila cena (v historii cen je novější záznam s jinou cenou).</summary>
+    public DateTime? PriceChangedSince { get; set; }
+    /// <summary>S PriceChangedSince: jen zlevnění (nová cena nižší než předchozí).</summary>
+    public bool PriceDropsOnly { get; set; } = false;
+
     public string? SearchText { get; set; }
 
     /// <summary>Sloupec řazení: "price", "area", "land", "date", "title", "location"</summary>

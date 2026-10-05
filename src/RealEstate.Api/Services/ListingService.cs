@@ -595,6 +595,18 @@ SellerName = sellerName,
                 x.UserStates.Any(s => s.UserId == userId && s.Status == filter.UserStatus));
         }
 
+        // Změna ceny od data: v historii je záznam po datu, před kterým je záznam s jinou (vyšší) cenou.
+        // První záznam vzniká se vznikem inzerátu, sám o sobě změna není.
+        if (filter.PriceChangedSince is { } priceChangedSince)
+        {
+            var changedSince = new DateTimeOffset(priceChangedSince.ToUniversalTime());
+            predicate = filter.PriceDropsOnly
+                ? predicate.And(x => x.PriceHistory.Any(h => h.RecordedAt >= changedSince && h.Price != null
+                    && x.PriceHistory.Any(p => p.RecordedAt < h.RecordedAt && p.Price != null && p.Price > h.Price)))
+                : predicate.And(x => x.PriceHistory.Any(h => h.RecordedAt >= changedSince
+                    && x.PriceHistory.Any(p => p.RecordedAt < h.RecordedAt && p.Price != h.Price)));
+        }
+
         // Jen aktivní inzeráty – nebo naopak ty, které z trhu zmizely (prodáno / staženo).
         // Stažený inzerát, jehož kopie na jiném portálu ještě běží, zmizelý není:
         // makléři inzeráty mezi portály přesouvají a dům je pořád na prodej.
