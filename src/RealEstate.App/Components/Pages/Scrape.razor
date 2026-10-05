@@ -98,6 +98,14 @@
                 <span>Spustit scrapování</span>
             }
         </MudButton>
+
+        @if (_scraping)
+        {
+            <MudStack Spacing="1" Class="mt-3">
+                <MudText Typo="Typo.body2">@ScrapeStatusText</MudText>
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" Rounded="true" />
+            </MudStack>
+        }
     </MudPaper>
 
     <!-- AI zpracování -->
@@ -171,14 +179,15 @@
     </MudPaper>
 
     <!-- Výsledek posledního scrape jobu -->
-    @if (_lastResult != null)
+    @if (_lastJob is not null)
     {
-        <MudAlert Severity="@(_lastResult.Status == "Failed" ? Severity.Error : Severity.Success)"
+        <MudAlert Severity="@(_lastJob.Status == "Failed" ? Severity.Error : Severity.Success)"
                   Variant="Variant.Outlined">
-            <strong>Scrapování:</strong> @_lastResult.Status
-            @if (!string.IsNullOrWhiteSpace(_lastResult.Message))
+            <strong>Scrapování:</strong> @(_lastJob.Status == "Failed" ? "selhalo" : "dokončeno")
+            (@_lastJob.CreatedAt.ToLocalTime().ToString("d. M. H:mm"))
+            @if (!string.IsNullOrWhiteSpace(_lastJob.ErrorMessage))
             {
-                <span> — @_lastResult.Message</span>
+                <span> — @_lastJob.ErrorMessage</span>
             }
         </MudAlert>
     }
@@ -230,7 +239,9 @@
     private string _aiStatus = "";
     private List<SourceDto> _availableSources = new();
     private IReadOnlyCollection<string> _selectedSourceCodes = new List<string>();
-    private ScrapeTriggerResultDto? _lastResult;
+    private ScrapeJobDto? _lastJob;
+    private string _scrapeStatus = "";
+    private DateTime _scrapeCreatedAt;
     private DeactivateDeadResultDto? _cleanResult;
     private OllamaStatsDto? _stats;
     private CancellationTokenSource _cts = new();
@@ -241,9 +252,113 @@
     private int PricePct => _stats?.TotalListings > 0 ? (int)(100.0 * _stats.WithPriceSignal / _stats.TotalListings) : 0;
     private Color PctColor(int pct) => pct >= 90 ? Color.Success : pct >= 70 ? Color.Warning : Color.Error;
 
+    /// <summary>Starší „Running" job už neběží – scraper spadl nebo byl restartován uprostřed (v DB jich pár visí).</summary>
+    private static readonly TimeSpan ScrapeJobMaxAge = TimeSpan.FromHours(3);
+    private static readonly TimeSpan ScrapePollInterval = TimeSpan.FromSeconds(5);
+
+    private string ScrapeStatusText
+    {
+        get
+        {
+            var minutes = (int)(DateTime.UtcNow - _scrapeCreatedAt).TotalMinutes;
+            var state = _scrapeStatus == "Queued" ? "Ve frontě" : "Scraper běží";
+            return _scrapeCreatedAt == default ? "Spouštím scraper…" : $"{state} – {minutes} min";
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        await Task.WhenAll(LoadSourcesAsync(), LoadStatsAsync());
+        await Task.WhenAll(LoadSourcesAsync(), LoadStatsAsync(), ResumeRunningScrapeAsync());
+    }
+
+    /// <summary>Po návratu na stránku navážeme na scrape, který pořád běží.</summary>
+    private async Task ResumeRunningScrapeAsync()
+    {
+        try
+        {
+            var jobs = await Http.GetFromJsonAsync<List<ScrapeJobDto>>("api/scraping/jobs?limit=1", _cts.Token);
+            var job = jobs?.FirstOrDefault();
+            if (job is null) return;
+            if (IsFinished(job.Status))
+            {
+                _lastJob = job;
+                return;
+            }
+            if (DateTime.UtcNow - job.CreatedAt.ToUniversalTime() > ScrapeJobMaxAge) return;
+
+            StartTracking(job);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Stav jobu je jen doplněk – stránka funguje i bez něj
+        }
+    }
+
+    private static bool IsFinished(string status) => status is "Succeeded" or "Failed";
+
+    private void StartTracking(ScrapeJobDto job)
+    {
+        _scraping = true;
+        _scrapeStatus = job.Status;
+        _scrapeCreatedAt = job.CreatedAt.ToUniversalTime();
+        _ = TrackScrapeAsync(job.JobId);
+    }
+
+    /// <summary>Hlídá job, dokud nedoběhne; pak obnoví statistiky a případně pustí AI analýzu.</summary>
+    private async Task TrackScrapeAsync(Guid jobId)
+    {
+        ScrapeJobDto? finished = null;
+        try
+        {
+            using var timer = new PeriodicTimer(ScrapePollInterval);
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+            {
+                ScrapeJobDto? job;
+                try
+                {
+                    job = await Http.GetFromJsonAsync<ScrapeJobDto>($"api/scraping/jobs/{jobId}", _cts.Token);
+                }
+                catch (HttpRequestException)
+                {
+                    continue; // výpadek spojení se scraperem – zkusíme to při dalším tiknutí
+                }
+
+                if (job is null) continue;
+                _scrapeStatus = job.Status;
+                if (IsFinished(job.Status))
+                {
+                    finished = job;
+                    break;
+                }
+                if (DateTime.UtcNow - _scrapeCreatedAt > ScrapeJobMaxAge)
+                {
+                    Snackbar.Add("Scrapování běží přes 3 hodiny – přestávám ho sledovat, zkontroluj logy scraperu.", Severity.Warning);
+                    break;
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
+            return; // odchod ze stránky
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Nepodařilo se sledovat scrapování: {ex.Message}", Severity.Warning);
+        }
+
+        _scraping = false;
+        _lastJob = finished;
+        if (finished?.Status == "Failed")
+            Snackbar.Add($"Scrapování selhalo: {finished.ErrorMessage}", Severity.Error);
+        else if (finished is not null)
+            Snackbar.Add("Scrapování dokončeno.", Severity.Success);
+
+        await LoadStatsAsync();
+        await InvokeAsync(StateHasChanged);
+
+        if (finished?.Status == "Succeeded" && _autoRunAi && !_aiRunning)
+            await InvokeAsync(RunAiJobsAsync);
     }
 
     private async Task LoadSourcesAsync()
@@ -275,7 +390,8 @@
     private async Task TriggerScrapeAsync()
     {
         _scraping = true;
-        _lastResult = null;
+        _lastJob = null;
+        _scrapeCreatedAt = default;
         try
         {
             var request = new
@@ -285,26 +401,21 @@
             };
             var response = await Http.PostAsJsonAsync("api/scraping/trigger", request, _cts.Token);
             response.EnsureSuccessStatusCode();
-            _lastResult = await response.Content.ReadFromJsonAsync<ScrapeTriggerResultDto>(cancellationToken: _cts.Token);
-            if (_lastResult?.Status == "Failed")
-                Snackbar.Add($"Scrapování selhalo: {_lastResult.Message}", Severity.Error);
-            else
+            var result = await response.Content.ReadFromJsonAsync<ScrapeTriggerResultDto>(cancellationToken: _cts.Token);
+            if (result is null || result.Status == "Failed" || result.JobId == Guid.Empty)
             {
-                Snackbar.Add("Scrapování bylo spuštěno – inzeráty se stahují na pozadí.", Severity.Success);
-                if (_autoRunAi)
-                {
-                    // Počkáme chvíli aby scraper stihl pár inzerátů zpracovat
-                    await Task.Delay(3000, _cts.Token);
-                    await RunAiJobsAsync();
-                }
+                Snackbar.Add($"Scrapování selhalo: {result?.Message}", Severity.Error);
+                _scraping = false;
+                return;
             }
+
+            // AI analýza se pouští až po doběhnutí scrapu – dřív běžela 3 s po startu nad starými daty
+            Snackbar.Add("Scrapování bylo spuštěno – inzeráty se stahují na pozadí.", Severity.Success);
+            StartTracking(new ScrapeJobDto(result.JobId, result.Status, DateTime.UtcNow, null));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Snackbar.Add($"Chyba: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
             _scraping = false;
         }
     }
@@ -362,17 +473,24 @@
             await LoadStatsAsync();
             StateHasChanged();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!_cts.IsCancellationRequested)
         {
+            // Včetně timeoutu HttpClientu – nezachycená výjimka by shodila celý okruh a spinner by zůstal viset
             Snackbar.Add($"AI analýza selhala: {ex.Message}", Severity.Error);
+        }
+        catch (OperationCanceledException)
+        {
+            return; // odchod ze stránky
         }
         finally
         {
             _aiRunning = false;
             _aiStatus = "";
         }
+        await InvokeAsync(StateHasChanged);
     }
 
+    // Bez Dispose CTS – sledovací smyčka může ještě sáhnout na token, Cancel ji ukončí
     public void Dispose() => _cts.Cancel();
 
     private async Task DeactivateDeadAsync()
@@ -411,6 +529,7 @@
 
     private record SourceDto(Guid Id, string Code, string Name, string BaseUrl, bool IsActive);
     private record ScrapeTriggerResultDto(Guid JobId, string Status, string? Message);
+    private record ScrapeJobDto(Guid JobId, string Status, DateTime CreatedAt, string? ErrorMessage);
     private record OllamaStatsDto(int TotalListings, int WithNormalizedData, int WithSmartTags, int WithPriceSignal, int WithSummary = 0);
     private record BulkJobResultDto(int Processed, int Succeeded, int Failed, int RemainingUnprocessed);
     private record DeactivateDeadResultDto(int Checked, int Deactivated);

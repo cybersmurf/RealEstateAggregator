@@ -1,10 +1,18 @@
+using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using RealEstate.Api.Contracts.Scraping;
 
 namespace RealEstate.Api.Services;
 
 public sealed class ScrapingService : IScrapingService
 {
+    /// <summary>Scraper (FastAPI) odpovídá snake_case – <c>job_id</c>; bez toho bylo JobId vždy prázdné.</summary>
+    private static readonly JsonSerializerOptions ScraperJson = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+    };
+
     private readonly HttpClient _httpClient;
     private readonly ILogger<ScrapingService> _logger;
 
@@ -32,7 +40,7 @@ public sealed class ScrapingService : IScrapingService
             response.EnsureSuccessStatusCode();
 
             var result =
-                await response.Content.ReadFromJsonAsync<ScrapeTriggerResultDto>(cancellationToken: cancellationToken)
+                await response.Content.ReadFromJsonAsync<ScrapeTriggerResultDto>(ScraperJson, cancellationToken)
                 ?? new ScrapeTriggerResultDto
                 {
                     JobId = Guid.Empty,
@@ -53,4 +61,18 @@ public sealed class ScrapingService : IScrapingService
             };
         }
     }
+
+    public async Task<ScrapeJobDto?> GetJobAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.GetAsync($"/v1/scrape/jobs/{jobId}", cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ScrapeJobDto>(ScraperJson, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ScrapeJobDto>> GetRecentJobsAsync(int limit, CancellationToken cancellationToken)
+        => await _httpClient.GetFromJsonAsync<List<ScrapeJobDto>>(
+               $"/v1/scrape/jobs?limit={limit}", ScraperJson, cancellationToken)
+           ?? [];
 }
