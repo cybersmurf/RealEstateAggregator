@@ -157,6 +157,9 @@ async def _call_api(method: str, path: str, **kwargs) -> dict | list:
         async with httpx.AsyncClient(timeout=API_TIMEOUT, headers=headers) as client:
             resp = await getattr(client, method)(url, **kwargs)
             resp.raise_for_status()
+            # 204 / prázdné tělo (např. inzerát bez Drive složky u broker-photos) → {}
+            if resp.status_code == 204 or not resp.content.strip():
+                return {}
             return resp.json()
     except httpx.TransportError as e:
         # Bez tohohle dostal model 40řádkový traceback a hádal příčinu. Na macOS je
@@ -820,8 +823,8 @@ async def _broker_photos(listing_id: str, page: int, page_size: int) -> list:
         raise
     if not data or not data.get("categories"):
         return [TextContent(type="text", text=(
-            "Žádné fotky od makléře. Ukládají se do Drive složky inzerátu do podsložky "
-            "Fotky_od_maklere (roztříděné do podsložek, popisy ve FOTKY_OD_MAKLERE.md)."))]
+            f"Pro inzerát {listing_id} nejsou uložené žádné fotky od makléře. Ukládají se do Drive složky "
+            "inzerátu do podsložky Fotky_od_maklere (roztříděné do podsložek, popisy ve FOTKY_OD_MAKLERE.md)."))]
 
     flat = [(c, ph) for c in data["categories"] for ph in c["photos"]]
     page_size = min(max(1, page_size), 20)
