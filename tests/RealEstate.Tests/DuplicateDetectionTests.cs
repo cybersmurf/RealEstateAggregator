@@ -570,3 +570,85 @@ public class DuplicateDetectionJevisoviceTests
         Assert.False(DuplicateDetectionService.IsDuplicatePair(sreality, other));
     }
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  Prosiměřice (5. 10. 2026): dům za 7 999 000 Kč na Sreality a Bazoši zůstal dvakrát – titulky
+//  se liší a Bazoš vytáhl z popisu jiné výměry (207/722 m² místo 237/929 m²). Popis je ale tentýž text.
+// ─────────────────────────────────────────────────────────────────
+public class DuplicateDetectionDescriptionTests
+{
+    private static readonly Guid Sreality = Guid.NewGuid();
+    private static readonly Guid Bazos = Guid.NewGuid();
+
+    private const string Intro =
+        "V klidné části obce Prosiměřice nabízíme samostatně stojící rodinný dům o třech podlažích s podlahovou plochou přesahující 320 m².";
+
+    private const string Body =
+        "Technické a odpočinkové zázemí domu je soustředěno v 1. podzemním podlaží (85,6 m²), kde najdete garáž pro dvě vozidla (29,2 m²), technickou místnost (11,6 m²), kancelář a saunu. "
+        + "Hlavní obytný prostor v 1. nadzemním podlaží působí vzdušně a přirozeně propojuje jednotlivé zóny. Kuchyně s jídelním koutem (23,3 m²) je orientována na jihozápad. "
+        + "Ve 2. nadzemním podlaží se nachází tři samostatné, neprůchozí pokoje (28 m², 21 m² a 21 m²), které poskytují dostatek soukromí pro každého člena domácnosti. "
+        + "Dům byl postaven jako zděný v roce 1986 a v roce 2019 prošel dílčí rekonstrukcí. Disponuje plastovými okny s izolačním dvojsklem, elektroinstalací v mědi a rozvody vody v plastu. "
+        + "Pozemek o celkové výměře 722 m² (zastavěná plocha a nádvoří 207 m²) nabízí udržovanou zahradu s pergolou, vzrostlými ovocnými stromy i okrasnými dřevinami.";
+
+    private static DuplicateCandidate Make(Guid source, string? description, double? builtUp, double? land,
+        string? municipality, double? lat, double? lon, bool precise, string title, decimal price = 7_999_000m)
+        => new(Guid.NewGuid(), source, PropertyType.House, OfferType.Sale, price, lat, lon, municipality, builtUp, land,
+            new DateTime(2026, 9, 1), precise, "Znojmo", title, null, description);
+
+    private static DuplicateCandidate SrealityHouse(string? description = null)
+        => Make(Sreality, description ?? Intro + "\r\n\r\n" + Body.Replace(". ", ".\r\n"), 237, 929, "Prosiměřice",
+            48.9027, 16.1920, true, "Prodej rodinného domu 237 m², pozemek 929 m²");
+
+    private static DuplicateCandidate BazosHouse(string? description = null, decimal price = 7_999_000m)
+        => Make(Bazos, description ?? Body, 207, 722, null, 48.8942, 16.1871, false,
+            "Rodinný dům se zahradou, saunou a garáží – Prosiměřice", price);
+
+    [Fact]
+    public void SameDescription_ExactPrice_IsDuplicate_EvenWithConflictingAreas()
+        => Assert.True(DuplicateDetectionService.IsDuplicatePair(SrealityHouse(), BazosHouse()));
+
+    [Fact]
+    public void SameDescription_DifferentPrice_NotDuplicate()
+        => Assert.False(DuplicateDetectionService.IsDuplicatePair(SrealityHouse(), BazosHouse(price: 7_890_000m)));
+
+    [Fact]
+    public void DifferentDescription_ConflictingAreas_NotDuplicate()
+    {
+        var other = "Nabízíme k prodeji řadový dům v centru obce s menší zahradou a dvorem. "
+            + "Dům prošel v roce 2015 kompletní rekonstrukcí včetně střechy, rozvodů a koupelny, vytápění je plynovým kotlem. "
+            + "V přízemí je obývací pokoj s kuchyní, ložnice a koupelna, v podkroví dva pokoje a šatna. "
+            + "K domu patří dvougaráž, kůlna a sklep. Obec má školu, školku, obchod i autobusové spojení do Znojma.";
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(SrealityHouse(), BazosHouse(other)));
+    }
+
+    [Fact]
+    public void DescriptionsMatch_IgnoresLineBreaksPunctuationAndAddedIntro()
+        => Assert.True(DuplicateDetectionService.DescriptionsMatch(Intro + "\r\n" + Body.ToUpperInvariant(), Body.Replace(" (", " [").Replace(")", "]")));
+
+    [Fact]
+    public void DescriptionsMatch_SharedTemplateWithDifferentHalf_NotMatch()
+    {
+        var firstHalf = Body[..(Body.Length / 2)];
+        var other = firstHalf + " Byt se nachází ve třetím patře domu s výtahem, má lodžii orientovanou na východ, sklep a parkovací stání v podzemní garáži, "
+            + "kuchyňská linka je nová se spotřebiči značky Bosch a v ceně je i vestavěná skříň v předsíni a v ložnici.";
+
+        Assert.False(DuplicateDetectionService.DescriptionsMatch(Body, other));
+    }
+
+    [Fact]
+    public void DescriptionsMatch_ShortText_NotEvidence()
+        => Assert.False(DuplicateDetectionService.DescriptionsMatch("Prodej domu, volejte makléři.", "Prodej domu, volejte makléři."));
+
+    [Fact]
+    public void SameDescription_TwoUnitsInEachSource_Ambiguous_NoGroup()
+    {
+        // Dvě řadovky jednoho developera: stejný text i cena, jiné výměry
+        var sreality1 = SrealityHouse(Body);
+        var sreality2 = sreality1 with { Id = Guid.NewGuid(), AreaBuiltUp = 180, AreaLand = 410, Latitude = 48.9040, Title = "Prodej rodinného domu 180 m², pozemek 410 m²" };
+        var bazos1 = BazosHouse(Body);
+        var bazos2 = bazos1 with { Id = Guid.NewGuid(), AreaBuiltUp = 150, AreaLand = 380, Title = "Řadový dům Prosiměřice B" };
+
+        Assert.Empty(DuplicateDetectionService.BuildClusters([sreality1, sreality2, bazos1, bazos2]));
+    }
+}

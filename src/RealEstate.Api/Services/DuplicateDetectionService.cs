@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Api.Contracts.Listings;
@@ -26,7 +27,8 @@ public sealed record DuplicateCandidate(
     bool PreciseGps = true,
     string? District = null,
     string? Title = null,
-    string? Disposition = null);
+    string? Disposition = null,
+    string? Description = null);
 
 public sealed class DuplicateDetectionService(
     RealEstateDbContext ctx,
@@ -77,6 +79,19 @@ public sealed class DuplicateDetectionService(
     private const int TitleEvidenceMinLength = 30;
 
     /// <summary>
+    /// Stejný popis = aspoň 90 % pětic slov kratšího textu najdeme i v delším. Měřeno 5. 10. 2026 na
+    /// dvojicích se stejnou cenou: pod 0,9 začínají různé byty jednoho developera se společnou šablonou.
+    /// </summary>
+    private const double DescriptionMatchMin = 0.9;
+
+    private const int DescriptionShingleWords = 5;
+
+    /// <summary>Kratší popis („Prodej bytu, volejte") nic nedokazuje.</summary>
+    private const int DescriptionMinShingles = 40;
+
+    private static readonly ConditionalWeakTable<string, HashSet<int>> DescriptionShingleCache = new();
+
+    /// <summary>
     /// Zdroje, které posílají GPS, ale je to jen střed obce geokódovaný portálem
     /// (medián odchylky proti Sreality 0,8–3 km, měřeno 30. 9. 2026). Bereme je jako přibližné.
     /// </summary>
@@ -105,7 +120,8 @@ public sealed class DuplicateDetectionService(
                 l.Price, l.Latitude, l.Longitude,
                 l.Municipality, l.AreaBuiltUp, l.AreaLand, l.FirstSeenAt,
                 l.GeocodeSource != "nominatim" && !ApproxGpsSources.Contains(l.SourceCode),
-                l.District, l.Title, l.Disposition))
+                l.District, l.Title, l.Disposition,
+                l.Price >= ExactPriceEvidenceMin ? l.Description : null))
             .ToListAsync(cancellationToken);
 
         var mapping = BuildClusters(candidates); // dupId -> primaryId
@@ -141,7 +157,8 @@ public sealed class DuplicateDetectionService(
     /// <summary>
     /// Rozhodne, zda dva inzeráty popisují tutéž nemovitost.
     /// Nutné podmínky: jiný zdroj, stejný typ nemovitosti i nabídky, cena v toleranci 2 %.
-    /// Plus jedna z evidencí: přesná GPS obou do 300 m, NEBO (bez přesné GPS) stejná cena
+    /// Plus jedna z evidencí: stejná cena na korunu a stejný dlouhý titulek nebo popis, NEBO
+    /// přesná GPS obou do 300 m, NEBO (bez přesné GPS) stejná cena
     /// na korunu + plochy bez rozporu + (GPS do 300 m, NEBO shodná plocha a GPS do 5 km či stejná obec).
     /// </summary>
     public static bool IsDuplicatePair(DuplicateCandidate a, DuplicateCandidate b)
@@ -172,6 +189,12 @@ public sealed class DuplicateDetectionService(
         // Platí i když Bazoš vytáhl z popisu jinou výměru; okresy se nesmí lišit.
         if (priceDiff == 0 && a.Price >= ExactPriceEvidenceMin && TitlesMatch(a.Title, b.Title)
             && !DistrictsDiffer(a.District, b.District))
+            return true;
+
+        // Evidence 0b: stejný popis a cena na korunu – realitka vloží tentýž text na Sreality i Bazoš
+        // pod jiným titulkem a Bazoš z něj vytáhne jiné výměry (Prosiměřice: 237/929 vs. 207/722 m²).
+        if (priceDiff == 0 && a.Price >= ExactPriceEvidenceMin && !DistrictsDiffer(a.District, b.District)
+            && DescriptionsMatch(a.Description, b.Description))
             return true;
 
         // Evidence 1: přesná GPS od zdroje u obou. Do 300 m je to tentýž dům, nad 1,5 km určitě ne
@@ -280,6 +303,40 @@ public sealed class DuplicateDetectionService(
         if (na.Length < TitleEvidenceMinLength || nb.Length < TitleEvidenceMinLength) return false;
         // Bazoš titulek ořezává na 60 znaků – stačí, když je jeden prefixem druhého
         return na == nb || (Math.Min(na.Length, nb.Length) >= 45 && (na.StartsWith(nb, StringComparison.Ordinal) || nb.StartsWith(na, StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// Popisy jsou tentýž text: po normalizaci (bez diakritiky, interpunkce a zalomení řádků) je aspoň
+    /// 90 % pětic slov kratšího popisu i v delším. Měří se ke kratšímu, protože portály text ořezávají
+    /// nebo přidávají úvodní odstavec.
+    /// </summary>
+    public static bool DescriptionsMatch(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
+        var sa = DescriptionShingleCache.GetValue(a, DescriptionShingles);
+        var sb = DescriptionShingleCache.GetValue(b, DescriptionShingles);
+        if (sa.Count < DescriptionMinShingles || sb.Count < DescriptionMinShingles) return false;
+        var (smaller, larger) = sa.Count <= sb.Count ? (sa, sb) : (sb, sa);
+        var common = smaller.Count(larger.Contains);
+        return common >= smaller.Count * DescriptionMatchMin;
+    }
+
+    private static HashSet<int> DescriptionShingles(string description)
+    {
+        var words = new List<string>();
+        var word = new StringBuilder();
+        foreach (var ch in NormalizeText(description))
+        {
+            if (char.IsLetterOrDigit(ch)) { word.Append(ch); continue; }
+            if (word.Length > 0) { words.Add(word.ToString()); word.Clear(); }
+        }
+        if (word.Length > 0) words.Add(word.ToString());
+
+        var array = words.ToArray();
+        var shingles = new HashSet<int>();
+        for (var i = 0; i + DescriptionShingleWords <= array.Length; i++)
+            shingles.Add(string.Join(' ', array, i, DescriptionShingleWords).GetHashCode(StringComparison.Ordinal));
+        return shingles;
     }
 
     /// <summary>„3+KK" = „3+kk"; prázdná dispozice se neshoduje s ničím.</summary>
