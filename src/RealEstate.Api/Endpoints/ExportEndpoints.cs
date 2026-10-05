@@ -67,6 +67,11 @@ public static class ExportEndpoints
             .WithTags("Export");
 
         // Vrátí seznam souborů v GD složce, jejichž název obsahuje "analyz"
+        // Fotky od makléře z Drive podsložky Fotky_od_maklere (kategorie + popisy z FOTKY_OD_MAKLERE.md)
+        group.MapGet("/{id:guid}/broker-photos", GetBrokerPhotos)
+            .WithName("GetBrokerPhotos")
+            .WithTags("Export");
+
         group.MapGet("/{id:guid}/drive-analysis-files", ListDriveAnalysisFiles)
             .WithName("ListDriveAnalysisFiles")
             .WithTags("Export");
@@ -246,6 +251,24 @@ public static class ExportEndpoints
                 title: "Chyba při exportu na Google Drive",
                 detail: ex.Message,
                 statusCode: StatusCodes.Status500InternalServerError);
+        }
+    }
+
+    private static async Task<IResult> GetBrokerPhotos(
+        Guid id,
+        [FromServices] IGoogleDriveExportService driveService,
+        [FromServices] ILogger<GoogleDriveExportService> logger,
+        CancellationToken ct)
+    {
+        try
+        {
+            var photos = await driveService.ListBrokerPhotosAsync(id, ct);
+            return photos is null ? Results.NoContent() : Results.Ok(photos);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Nelze načíst fotky od makléře z Drive pro listing {Id}", id);
+            return Results.NoContent();
         }
     }
 

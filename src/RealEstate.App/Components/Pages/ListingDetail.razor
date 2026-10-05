@@ -1082,6 +1082,41 @@
                                     </MudStack>
                                 }
                             }
+                            @if (_brokerPhotos is { Total: > 0 })
+                            {
+                                <MudDivider />
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Wrap="Wrap.Wrap">
+                                    <MudText Typo="Typo.body2"><strong>🤝 Fotky od makléře</strong> (@_brokerPhotos.Total)</MudText>
+                                    <MudLink Href="@_brokerPhotos.FolderUrl" Target="_blank" Typo="Typo.caption">složka Fotky_od_maklere</MudLink>
+                                </MudStack>
+                                @if (!string.IsNullOrWhiteSpace(_brokerPhotos.Source))
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Zdroj: @_brokerPhotos.Source</MudText>
+                                }
+                                @foreach (var cat in _brokerPhotos.Categories)
+                                {
+                                    <MudText Typo="Typo.body2" Class="mt-1">
+                                        <strong>@cat.Label</strong> (@cat.Photos.Count)
+                                        @if (!string.IsNullOrWhiteSpace(cat.Description))
+                                        {
+                                            <span> – @cat.Description</span>
+                                        }
+                                    </MudText>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @foreach (var ph in cat.Photos)
+                                        {
+                                            <a href="@ph.ViewUrl" target="_blank" rel="noopener" title="@ph.Name">
+                                                <img src="@ph.ThumbnailUrl.Replace("sz=w1600", "sz=w400")" alt="@($"{cat.Label}: {ph.Name}")" loading="lazy"
+                                                     style="height:110px;width:auto;border-radius:6px;object-fit:cover;" />
+                                            </a>
+                                        }
+                                    </div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(_brokerPhotos.Notes))
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@_brokerPhotos.Notes</MudText>
+                                }
+                            }
                             @if (_driveResult.PhotosTotal > 0)
                             {
                                 <MudText Typo="Typo.caption"
@@ -1403,6 +1438,25 @@
     // Soubory s analýzami z Google Drive složky
     private List<DriveFileItem>? _driveFiles;
     private record DriveFileItem(string Id, string Name, string WebViewLink, DateTime? ModifiedAt);
+
+    // Fotky od makléře – Drive podsložka Fotky_od_maklere, zobrazují se přímo z Drivu (sdílení dědí ze složky)
+    private record BrokerPhoto(string Id, string Name, string ViewUrl, string ThumbnailUrl, string DownloadUrl, string MimeType, long? SizeBytes);
+    private record BrokerPhotoCategory(string Folder, string Label, string? Description, List<BrokerPhoto> Photos);
+    private record BrokerPhotos(string FolderId, string FolderUrl, string? Source, string? Notes, int Total, List<BrokerPhotoCategory> Categories);
+    private BrokerPhotos? _brokerPhotos;
+
+    private async Task LoadBrokerPhotosAsync()
+    {
+        try
+        {
+            using var response = await Http.GetAsync($"api/listings/{Id}/broker-photos", _cts.Token);
+            // 204 = inzerát nemá Drive složku nebo v ní podsložka není
+            _brokerPhotos = response.StatusCode == System.Net.HttpStatusCode.OK
+                ? await response.Content.ReadFromJsonAsync<BrokerPhotos>(cancellationToken: _cts.Token)
+                : null;
+        }
+        catch { /* Drive nemusí být dostupný */ }
+    }
 
     // ── Lightbox (AI klasifikace fotek) ──────────────────────────────────────
     private bool _lbOpen;
@@ -1812,6 +1866,7 @@
         await LoadListingAsync();
         await LoadExportStateAsync();
         await LoadDriveAnalysisFilesAsync();
+        await LoadBrokerPhotosAsync();
         await LoadRagAnalysesAsync();
         await LoadCadastreDataAsync();
         await LoadPriceHistoryAsync();
@@ -1922,10 +1977,12 @@
                 Snackbar.Add("Export na Google Drive byl úspěšný!", Severity.Success);
                 await LoadExportStateAsync();
                 await LoadDriveAnalysisFilesAsync();
+                await LoadBrokerPhotosAsync();
                 break;
             case "drive-analysis-export":
                 Snackbar.Add("Analýza nahrána na Google Drive.", Severity.Success);
                 await LoadDriveAnalysisFilesAsync();
+                await LoadBrokerPhotosAsync();
                 break;
         }
     }

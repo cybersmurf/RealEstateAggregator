@@ -810,17 +810,78 @@ async def get_inspection_photos(listing_id: str, page: int = 1, page_size: int =
     return result
 
 
+async def _broker_photos(listing_id: str, page: int, page_size: int) -> list:
+    """Fotky od makléře z Drive podsložky Fotky_od_maklere – po kategoriích s popisy."""
+    try:
+        data = await _call_api("get", f"/api/listings/{listing_id}/broker-photos")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return [TextContent(type="text", text=f"Inzerát {listing_id} nenalezen.")]
+        raise
+    if not data or not data.get("categories"):
+        return [TextContent(type="text", text=(
+            "Žádné fotky od makléře. Ukládají se do Drive složky inzerátu do podsložky "
+            "Fotky_od_maklere (roztříděné do podsložek, popisy ve FOTKY_OD_MAKLERE.md)."))]
+
+    flat = [(c, ph) for c in data["categories"] for ph in c["photos"]]
+    page_size = min(max(1, page_size), 20)
+    total = len(flat)
+    total_pages = (total + page_size - 1) // page_size
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = min(start + page_size, total)
+
+    head = f"**Fotky od makléře** – stránka {page}/{total_pages} ({start+1}–{end} z {total} fotek)"
+    if data.get("source"):
+        head += f"\nZdroj: {data['source']}"
+    if page == 1:
+        head += "\n" + "\n".join(
+            f"- {c['label']} ({len(c['photos'])}): {c.get('description') or '–'}" for c in data["categories"])
+        if data.get("notes"):
+            head += f"\n{data['notes']}"
+    head += f"\nSložka: {data.get('folderUrl')}"
+    if page < total_pages:
+        head += f"\n➡️ Další: `get_listing_photos(listing_id='{listing_id}', set='makler', page={page+1})`"
+    result = [TextContent(type="text", text=head)]
+
+    last_cat = None
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+        for i, (cat, ph) in enumerate(flat[start:end], start + 1):
+            if cat["folder"] != last_cat:
+                last_cat = cat["folder"]
+                result.append(TextContent(type="text", text=f"## {cat['label']}" + (f" – {cat['description']}" if cat.get("description") else "")))
+            result.append(TextContent(type="text", text=f"**{i}. {ph['name']}**"))
+            try:
+                r = await client.get(ph["downloadUrl"])
+                r.raise_for_status()
+                result.append(ImageContent(type="image", data=base64.b64encode(_resize_image(r.content)).decode(), mimeType="image/jpeg"))
+            except Exception as e:
+                logger.warning(f"Failed to fetch broker photo {ph['name']}: {e}")
+                result.append(TextContent(type="text", text=f"❌ {ph['viewUrl']} (selhalo: {e})"))
+    return result
+
+
 @mcp.tool()
-async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 5) -> list:
+async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 5, set: str = "inzerat") -> list:
     """
-    📸 Vrátí fotky z inzerátu jako OBRÁZKY (ne URL).
+    📸 Vrátí fotky k inzerátu jako OBRÁZKY (ne URL).
     Claude je vidí přímo v chatu! Fotky jsou automaticky zmenšeny na max 800px.
 
     Args:
         listing_id: UUID inzerátu
         page: Stránka (začíná 1, default 1)
         page_size: Počet fotek na stránku (default 10, max 20)
+        set: Která sada: "inzerat" (fotky ze scrapu, default) | "prohlidka" (vlastní fotky
+             z prohlídky, totéž co get_inspection_photos) | "makler" (fotky poslané makléřem,
+             uložené v Drive podsložce Fotky_od_maklere a roztříděné do kategorií s popisy).
     """
+    which = (set or "inzerat").strip().lower()
+    if which in ("prohlidka", "inspection"):
+        return await get_inspection_photos(listing_id, page, page_size)
+    if which in ("makler", "broker"):
+        return await _broker_photos(listing_id, page, page_size)
+    if which not in ("inzerat", "listing"):
+        raise ToolError(f"Neznámá sada '{set}'. Povolené: inzerat | prohlidka | makler")
     try:
         listing = await _call_api("get", f"/api/listings/{listing_id}")
     except httpx.HTTPStatusError as e:

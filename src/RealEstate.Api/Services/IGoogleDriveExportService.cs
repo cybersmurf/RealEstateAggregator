@@ -26,6 +26,12 @@ public interface IGoogleDriveExportService
     Task<List<DriveFileDto>> ListAnalysisFilesAsync(Guid listingId, CancellationToken ct = default);
 
     /// <summary>
+    /// Fotky od makléře z podsložky Fotky_od_maklere (kategorie = podsložky, popisy z FOTKY_OD_MAKLERE.md).
+    /// Vrátí null, když inzerát nemá Drive složku nebo v ní podsložka není.
+    /// </summary>
+    Task<BrokerPhotosDto?> ListBrokerPhotosAsync(Guid listingId, CancellationToken ct = default);
+
+    /// <summary>
     /// Nahraje obsah analýzy jako ANALYZA_datum.md do GD složky inzerátu.
     /// Vrátí URL nahraného souboru.
     /// </summary>

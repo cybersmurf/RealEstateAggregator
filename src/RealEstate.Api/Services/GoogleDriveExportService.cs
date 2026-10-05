@@ -89,6 +89,11 @@ public sealed class GoogleDriveExportService(
         var myfotoFolder = await CreateFolderAsync(driveService, "Moje_fotky_z_prohlidky", folder.Id, ct);
         await SetPublicReadAsync(driveService, myfotoFolder.Id, ct);
 
+        // Třetí standardní podsložka: fotky, které pošle makléř (Úschovna, příloha mailu) –
+        // Claude Desktop je sem ukládá roztříděné do podsložek s FOTKY_OD_MAKLERE.md
+        var brokerFolder = await CreateFolderAsync(driveService, BrokerFolderName, folder.Id, ct);
+        await SetPublicReadAsync(driveService, brokerFolder.Id, ct);
+
         // ── Uložíme folder IDs do DB ──────────────────────────────────────────
         listing.DriveFolderId = folder.Id;
         listing.DriveInspectionFolderId = myfotoFolder.Id;
@@ -221,6 +226,84 @@ public sealed class GoogleDriveExportService(
         var msg = $"Importováno {imported} nových fotek z Google Drive, přeskočeno {skipped} (již existují nebo chyba).";
         logger.LogInformation("GD inspection scan pro {ListingId}: {Msg}", listingId, msg);
         return new DriveScanResultDto(imported, skipped, driveFiles.Count, msg);
+    }
+
+    public const string BrokerFolderName = "Fotky_od_maklere";
+    private const string BrokerNotesFileName = "FOTKY_OD_MAKLERE.md";
+    private const string FolderMime = "application/vnd.google-apps.folder";
+
+    public async Task<BrokerPhotosDto?> ListBrokerPhotosAsync(Guid listingId, CancellationToken ct = default)
+    {
+        var listing = await dbContext.Listings
+            .AsNoTracking()
+            .Select(l => new { l.Id, l.DriveFolderId })
+            .FirstOrDefaultAsync(l => l.Id == listingId, ct);
+        if (listing is null || string.IsNullOrWhiteSpace(listing.DriveFolderId))
+            return null;
+
+        var driveService = await CreateDriveServiceAsync();
+
+        // podsložku hledáme podle názvu – u starších exportů ji založil Claude Desktop ručně
+        var brokerFolder = (await ListChildrenAsync(driveService, listing.DriveFolderId, ct))
+            .FirstOrDefault(f => f.MimeType == FolderMime && f.Name == BrokerFolderName);
+        if (brokerFolder is null) return null;
+
+        var children = await ListChildrenAsync(driveService, brokerFolder.Id, ct);
+
+        var notesFile = children.FirstOrDefault(f => f.Name.Equals(BrokerNotesFileName, StringComparison.OrdinalIgnoreCase));
+        var notes = BrokerPhotoNotes.Parse(notesFile is null ? null : await DownloadTextAsync(driveService, notesFile.Id, ct));
+
+        var categories = new List<BrokerPhotoCategoryDto>();
+        foreach (var sub in children.Where(f => f.MimeType == FolderMime).OrderBy(f => f.Name, StringComparer.Ordinal))
+        {
+            var photos = (await ListChildrenAsync(driveService, sub.Id, ct))
+                .Where(IsImage).OrderBy(f => f.Name, StringComparer.Ordinal).Select(ToPhoto).ToList();
+            if (photos.Count == 0) continue;
+            notes.Descriptions.TryGetValue(sub.Name, out var description);
+            categories.Add(new BrokerPhotoCategoryDto(sub.Name, BrokerPhotoNotes.Label(sub.Name), description, photos));
+        }
+        // fotky volně v podsložce (bez roztřídění)
+        var loose = children.Where(IsImage).OrderBy(f => f.Name, StringComparer.Ordinal).Select(ToPhoto).ToList();
+        if (loose.Count > 0) categories.Add(new BrokerPhotoCategoryDto("", "Neroztříděné", null, loose));
+
+        return new BrokerPhotosDto(
+            brokerFolder.Id, $"https://drive.google.com/drive/folders/{brokerFolder.Id}",
+            notes.Source, notes.Notes, categories.Sum(c => c.Photos.Count), categories);
+    }
+
+    private static bool IsImage(DriveFile f) => f.MimeType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true;
+
+    // Soubory dědí sdílení „kdokoli s odkazem“ z exportované složky, takže je lze zobrazit přímo z Drivu
+    private static BrokerPhotoDto ToPhoto(DriveFile f) => new(
+        f.Id, f.Name,
+        f.WebViewLink ?? $"https://drive.google.com/file/d/{f.Id}/view",
+        $"https://drive.google.com/thumbnail?id={f.Id}&sz=w1600",
+        $"https://drive.google.com/uc?export=download&id={f.Id}",
+        f.MimeType ?? "image/jpeg", f.Size);
+
+    private static async Task<List<DriveFile>> ListChildrenAsync(DriveService drive, string parentId, CancellationToken ct)
+    {
+        var all = new List<DriveFile>();
+        string? pageToken = null;
+        do
+        {
+            var req = drive.Files.List();
+            req.Q = $"'{parentId}' in parents and trashed = false";
+            req.Fields = "nextPageToken, files(id,name,mimeType,size,webViewLink)";
+            req.PageSize = 200;
+            req.PageToken = pageToken;
+            var page = await req.ExecuteAsync(ct);
+            all.AddRange(page.Files ?? []);
+            pageToken = page.NextPageToken;
+        } while (!string.IsNullOrEmpty(pageToken));
+        return all;
+    }
+
+    private static async Task<string> DownloadTextAsync(DriveService drive, string fileId, CancellationToken ct)
+    {
+        using var ms = new MemoryStream();
+        await drive.Files.Get(fileId).DownloadAsync(ms, ct);
+        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
     }
 
     public async Task<List<DriveFileDto>> ListAnalysisFilesAsync(Guid listingId, CancellationToken ct = default)
