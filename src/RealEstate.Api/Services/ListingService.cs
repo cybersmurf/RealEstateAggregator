@@ -619,8 +619,9 @@ SellerName = sellerName,
                 && !_dbContext.Listings.Any(o => o.IsActive
                     && (o.Id == (x.DuplicateOfListingId ?? x.Id) || o.DuplicateOfListingId == (x.DuplicateOfListingId ?? x.Id))));
         }
-        else
+        else if (filter.UserStatus != "Visited")
         {
+            // Filtr „Navštíveno" vrací i stažené – jinak by z něj prodané domy s prohlídkou zmizely
             predicate = predicate.And(x => x.IsActive);
         }
 
@@ -812,8 +813,11 @@ SellerName = sellerName,
         // Inzeráty kde uživatel explicitně nastavil stav (!=New)
         var taggedStatuses = new[] { "Liked", "Disliked", "ToVisit", "Visited" };
 
+        // Navštívené zůstávají v přehledu i po stažení z trhu – poznámky a fotky z prohlídky nesmí
+        // zmizet jen proto, že dům někdo koupil (6. 10. 2026: všech 5 navštívených bylo neaktivních
+        // a skupina „Navštíveno" byla prázdná). Ostatní stavy jen u nabídek, které ještě běží.
         var listings = await _repository.Query(UserId)
-            .Where(l => l.IsActive)
+            .Where(l => l.IsActive || l.UserStates.Any(s => s.UserId == UserId && s.Status == "Visited"))
             .Where(l => l.UserStates.Any(s =>
                 s.UserId == UserId && taggedStatuses.Contains(s.Status)))
             .OrderByDescending(l =>

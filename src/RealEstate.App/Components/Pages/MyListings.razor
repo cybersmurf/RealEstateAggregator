@@ -186,6 +186,13 @@
                                             }
                                             catch { }
                                         }
+                                        @if (!item.IsActive)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.RemoveShoppingCart"
+                                                     Color="Color.Default" Variant="Variant.Outlined" Class="mt-1 mr-1">
+                                                @(item.DeactivatedAt is { } gone ? $"Staženo z trhu {gone.ToLocalTime():d. M. yyyy}" : "Staženo z trhu")
+                                            </MudChip>
+                                        }
                                         @if (item.HasNotes)
                                         {
                                             <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.StickyNote2"
