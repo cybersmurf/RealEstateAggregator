@@ -80,6 +80,13 @@ class PremiaRealityScraper:
                             try:
                                 detail_html = await self._fetch(item["url"])
                                 normalized = self._parse_detail_page(detail_html, item)
+                                if normalized.pop("sold", False):
+                                    # Realitka nechává prodané nabídky na webu – u nás aktivní být nesmí
+                                    logger.info("Listing %s is sold – deactivating", normalized["external_id"])
+                                    await get_db_manager().deactivate_listing(self.SOURCE_CODE, normalized["external_id"])
+                                    metrics.increment_scraped()
+                                    await asyncio.sleep(0.4)
+                                    continue
                                 await self._save_listing(normalized)
                                 self.scraped_count += 1
                                 metrics.increment_scraped()
@@ -150,6 +157,15 @@ class PremiaRealityScraper:
                     params[label] = value
         return params
 
+    @staticmethod
+    def _listing_status(soup: BeautifulSoup) -> Optional[str]:
+        """„sold" / „reserved" podle štítku v tabulce parametrů (<td class="prodano|rezervace">)."""
+        if soup.select_one("td.prodano"):
+            return "sold"
+        if soup.select_one("td.rezervace"):
+            return "reserved"
+        return None
+
     def _parse_price(self, text: str) -> Optional[float]:
         if not text:
             return None
@@ -193,6 +209,18 @@ class PremiaRealityScraper:
         # Cena
         price_text = params.get("cena", "")
         result["price"] = self._parse_price(price_text)
+
+        # Stav nabídky: web místo řádku s cenou ukáže „PRODÁNO" nebo „REZERVACE" a inzerát nechá viset.
+        # 6. 10. 2026 bylo z 51 „aktivních" nabídek 19 prodaných a 21 rezervovaných (Horní Leska).
+        status = self._listing_status(soup)
+        if status == "sold":
+            result["sold"] = True
+        elif status == "reserved":
+            # Rezervace občas padne – nabídka zůstává vidět, se štítkem a poslední známou cenou
+            result["price_note"] = "Rezervace"
+            result["keep_last_price"] = True
+        elif result["price"] is None and price_text:
+            result["price_note"] = price_text[:200]  # „Informace o ceně v RK"
 
         # Typ nemovitosti
         nem_type = params.get("nemovitost", "").lower()

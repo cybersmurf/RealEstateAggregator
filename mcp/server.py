@@ -284,6 +284,8 @@ async def _fetch_all(payload: dict, cap: int) -> tuple[list[dict], int]:
 
 def _fmt_listing_v2(l: dict) -> str:
     price = f"{l['price']:,.0f} Kč".replace(",", " ") if l.get("price") else "cena neuvedena"
+    if l.get("priceNote"):
+        price += f" – {l['priceNote']}"  # „Rezervace", „Informace o ceně v RK"
     parts = []
     if l.get("disposition"):
         parts.append(l["disposition"])
@@ -607,7 +609,8 @@ async def get_listing(listing_id: str) -> str:
         f"**ID:** `{listing['id']}`",
         f"**Zdroj:** {listing.get('sourceName', listing.get('sourceCode', ''))}",
         f"**Typ:** {listing.get('propertyType')} | **Nabídka:** {listing.get('offerType')}",
-        f"**Cena:** {listing.get('price', 0):,.0f} Kč" if listing.get("price") else "**Cena:** neuvedena",
+        (f"**Cena:** {listing.get('price', 0):,.0f} Kč" if listing.get("price") else "**Cena:** neuvedena")
+        + (f" – {listing['priceNote']}" if listing.get("priceNote") else ""),
         f"**Lokalita:** {listing.get('locationText', 'N/A')}",
     ]
 

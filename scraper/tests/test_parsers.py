@@ -1073,3 +1073,50 @@ class TestSrealityBuildingCodebooks:
         merged = SrealityScraper(fetch_details=False)._merge_detail(dict(self.BASE), detail)
         assert "construction_type" not in merged
         assert "condition" not in merged
+
+
+class TestPremiaRealityListingStatus:
+    """Horní Leska (6. 10. 2026): web Premia Reality nechává prodané i rezervované nabídky viset
+    a místo ceny ukáže štítek. Z 51 „aktivních" inzerátů bylo 19 prodaných a 21 rezervovaných."""
+
+    ITEM = {"url": "https://www.premiareality.cz/domy/prodej-rodinneho-domu-znojmo-okres-znojmo-dum-4-1-na-prodej-3052.html",
+            "title": "Dům 4+1 na prodej", "default_property_type": "Dům"}
+
+    @staticmethod
+    def _page(price_row: str) -> str:
+        return f"""
+        <html><body><h1>Dům 4+1 na prodej</h1><h2>Leska Horní - Znojmo</h2>
+        <table>
+          {price_row}
+          <tr><td>Nemovitost</td><td>Dům</td></tr>
+          <tr><td>Užitná plocha</td><td>210 m<sup>2</sup></td></tr>
+          <tr><td>Plocha zahrady</td><td>900 m<sup>2</sup></td></tr>
+        </table>
+        <div class="col-md-6 ps-5">Nabízíme k prodeji rodinný dům o dispozici 4+1 v lokalitě Horní Leska.</div>
+        </body></html>"""
+
+    def _parse(self, price_row: str) -> dict:
+        from core.scrapers.premiareality_scraper import PremiaRealityScraper
+        return PremiaRealityScraper()._parse_detail_page(self._page(price_row), dict(self.ITEM))
+
+    def test_bezna_nabidka_ma_cenu_a_zadny_stitek(self):
+        listing = self._parse('<tr><td class="price">Cena</td><td><strong>5&nbsp;990&nbsp;000&nbsp;Kč</strong></td></tr>')
+        assert listing["price"] == 5_990_000
+        assert "price_note" not in listing and "sold" not in listing and "keep_last_price" not in listing
+
+    def test_rezervace_zustava_se_stitkem_a_posledni_cenou(self):
+        listing = self._parse('<tr><td colspan="2" class="rezervace">REZERVACE</td></tr>')
+        assert listing["price"] is None
+        assert listing["price_note"] == "Rezervace"
+        assert listing["keep_last_price"] is True
+        assert "sold" not in listing
+
+    def test_prodano_se_oznaci_k_deaktivaci(self):
+        listing = self._parse('<tr><td colspan="2" class="prodano">PRODÁNO</td></tr>')
+        assert listing["sold"] is True
+        assert "price_note" not in listing
+
+    def test_cena_na_dotaz_jde_do_poznamky(self):
+        listing = self._parse('<tr><td class="price">Cena</td><td><strong>Informace o ceně v RK</strong></td></tr>')
+        assert listing["price"] is None
+        assert listing["price_note"] == "Informace o ceně v RK"

@@ -186,6 +186,12 @@
                                             }
                                             catch { }
                                         }
+                                        @if (!string.IsNullOrWhiteSpace(item.PriceNote))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="mt-1 mr-1">
+                                                @item.PriceNote
+                                            </MudChip>
+                                        }
                                         @if (!item.IsActive)
                                         {
                                             <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.RemoveShoppingCart"

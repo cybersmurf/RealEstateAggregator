@@ -344,6 +344,12 @@
                             {
                                 <MudText Typo="Typo.body2" Color="Color.Default" Class="mt-1">Cena neuvedena</MudText>
                             }
+                            @if (!string.IsNullOrWhiteSpace(item.PriceNote))
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="mt-1 ml-0">
+                                    @item.PriceNote
+                                </MudChip>
+                            }
                             @if (!string.IsNullOrWhiteSpace(item.LocationText))
                             {
                                 <MudText Typo="Typo.caption" Color="Color.Secondary">
@@ -512,6 +518,10 @@
                     @if (context.Price.HasValue)
                     {
                         <MudText Color="@PriceColor(context.Price)" Class="fw-bold">@context.Price.Value.ToString("N0") Kč</MudText>
+                        @if (!string.IsNullOrWhiteSpace(context.PriceNote))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Warning">@context.PriceNote</MudText>
+                        }
                         @if (context.PriceChangePct is { } rowPct)
                         {
                             <MudText Typo="Typo.caption" Color="@(rowPct < 0 ? Color.Success : Color.Error)">

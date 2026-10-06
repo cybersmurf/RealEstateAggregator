@@ -439,6 +439,23 @@ class DatabaseManager:
             )
             old_price = old_row["price"] if old_row else None
 
+            # Rezervovaná nabídka: zdroj cenu nahradil štítkem – necháme poslední známou
+            # (ze sloupce, případně z historie cen, pokud ji dřívější scrape už vynuloval)
+            if listing_data.get("keep_last_price") and listing_data.get("price") is None and old_row is not None:
+                last_price = old_price
+                if last_price is None:
+                    last_price = await conn.fetchval(
+                        """
+                        SELECT h.price FROM re_realestate.listing_price_history h
+                        JOIN re_realestate.listings l ON l.id = h.listing_id
+                        WHERE l.source_id = $1 AND l.external_id = $2 AND h.price IS NOT NULL
+                        ORDER BY h.recorded_at DESC LIMIT 1
+                        """,
+                        source_id, external_id
+                    )
+                if last_price is not None:
+                    listing_data["price"] = float(last_price)
+
             # 🔥 ATOMIC UPSERT s ON CONFLICT DO UPDATE
             # Žádné race conditions - DB se postará o atomicitu
             result = await conn.fetchval(
@@ -453,13 +470,16 @@ class DatabaseManager:
                     first_seen_at, last_seen_at, is_active,
                     district, municipality,
                     auction_date, auction_starting_price, auction_deposit,
-                    seller_name, seller_email, seller_phone, seller_company
+                    seller_name, seller_email, seller_phone, seller_company,
+                    price_note
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                         $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, true,
-                        $27, $28, $29, $30, $31, $32, $33, $34, $35)
+                        $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
+                    -- Poznámka k ceně („Rezervace") se přepisuje vždy – po uvolnění rezervace zmizí
+                    price_note        = EXCLUDED.price_note,
                     url               = EXCLUDED.url,
                     title             = EXCLUDED.title,
                     description       = EXCLUDED.description,
@@ -536,6 +556,7 @@ class DatabaseManager:
                 (listing_data.get("seller_email") or None) and listing_data["seller_email"][:200],
                 (listing_data.get("seller_phone") or None) and listing_data["seller_phone"][:100],
                 (listing_data.get("seller_company") or None) and listing_data["seller_company"][:200],
+                (listing_data.get("price_note") or None) and listing_data["price_note"][:200],
             )
 
             # Pokud UPDATE navrátil existující ID, použij to
