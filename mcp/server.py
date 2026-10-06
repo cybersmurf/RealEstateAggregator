@@ -1408,6 +1408,121 @@ async def save_analysis(
     )
 
 
+_SEVERITY_LABELS = {"high": "závažné", "medium": "zavádějící", "low": "kosmetické"}
+
+
+def _fmt_photo_comparison(rows: list) -> str:
+    lines: list[str] = []
+    for row in rows:
+        lines.append(f"### {row.get('categoryLabel') or row.get('category')}")
+        lines.append(f"Fotek z inzerátu: {row.get('listingPhotoCount', 0)}, z prohlídky: {row.get('inspectionPhotoCount', 0)}")
+        if row.get("summary"):
+            lines.append(row["summary"])
+        for f in row.get("findings") or []:
+            lines.append(f"- **{_SEVERITY_LABELS.get(f.get('severity'), f.get('severity'))}** ({f.get('type')}): {f.get('description')}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+@mcp.tool()
+async def compare_inspection_photos(listing_id: str, force: bool = False) -> str:
+    """
+    🔍 Inzerát vs. skutečnost: porovná fotky z inzerátu s fotkami z prohlídky téhož domu.
+
+    Obrazový model dostane fotky téže části domu (kuchyň, koupelna, exteriér…) z inzerátu
+    i z prohlídky a pojmenuje rozdíly: vada mimo záběr (hidden_defect), retuš (retouched),
+    přesvětlení (brightened), širokoúhlý záběr (wide_angle), jiné zařízení (staged), starší
+    fotka (outdated), vizualizace (visualization), část domu, kterou inzerát vůbec neukazuje
+    (omitted). Zpráva se uloží i do analýz inzerátu (get_analyses).
+
+    Když porovnání už existuje, vrátí ho. Jinak ho spustí na pozadí – klasifikace stovek
+    fotek z prohlídky trvá několik minut; zavolej nástroj znovu za 5–10 minut.
+    Nálezy jsou tvrzení modelu nad vzorkem fotek, ne ověřený posudek.
+
+    Args:
+        listing_id: UUID inzerátu (stačí kterákoli kopie téhož domu)
+        force: True = spočítat znovu, i když porovnání existuje
+    """
+    try:
+        rows = [] if force else await _call_api("get", f"/api/listings/{listing_id}/inspection-comparison")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    if rows:
+        return _cap_output("## Inzerát vs. prohlídka – porovnání fotek\n\n" + _fmt_photo_comparison(rows))
+
+    result = await _call_api(
+        "post", f"/api/listings/{listing_id}/compare-inspection",
+        params={"force": str(force).lower(), "wait": "false"},
+    )
+    return (
+        f"⏳ Porovnání spuštěno na pozadí (úloha `{result.get('jobId')}`).\n"
+        "Nejdřív se klasifikují fotky z prohlídky, potom se porovnávají po částech domu – "
+        "podle počtu fotek 3–15 minut. Zavolej `compare_inspection_photos` znovu, až doběhne."
+    )
+
+
+@mcp.tool()
+async def detect_photo_twins(listing_id: str) -> str:
+    """
+    👯 Najde v galerii inzerátu „dvojčata": dvě fotky ze stejného místa a úhlu, ale s jiným
+    interiérem nebo povrchy – jedna z nich je retuš, virtuální zařízení nebo vizualizace.
+
+    Fotky musí být klasifikované (analyze_listing_photos / klasifikace na webu); po klasifikaci
+    celé galerie se hledání spouští samo. Nalezené fotky dostanou štítek "twin", upravená verze
+    navíc "visualization" a poznámku v popisu („Dvojče fotky č. N…") – uvidíš je v get_listing_photos.
+
+    Args:
+        listing_id: UUID inzerátu
+    """
+    try:
+        result = await _call_api("post", "/api/photos/detect-twins", params={"listingId": listing_id, "wait": "true"})
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (400, 404):
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    if result.get("message"):
+        return result["message"]
+    found = result.get("twinsFound", 0)
+    head = f"Zkontrolováno {result.get('photosChecked', 0)} fotek v {result.get('groupsChecked', 0)} dávkách."
+    if not found:
+        return f"{head} Žádná dvojčata – model nenašel dva stejné záběry s jiným interiérem."
+    return f"{head} Nalezeno **{found}** dvojic – podrobnosti jsou v popisu fotek (get_listing_photos, štítek `twin`)."
+
+
+@mcp.tool()
+async def get_inspection_findings() -> str:
+    """
+    📊 Co se mezi inzeráty a skutečností liší nejčastěji – součet přes všechny navštívené domy.
+
+    Čte uložená porovnání fotek (compare_inspection_photos): kolikrát a u kolika domů se
+    objevil který typ rozdílu a nejzávažnější příklady. Vzorek je malý (jen navštívené domy
+    s fotkami z prohlídky) – ber to jako přehled zkušeností, ne statistiku trhu.
+    """
+    data = await _call_api("get", "/api/inspection-comparisons/summary")
+    if not data.get("listings"):
+        return "Zatím není porovnaný žádný dům. Spusť `compare_inspection_photos` u navštíveného inzerátu."
+
+    lines = [
+        f"## Inzeráty vs. skutečnost – {data['listings']} domů, {data['findings']} rozdílů",
+        "",
+        "| Rozdíl | Počet | Domů | Závažných |",
+        "|---|---|---|---|",
+    ]
+    for t in data.get("byType") or []:
+        lines.append(f"| {t['label']} | {t['count']} | {t['listings']} | {t['high']} |")
+    lines += ["", "### Nejzávažnější příklady"]
+    for e in data.get("examples") or []:
+        lines.append(
+            f"- **{_SEVERITY_LABELS.get(e['severity'], e['severity'])}** · {e['listingTitle']} · {e['category']}: "
+            f"{e['description']} (`{e['listingId']}`)"
+        )
+    return _cap_output("\n".join(lines))
+
+
 # Stav inzerátu: API bere anglické kódy a neznámou hodnotu tiše převede na "New" (= smazání stavu),
 # proto se vstup ověřuje tady. Klíče bez diakritiky, malými písmeny.
 _USER_STATUSES = {

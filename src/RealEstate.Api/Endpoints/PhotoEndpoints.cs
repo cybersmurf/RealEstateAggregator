@@ -23,6 +23,11 @@ public static class PhotoEndpoints
             .WithSummary("Vrátí statistiku stažených vs. nestažených fotek.")
             .Produces<PhotoDownloadStatsDto>(200);
 
+        group.MapPost("/detect-twins", DetectTwins)
+            .WithName("DetectPhotoTwins")
+            .WithSummary("Najde v galerii inzerátu dvojice fotek se stejným záběrem a jiným interiérem (retuš, vizualizace).")
+            .Produces<PhotoTwinResultDto>(200);
+
         // ── Mazání lokálních kopií (fotky zdrojů nesmí zůstat na veřejném webu) ──
         group.MapPost("/purge-stored", PurgeStored)
             .WithName("PurgeStoredPhotos")
@@ -119,6 +124,20 @@ public static class PhotoEndpoints
         return Results.Ok(result);
     }
 
+    private static async Task<IResult> DetectTwins(
+        [FromQuery] Guid listingId,
+        [FromQuery] bool wait = true,
+        [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs = default!,
+        CancellationToken cancellationToken = default)
+    {
+        var jobId = jobs.Enqueue("photo-twins", listingId, async (sp, ct) =>
+            await sp.GetRequiredService<IPhotoTwinService>().DetectAsync(listingId, ct));
+        if (!wait)
+            return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
+        var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(20), cancellationToken);
+        return Results.Ok(job.Result);
+    }
+
     private static async Task<IResult> BulkClassify(
         [FromQuery] int batchSize = 20,
         [FromQuery] Guid? listingId = null,
@@ -143,7 +162,13 @@ public static class PhotoEndpoints
 
         // Běží jako úloha na pozadí – odchod ze stránky (zrušený požadavek) klasifikaci nezastaví.
         var jobId = jobs.Enqueue("photo-classify", requestedListingId, async (sp, ct) =>
-            await sp.GetRequiredService<IPhotoClassificationService>().ClassifyBatchAsync(batchSize, ct, listingId, onlyMyListings));
+        {
+            var result = await sp.GetRequiredService<IPhotoClassificationService>().ClassifyBatchAsync(batchSize, ct, listingId, onlyMyListings);
+            // Po klasifikaci celé galerie rovnou „dvojčata" – stejný záběr, jiný interiér (retuš, vizualizace)
+            if (listingId.HasValue && result.Error is null && result.Succeeded > 0)
+                await sp.GetRequiredService<IPhotoTwinService>().DetectAsync(listingId.Value, ct);
+            return result;
+        });
         if (!wait)
             return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
         var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(45), cancellationToken);

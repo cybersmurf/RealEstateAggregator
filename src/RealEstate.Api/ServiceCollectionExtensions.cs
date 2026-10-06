@@ -96,6 +96,7 @@ public static class ServiceCollectionExtensions
         // 🔍 Photo classification service (Mistral Vision)
         services.AddScoped<IPhotoClassificationService, PhotoClassificationService>();
         services.AddScoped<IInspectionComparisonService, InspectionComparisonService>();
+        services.AddScoped<IPhotoTwinService, PhotoTwinService>();
         services.AddHttpClient("MistralVision", client =>
         {
             // Mistral Vision API – cloud calls are fast (1–2s per image)

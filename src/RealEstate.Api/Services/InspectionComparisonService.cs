@@ -428,7 +428,7 @@ public sealed class InspectionComparisonService(
             sb.AppendLine($"## {comparison.CategoryLabel}");
             sb.AppendLine();
             sb.AppendLine(comparison.ListingPhotoCount > 0
-                ? $"Porovnáno {comparison.ListingPhotoCount} fotek z inzerátu a {comparison.InspectionPhotoCount} z prohlídky."
+                ? $"Fotek ve vzorku: {comparison.ListingPhotoCount} z inzerátu, {comparison.InspectionPhotoCount} z prohlídky."
                 : $"V inzerátu žádná fotka, z prohlídky {comparison.InspectionPhotoCount}.");
             if (!string.IsNullOrWhiteSpace(comparison.Summary))
             {

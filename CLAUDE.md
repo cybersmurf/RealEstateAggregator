@@ -65,7 +65,7 @@ src/RealEstate.Export/        # Export content builders (Markdown, Word)
 src/RealEstate.Background/    # Background job services
 tests/RealEstate.Tests/       # xUnit tests
 scraper/                      # Python FastAPI scraping service (22 sources)
-mcp/server.py                 # FastMCP 3.x MCP server (16 tools)
+mcp/server.py                 # FastMCP 3.x MCP server (19 tools)
 ```
 
 ### API endpoint organization
@@ -112,7 +112,9 @@ Each scraper is a class in `scraper/core/scrapers/` (new source = class + import
 2. Vectors stored in `listings.description_embedding` and `listing_analyses.embedding`.
 3. `RagService` performs cosine similarity search via pgvector IVFFlat index.
 4. `PhotoClassificationService` classifies listing photos into 13 categories with a cloud vision model: `google/gemini-3.1-flash-lite` via OpenRouter, falling back to Mistral (`mistral-medium-latest`). `PhotoDamageValidator` keeps `damage_detected` only when the model backed it with a damage label, `damage_evidence`, or the description, and never on a render (label `visualization`, set from the prompt's `is_visualization`; such photos get description "Vizualizace: …" and the analysis prompt marks them as not the real condition). Model choice comes from a 9-model benchmark (Sept 2026); local Ollama vision models were too slow (~20 s/photo).
-5. Embedding provider is selected at startup: `Embedding:Provider=ollama` → Ollama, otherwise OpenAI.
+5. **Inzerát vs. prohlídka** (`InspectionComparisonService`, od 6. 10. 2026): `POST /api/listings/{id}/compare-inspection` (úloha na pozadí) klasifikuje fotky z prohlídky, pak pošle fotky z inzerátu a z prohlídky téže kategorie společně obrazovému modelu (`IPhotoClassificationService.AskVisionAsync`, fotky se zmenšují přes `ImageDownscaler`/SkiaSharp). Nálezy (`hidden_defect`, `retouched`, `brightened`, `wide_angle`, `staged`, `outdated`, `visualization`, `omitted`) jdou do `listing_photo_comparisons`, zpráva do analýz (source `photo-comparison`); `GET /api/inspection-comparisons/summary` je sčítá napříč domy. MCP `compare_inspection_photos`, `get_inspection_findings`.
+6. **Dvojčata v galerii** (`PhotoTwinService`): po klasifikaci celé galerie (a přes `POST /api/photos/detect-twins`) jdou fotky jedné kategorie modelu společně; dvojice se stejným záběrem a jiným interiérem dostanou štítek `twin`, upravená verze i `visualization`. MCP `detect_photo_twins`.
+7. Embedding provider is selected at startup: `Embedding:Provider=ollama` → Ollama, otherwise OpenAI.
 
 ## Code Conventions
 
