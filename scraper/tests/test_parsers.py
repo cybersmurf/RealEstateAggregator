@@ -1231,3 +1231,25 @@ class TestIdnesDistrictList:
         assert not IdnesRealityScraper.passes_filters(item)
         assert IdnesRealityScraper.passes_filters({**item, "price": float(land_limit) - 1})
         assert IdnesRealityScraper.passes_filters({**item, "price": None})   # cena na dotaz projde
+
+    def test_nedostupna_stranka_vypisu_beh_neshodi(self):
+        """ReadTimeout na jedné stránce = neúplný výpis, ale co už máme, se zpracuje."""
+        import asyncio
+        import httpx
+
+        scraper = IdnesRealityScraper()
+        scraper.DISTRICT_SEARCH = {"Znojmo": "okres-znojmo"}
+        calls: list[str] = []
+
+        async def fake_fetch(url: str) -> str:
+            calls.append(url)
+            if "page=1" in url:
+                raise httpx.ReadTimeout("")
+            return self.LIST_HTML
+
+        scraper._fetch_page = fake_fetch
+        items = asyncio.run(scraper._fetch_district_items(max_list_pages=5))
+
+        assert len(items) == 3
+        assert scraper.lists_complete is False
+        assert len(calls) == 2

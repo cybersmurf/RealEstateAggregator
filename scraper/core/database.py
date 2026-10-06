@@ -695,6 +695,18 @@ class DatabaseManager:
             )
         return len(items)
 
+    async def mark_active_seen(self, source_code: str) -> int:
+        """
+        Všechny aktivní inzeráty zdroje označí jako právě viděné. Pro běh, který nestihl projít
+        celý výpis: plný rescan by jinak deaktivoval i inzeráty, ke kterým se scraper nedostal.
+        """
+        async with self.acquire() as conn:
+            status = await conn.execute(
+                "UPDATE re_realestate.listings SET last_seen_at = $2 WHERE source_code = $1 AND is_active",
+                source_code, datetime.utcnow(),
+            )
+        return int(status.split()[-1])
+
     async def fill_missing_districts(self) -> Tuple[int, int]:
         """
         Doplní listings.district tam, kde ho zdroj nedal (Reas, Prodejme.to, část iDNES).

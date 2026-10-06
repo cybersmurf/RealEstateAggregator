@@ -55,6 +55,8 @@ class IdnesRealityScraper:
         """Initialize the scraper."""
         self.scraped_count = 0
         self.skipped_other_district = 0
+        # False = některou stránku výpisu se nepodařilo načíst; co jsme neviděli, nemusí být stažené
+        self.lists_complete = True
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
@@ -73,7 +75,7 @@ class IdnesRealityScraper:
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
-                timeout=30,
+                timeout=60,   # stránky výpisu odpovídají 2–5 s, občas výrazně déle
                 follow_redirects=True,
             ) as client:
                 self._http_client = client
@@ -93,6 +95,12 @@ class IdnesRealityScraper:
                         self.SOURCE_CODE,
                         [(i["external_id"], i["municipality"], i["district"]) for i in items if i["external_id"] in known],
                     )
+
+                    # Neúplný výpis: runner po plném běhu deaktivuje vše, co jsme „neviděli" –
+                    # aktivní inzeráty proto necháme viděné a o stažení rozhodne až úplný běh.
+                    if not self.lists_complete:
+                        kept = await db.mark_active_seen(self.SOURCE_CODE)
+                        logger.warning(f"iDNES lists incomplete – {kept} active listings kept as seen, nothing will be deactivated")
 
                     details = [i for i in self.select_for_detail(items, known) if self.passes_filters(i)]
                     logger.info(
@@ -124,7 +132,7 @@ class IdnesRealityScraper:
                     self.scraped_count = touched + count
 
                 except Exception as exc:
-                    logger.error(f"Scraping failed: {exc}")
+                    logger.error(f"Scraping failed: {exc!r}")
                     metrics.increment_failed()
 
                 finally:
@@ -146,7 +154,14 @@ class IdnesRealityScraper:
                 except httpx.HTTPStatusError as exc:
                     if exc.response.status_code == 404:
                         break  # za poslední stránkou
-                    logger.error(f"iDNES list {url} failed: {exc}")
+                    logger.error(f"iDNES list {url} failed: {exc!r}")
+                    self.lists_complete = False
+                    break
+                except (httpx.TimeoutException, httpx.TransportError) as exc:
+                    # Jedna nedostupná stránka nesmí shodit celý běh (6. 10. 2026: ReadTimeout
+                    # na 45. stránce Brna-venkova = 0 inzerátů za celý běh)
+                    logger.error(f"iDNES list {url} failed: {exc!r}")
+                    self.lists_complete = False
                     break
 
                 page_items = self.parse_list_page(html, district)
