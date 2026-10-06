@@ -1,7 +1,7 @@
-"""Rotace CDN URL fotek (Sreality) – klasifikace se přenese na novou URL místo mrtvého řádku."""
+"""Nové nahrání fotek zdrojem – klasifikace se nepřenáší podle pořadí, galerie se doklasifikuje."""
 from datetime import datetime
 
-from core.database import _match_rotated_photos
+from core.database import _gallery_needs_reclassification
 
 
 def _row(id_: str, url: str, idx: int, classified: bool = True) -> dict:
@@ -9,37 +9,31 @@ def _row(id_: str, url: str, idx: int, classified: bool = True) -> dict:
             "classified_at": datetime(2026, 9, 21) if classified else None, "stored_url": None}
 
 
-class TestMatchRotatedPhotos:
-    def test_stejny_pocet_fotek_nove_url_na_stejnem_indexu(self):
+class TestGalleryNeedsReclassification:
+    def test_vsechny_url_nove_po_novem_nahrani_fotek(self):
         existing = [_row("a", "https://cdn/c/1.jpg", 0), _row("b", "https://cdn/c/2.jpg", 1)]
-        new = ["https://cdn/d/1.jpg", "https://cdn/d/2.jpg"]
 
-        assert _match_rotated_photos(existing, new) == {"a": ("https://cdn/d/1.jpg", 0), "b": ("https://cdn/d/2.jpg", 1)}
+        assert _gallery_needs_reclassification(existing, ["https://cdn/d/2.jpg", "https://cdn/d/1.jpg"])
 
-    def test_neklasifikovane_fotky_se_neprenaseji(self):
-        existing = [_row("a", "https://cdn/c/1.jpg", 0, classified=False)]
-
-        assert _match_rotated_photos(existing, ["https://cdn/d/1.jpg"]) == {}
-
-    def test_jiny_pocet_fotek_znamena_posun_poradi_a_neparuje_se(self):
-        existing = [_row("a", "https://cdn/c/1.jpg", 0), _row("b", "https://cdn/c/2.jpg", 1)]
-        new = ["https://cdn/d/0.jpg", "https://cdn/d/1.jpg", "https://cdn/d/2.jpg"]
-
-        assert _match_rotated_photos(existing, new) == {}
-
-    def test_zname_url_se_nepovazuji_za_nove(self):
-        existing = [_row("a", "https://cdn/c/1.jpg", 0), _row("b", "https://cdn/c/2.jpg", 1)]
-        new = ["https://cdn/c/1.jpg", "https://cdn/d/2.jpg"]
-
-        assert _match_rotated_photos(existing, new) == {"b": ("https://cdn/d/2.jpg", 1)}
-
-    def test_beze_zmeny_vraci_prazdno(self):
+    def test_pribyla_fotka_ke_klasifikovane_galerii(self):
         existing = [_row("a", "https://cdn/c/1.jpg", 0)]
 
-        assert _match_rotated_photos(existing, ["https://cdn/c/1.jpg"]) == {}
+        assert _gallery_needs_reclassification(existing, ["https://cdn/c/1.jpg", "https://cdn/c/2.jpg"])
 
-    def test_duplicitni_radky_na_stejnem_indexu_nepocitaji_se_dvakrat(self):
-        # Stav po dřívější rotaci: starý mrtvý řádek + nový na indexu 0; zdroj vrací 1 fotku
-        existing = [_row("old", "https://cdn/c/1.jpg", 0), _row("new", "https://cdn/d/1.jpg", 0, classified=False)]
+    def test_neklasifikovana_galerie_se_do_fronty_nedava(self):
+        existing = [_row("a", "https://cdn/c/1.jpg", 0, classified=False)]
 
-        assert _match_rotated_photos(existing, ["https://cdn/d/1.jpg"]) == {}
+        assert not _gallery_needs_reclassification(existing, ["https://cdn/d/1.jpg"])
+
+    def test_beze_zmeny_nebo_jen_zmena_poradi(self):
+        existing = [_row("a", "https://cdn/c/1.jpg", 0), _row("b", "https://cdn/c/2.jpg", 1)]
+
+        assert not _gallery_needs_reclassification(existing, ["https://cdn/c/2.jpg", "https://cdn/c/1.jpg"])
+
+    def test_ubyla_fotka(self):
+        existing = [_row("a", "https://cdn/c/1.jpg", 0), _row("b", "https://cdn/c/2.jpg", 1)]
+
+        assert not _gallery_needs_reclassification(existing, ["https://cdn/c/1.jpg"])
+
+    def test_novy_inzerat_bez_fotek_v_db(self):
+        assert not _gallery_needs_reclassification([], ["https://cdn/c/1.jpg"])

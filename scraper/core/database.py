@@ -224,30 +224,19 @@ def _enrich_areas(data: Dict[str, Any]) -> None:
 logger = logging.getLogger(__name__)
 
 
-def _match_rotated_photos(existing: Sequence[Mapping[str, Any]], photo_urls: Sequence[str]) -> Dict[Any, Tuple[str, int]]:
+def _gallery_needs_reclassification(existing: Sequence[Mapping[str, Any]], photo_urls: Sequence[str]) -> bool:
     """
-    Najde klasifikované fotky, jejichž URL ze zdroje zmizela, a na stejném order_index přišla
-    nová (neznámá) URL – typicky rotace CDN cesty u Sreality. Vrací {id řádku: (nová URL, index)}.
-    Páruje se jen podle pozice, proto jen když počet fotek sedí (jinak se pořadí mohlo posunout).
+    Galerie, která už byla klasifikovaná, a zdroj do ní poslal fotku s neznámou URL.
+
+    Klasifikace patří obrázku, ne pozici: nová URL je pro nás nová fotka, i když přišla na místo
+    staré. Sreality i Lexamo při novém nahrání fotek makléřem změní všechny URL a často i pořadí,
+    takže přenos podle order_index přilepil popis obýváku k bazénu (Dyje, 6. 10. 2026). Novou fotku
+    proto necháme neklasifikovanou a runner po scrapu požádá API o doklasifikování galerie.
     """
-    existing_urls = {row["original_url"] for row in existing}
-    new_by_index = {idx: url for idx, url in enumerate(photo_urls) if url not in existing_urls}
-    if not new_by_index:
-        return {}
-    orphans = [row for row in existing if row["original_url"] not in set(photo_urls) and row["classified_at"] is not None]
-    distinct_indexes = {row["order_index"] for row in existing}
-    if len(photo_urls) != len(distinct_indexes):
-        return {}
-    result: Dict[Any, Tuple[str, int]] = {}
-    used: set = set()
-    for row in sorted(orphans, key=lambda r: r["order_index"]):
-        idx = row["order_index"]
-        url = new_by_index.get(idx)
-        if url is None or url in used:
-            continue
-        result[row["id"]] = (url, idx)
-        used.add(url)
-    return result
+    if not any(row["classified_at"] is not None for row in existing):
+        return False
+    known = {row["original_url"] for row in existing}
+    return any(url not in known for url in photo_urls)
 
 
 class DatabaseManager:
@@ -267,6 +256,8 @@ class DatabaseManager:
         # 🔥 Source code caching: {source_code: (data, timestamp)}
         self._source_cache: Dict[str, tuple[Dict[str, Any], datetime]] = {}
         self._cache_ttl = timedelta(seconds=source_cache_ttl_seconds)
+        # Inzeráty, jejichž klasifikovaná galerie dostala nové fotky – runner je po scrapu pošle API
+        self._galleries_to_reclassify: set[UUID] = set()
     
     async def connect(self) -> None:
         """Create connection pool."""
@@ -965,11 +956,12 @@ class DatabaseManager:
         Upsert fotek pro listing. Nové fotky jsou ihned staženy inline (pokud je
         UPLOADS_BASE_PATH nastaven) — kritické pro CDN s krátkodobými tokeny (Sreality sdn.cz).
 
-        ⚠️  ZACHOVÁVÁ KLASIFIKACE:
+        ⚠️  ZACHOVÁVÁ KLASIFIKACE jen u fotek se stejnou URL:
         - Existující fotky s classified_at != NULL jsou ponechány (včetně metadata)
         - Jen updatuje order_index, pokud se změnil
         - Smaže jen fotky, které už nejsou v novém seznamu
-        - Přidá nové fotky, pokud se objevily
+        - Přidá nové fotky, pokud se objevily – vždy neklasifikované; klasifikace se nikdy
+          nepřenáší podle pořadí (viz _gallery_needs_reclassification)
 
         WICHTIG: Běží v transakci, aby byly operace atomické.
         """
@@ -1024,25 +1016,8 @@ class DatabaseManager:
             existing_by_url = {row["original_url"]: row for row in existing}
             new_urls_set = set(photo_urls[:50])
 
-            # 0. Rotace CDN URL (Sreality mění cestu k téže fotce, stará vrací 404):
-            #    klasifikovaná fotka, jejíž URL zmizela, a na stejném order_index přišla nová URL
-            #    → přepíšeme URL na stávajícím řádku, klasifikace zůstane. Dřív se nová URL
-            #    vložila jako další řádek a mrtvý zůstal – v UI pak byly „černé" fotky.
-            rotated = _match_rotated_photos(existing, photo_urls[:50])
-            for row_id, (photo_url, idx) in rotated.items():
-                await conn.execute(
-                    "UPDATE re_realestate.listing_photos SET original_url = $1, order_index = $2, stored_url = COALESCE($3, stored_url) WHERE id = $4",
-                    photo_url, idx, new_urls_to_download.get(photo_url), row_id,
-                )
-            rotated_urls = {url for url, _ in rotated.values()}
-            rotated_old_urls = {row["original_url"] for row in existing if row["id"] in rotated}
-            for url in rotated_old_urls:
-                existing_by_url.pop(url, None)
-
             # 1. UPDATE existujících fotek (změněný order_index nebo retry stored_url)
             for idx, photo_url in enumerate(photo_urls[:50]):
-                if photo_url in rotated_urls:
-                    continue
                 if photo_url in existing_by_url:
                     row = existing_by_url[photo_url]
                     new_order = row["order_index"] != idx
@@ -1065,7 +1040,7 @@ class DatabaseManager:
 
             # 2. INSERT nových fotek (které ještě nejsou v DB)
             for idx, photo_url in enumerate(photo_urls[:50]):
-                if photo_url not in existing_by_url and photo_url not in rotated_urls:
+                if photo_url not in existing_by_url:
                     photo_id = uuid4()
                     stored_url = new_urls_to_download.get(photo_url)  # None pokud download selhal
                     await conn.execute(
@@ -1094,7 +1069,16 @@ class DatabaseManager:
                         row["id"],
                     )
 
+        if _gallery_needs_reclassification(existing, photo_urls[:50]):
+            self._galleries_to_reclassify.add(listing_id)
+
         logger.debug(f"Upserted {len(photo_urls)} photos for listing {listing_id} (preserved classifications)")
+
+    def pop_galleries_to_reclassify(self) -> List[UUID]:
+        """Vrátí a vyprázdní seznam inzerátů, jejichž klasifikovaná galerie od posledního volání dostala nové fotky."""
+        listing_ids = sorted(self._galleries_to_reclassify, key=str)
+        self._galleries_to_reclassify.clear()
+        return listing_ids
 
     
     # ============================================================================

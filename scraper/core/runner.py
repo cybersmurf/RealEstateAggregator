@@ -360,6 +360,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             # Přepočítej cross-source duplikáty (stejný dům na SREALITY + BAZOS + …).
             # Detekci vlastní .NET API; selhání nesmí shodit scrape job.
             await _trigger_duplicate_detection(job_id)
+            await _trigger_gallery_reclassification(job_id, db_manager.pop_galleries_to_reclassify())
             await _trigger_dead_listing_check(job_id)
 
             # Uložená hledání uživatelů – nové inzeráty a zlevnění (e-mail / Telegram)
@@ -451,6 +452,31 @@ async def _trigger_dead_listing_check(job_id: UUID) -> None:
             )
     except Exception as exc:  # noqa: BLE001 – kontrola je best-effort, job už uspěl
         logger.warning("Job %s: Dead listing check call failed: %s", job_id, exc)
+
+
+async def _trigger_gallery_reclassification(job_id: UUID, listing_ids: List[UUID]) -> None:
+    """Po scrapu nechá API doklasifikovat galerie, do kterých zdroj poslal nové fotky.
+
+    Scraper klasifikaci na novou URL nepřenáší (makléř fotky nahrál znovu, často v jiném pořadí),
+    takže dřív klasifikovaný inzerát by zůstal zčásti nebo úplně bez kategorií. Volá se až po
+    detekci duplicit – API klasifikuje fotky toho člena skupiny, jehož galerie se zobrazuje.
+    """
+    if not listing_ids:
+        return
+    api_base_url = os.environ.get("API_BASE_URL", "http://realestate-api:8080")
+    url = f"{api_base_url.rstrip('/')}/api/photos/bulk-classify"
+    queued = 0
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            for listing_id in listing_ids:
+                resp = await client.post(
+                    url, params={"listingId": str(listing_id), "wait": "false"}, headers=_api_key_headers()
+                )
+                resp.raise_for_status()
+                queued += 1
+    except Exception as exc:  # noqa: BLE001 – doklasifikování je best-effort, job už uspěl
+        logger.warning("Job %s: Gallery reclassification call failed: %s", job_id, exc)
+    logger.info("Job %s: Gallery reclassification – %s z %s galerií zařazeno", job_id, queued, len(listing_ids))
 
 
 async def _trigger_duplicate_detection(job_id: UUID) -> None:
