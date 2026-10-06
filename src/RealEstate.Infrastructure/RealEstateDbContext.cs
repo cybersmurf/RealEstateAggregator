@@ -30,6 +30,7 @@ public sealed class RealEstateDbContext : DbContext
     public DbSet<SavedSearchNotification> SavedSearchNotifications => Set<SavedSearchNotification>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<ListingPhotoComparison> ListingPhotoComparisons => Set<ListingPhotoComparison>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -575,6 +576,23 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
             entity.Property(e => e.ForwardedAt).HasColumnName("forwarded_at").HasColumnType("timestamptz");
             entity.HasIndex(e => e.CreatedAt).HasDatabaseName("ix_leads_created");
+        });
+
+        modelBuilder.Entity<ListingPhotoComparison>(entity =>
+        {
+            entity.ToTable("listing_photo_comparisons", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.Category).HasColumnName("category").HasMaxLength(50).IsRequired();
+            entity.Property(e => e.ListingPhotoCount).HasColumnName("listing_photo_count");
+            entity.Property(e => e.InspectionPhotoCount).HasColumnName("inspection_photo_count");
+            entity.Property(e => e.Summary).HasColumnName("summary");
+            entity.Property(e => e.Findings).HasColumnName("findings").HasColumnType("jsonb");
+            entity.Property(e => e.Model).HasColumnName("model").HasMaxLength(100);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+            entity.HasOne(e => e.Listing).WithMany().HasForeignKey(e => e.ListingId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.ListingId, e.Category }).IsUnique().HasDatabaseName("ux_listing_photo_comparisons_listing_category");
         });
     }
 }

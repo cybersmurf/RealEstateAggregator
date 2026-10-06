@@ -317,6 +317,7 @@ app.MapRagEndpoints();
 app.MapSpatialEndpoints();
 app.MapCadastreEndpoints();
 app.MapPhotoEndpoints();
+app.MapInspectionComparisonEndpoints();
 app.MapOllamaEndpoints();
 app.MapLocalAnalysisEndpoints();
 app.MapJobEndpoints();

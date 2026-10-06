@@ -470,6 +470,21 @@ public static class DbInitializer
         );
         CREATE INDEX IF NOT EXISTS ix_leads_created ON re_realestate.leads(created_at);
 
+        -- 5b. Porovnání fotek z inzerátu s fotkami z prohlídky (nálezy po kategoriích místností)
+        CREATE TABLE IF NOT EXISTS re_realestate.listing_photo_comparisons (
+            id                      UUID PRIMARY KEY,
+            listing_id              UUID NOT NULL REFERENCES re_realestate.listings(id) ON DELETE CASCADE,
+            category                VARCHAR(50) NOT NULL,
+            listing_photo_count     INTEGER NOT NULL DEFAULT 0,
+            inspection_photo_count  INTEGER NOT NULL DEFAULT 0,
+            summary                 TEXT,
+            findings                JSONB NOT NULL DEFAULT '[]'::jsonb,
+            model                   VARCHAR(100),
+            created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_listing_photo_comparisons_listing_category
+            ON re_realestate.listing_photo_comparisons(listing_id, category);
+
         -- 6. Index pro tržní statistiky (medián Kč/m² dle obce a dispozice)
         CREATE INDEX IF NOT EXISTS ix_listings_market_stats
             ON re_realestate.listings(municipality, property_type, offer_type, disposition)

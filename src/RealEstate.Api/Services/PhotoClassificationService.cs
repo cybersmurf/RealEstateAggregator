@@ -383,7 +383,8 @@ public sealed class PhotoClassificationService(
                     continue;
                 }
 
-                var imageBytes = await File.ReadAllBytesAsync(localPath, ct);
+                // Fotky z telefonu mají 3–6 MB; model víc než ~1 000 px nevyužije
+                var imageBytes = Vision.ImageDownscaler.ToJpeg(await File.ReadAllBytesAsync(localPath, ct));
                 var (classification, description) = await RunClassificationAsync(
                     httpClient, imageBytes, photo.ListingId, photo.Id, CancellationToken.None);
 
@@ -496,8 +497,38 @@ public sealed class PhotoClassificationService(
     /// Poskytovatele zkouší v pořadí z <see cref="VisionEndpoints"/>; na dalšího přejde při chybě
     /// i při vyčerpaném rate limitu. Teprve když 429 vrátí poslední, dávka končí.
     /// </summary>
-    private async Task<string?> CallVisionAsync(
+    private Task<string?> CallVisionAsync(
         HttpClient httpClient, string base64, string prompt,
+        int maxTokens, double temperature, bool jsonMode, CancellationToken ct)
+        => CallVisionAsync(httpClient, [base64], prompt, maxTokens, temperature, jsonMode, ct);
+
+    /// <summary>
+    /// Dotaz s více fotkami najednou (porovnání inzerátu s prohlídkou, „dvojčata" v galerii).
+    /// Fotky se zmenší; pořadí v dotazu = pořadí v seznamu. Při chybě nebo limitu vrací null.
+    /// </summary>
+    public async Task<string?> AskVisionAsync(
+        IReadOnlyList<byte[]> images, string prompt, int maxTokens, CancellationToken ct)
+    {
+        using var httpClient = httpClientFactory.CreateClient("MistralVision");
+        var base64 = images.Select(i => Convert.ToBase64String(Vision.ImageDownscaler.ToJpeg(i))).ToList();
+        try
+        {
+            return await CallVisionAsync(httpClient, base64, prompt, maxTokens, 0, jsonMode: true, ct);
+        }
+        catch (VisionRateLimitedException ex)
+        {
+            logger.LogWarning("{Message}", ex.Message);
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogWarning("Vision nedostupné: {Message}", ex.Message);
+            return null;
+        }
+    }
+
+    private async Task<string?> CallVisionAsync(
+        HttpClient httpClient, IReadOnlyList<string> base64, string prompt,
         int maxTokens, double temperature, bool jsonMode, CancellationToken ct)
     {
         var endpoints = VisionEndpoints;
@@ -526,23 +557,20 @@ public sealed class PhotoClassificationService(
     }
 
     private async Task<string?> CallVisionEndpointAsync(
-        HttpClient httpClient, VisionEndpoint endpoint, string base64, string prompt,
+        HttpClient httpClient, VisionEndpoint endpoint, IReadOnlyList<string> base64, string prompt,
         int maxTokens, double temperature, bool jsonMode, CancellationToken ct)
     {
+        var content = base64
+            .Select(image => (object)new { type = "image_url", image_url = new { url = $"data:image/jpeg;base64,{image}" } })
+            .Append(new { type = "text", text = prompt })
+            .ToArray();
+
         var requestBody = new Dictionary<string, object>
         {
             ["model"] = endpoint.Model,
             ["messages"] = new[]
             {
-                new
-                {
-                    role = "user",
-                    content = new object[]
-                    {
-                        new { type = "image_url", image_url = new { url = $"data:image/jpeg;base64,{base64}" } },
-                        new { type = "text", text = prompt }
-                    }
-                }
+                new { role = "user", content }
             },
             ["max_tokens"] = maxTokens,
             ["temperature"] = temperature,
@@ -608,14 +636,21 @@ public sealed class PhotoClassificationService(
     /// <summary>
     /// Převede stored_url (http://localhost:5001/uploads/...) na lokální cestu na disku.
     /// </summary>
+    public string ResolveInspectionPhotoPath(string storedUrl) => ResolveLocalPath(storedUrl);
+
     private string ResolveLocalPath(string storedUrl)
     {
         var baseUrl = PublicBaseUrl.TrimEnd('/');
 
-        // Odebereme base URL prefix → "uploads/listings/{id}/photos/0.jpg"
-        var relativePath = storedUrl.StartsWith(baseUrl, StringComparison.OrdinalIgnoreCase)
-            ? storedUrl[(baseUrl.Length + 1)..]  // +1 za lomítko
-            : storedUrl.TrimStart('/');
+        // Odebereme base URL prefix → "uploads/listings/{id}/photos/0.jpg".
+        // Starší záznamy nesou jinou adresu, než je dnešní PublicBaseUrl (http://localhost:5001/… z doby
+        // před stěhováním na server) – proto rozhoduje cesta od "/uploads/", ne shoda prefixu.
+        var uploadsAt = storedUrl.IndexOf("/uploads/", StringComparison.OrdinalIgnoreCase);
+        var relativePath = uploadsAt >= 0
+            ? storedUrl[(uploadsAt + 1)..]
+            : storedUrl.StartsWith(baseUrl, StringComparison.OrdinalIgnoreCase)
+                ? storedUrl[(baseUrl.Length + 1)..]  // +1 za lomítko
+                : storedUrl.TrimStart('/');
 
         // Nahradíme lomítka platformním separátorem a připojíme k wwwroot
         var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);

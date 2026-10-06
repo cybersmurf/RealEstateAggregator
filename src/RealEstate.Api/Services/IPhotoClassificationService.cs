@@ -20,6 +20,15 @@ public interface IPhotoClassificationService
 
     /// <summary>Generuje accessibility alt text pro dávku fotek přes Ollama Vision (WCAG 2.2 AA).</summary>
     Task<PhotoClassificationResultDto> BulkAltTextAsync(int batchSize, CancellationToken ct, Guid? listingId = null);
+
+    /// <summary>
+    /// Jeden dotaz na obrazový model s více fotkami (zmenší je; pořadí = pořadí v seznamu).
+    /// Odpověď je JSON jako text; null při chybě nebo vyčerpaném limitu.
+    /// </summary>
+    Task<string?> AskVisionAsync(IReadOnlyList<byte[]> images, string prompt, int maxTokens, CancellationToken ct);
+
+    /// <summary>Lokální cesta k souboru fotky z prohlídky (stored_url → wwwroot).</summary>
+    string ResolveInspectionPhotoPath(string storedUrl);
 }
 
 public record PhotoClassificationResultDto(
