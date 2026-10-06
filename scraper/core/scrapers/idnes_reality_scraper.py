@@ -31,6 +31,7 @@ from ..http_utils import http_retry
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
 from ..filters import get_filter_manager
+from ..district_municipalities import is_district_municipality
 from ..area_parsing import parse_title_areas
 
 logger = logging.getLogger(__name__)
@@ -227,22 +228,31 @@ class IdnesRealityScraper:
     @staticmethod
     def parse_list_location(info: str, district: str) -> Optional[str]:
         """
-        „Hlavní, Šanov, okres Znojmo" → obec „Šanov"; okresní město se píše bez okresu
-        („Vančurova, Znojmo"). None = lokalita chybí nebo patří do jiného okresu.
+        Lokalita položky výpisu → obec, nebo None, když do okresu nepatří.
+
+        „Hlavní, Šanov, okres Znojmo" → Šanov. Okres portál neuvádí u okresního města
+        („Třešňová, Znojmo - Přímětice") a občas ani u obce („Rybníky") – tam musí být obec
+        v seznamu obcí okresu, jinak jde o cizí nabídku (zvýrazněný tip odjinud).
         """
         parts = [p.strip() for p in info.split(",") if p.strip()]
         if not parts:
             return None
-        if parts[-1].lower().startswith("okres "):
+
+        has_district = parts[-1].lower().startswith("okres ")
+        if has_district:
             if parts[-1][6:].strip() != district:
                 return None
             parts = parts[:-1]
             if not parts:
                 return None
-        elif parts[-1] != district:
+
+        # „Hostěradice - Chlupice", „Znojmo - Přímětice" = obec - část obce
+        municipality = parts[-1].split(" - ")[0].strip()
+        if not municipality:
             return None
-        # „Hostěradice - Chlupice" = obec - část obce
-        return parts[-1].split(" - ")[0].strip() or None
+        if not has_district and municipality != district and not is_district_municipality(municipality, district):
+            return None
+        return municipality
 
     @classmethod
     def parse_list_price(cls, text: str) -> Optional[float]:

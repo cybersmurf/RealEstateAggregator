@@ -1177,6 +1177,10 @@ class TestIdnesDistrictList:
         ("Dlouhá, Tišnov, okres Brno-venkov", "Brno-venkov", "Tišnov"),
         ("Rudka, okres Brno-venkov", "Brno-venkov", "Rudka"),
         ("Kounicova, Brno", "Brno-venkov", None),              # Brno-město není Brno-venkov
+        ("Třešňová, Znojmo - Přímětice", "Znojmo", "Znojmo"),  # část okresního města
+        ("Znojmo - Konice", "Znojmo", "Znojmo"),
+        ("Rybníky", "Znojmo", "Rybníky"),                      # obec okresu, portál okres neuvedl
+        ("Miroslava Hájka, Praha 18", "Znojmo", None),         # cizí nabídka bez okresu
         ("Šatov, okres Znojmo", "Brno-venkov", None),
         ("okres Znojmo", "Znojmo", None),
         ("", "Znojmo", None),

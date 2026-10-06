@@ -29,7 +29,9 @@ def _is_retryable(exc: BaseException) -> bool:
     """Retry jen na přechodné chyby: 429/5xx a síťové problémy. Ne na 4xx (404, 403…)."""
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code == 429 or exc.response.status_code >= 500
-    return isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError))
+    # NetworkError = ConnectError, ReadError, WriteError, CloseError. ReadError sem dřív nepatřil:
+    # iDNES zavírá spojení zhruba po 90 požadavcích a nový pokus (nové spojení) projde.
+    return isinstance(exc, (httpx.NetworkError, httpx.TimeoutException, httpx.RemoteProtocolError))
 
 
 # ─── Retry decorator ──────────────────────────────────────────────────────────
