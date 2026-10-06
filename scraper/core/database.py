@@ -195,7 +195,9 @@ def _enrich_areas(data: Dict[str, Any]) -> None:
         data['property_type'] = 'Pozemek'
 
     usable, land = parse_title_areas(title)
-    if not data.get('area_built_up') and usable:
+    # Stejné číslo, jaké už scraper určil jako pozemek, není zároveň plocha domu
+    # („…sklepem a zahradou, 1223 m²" – Bazoš, Šatov)
+    if not data.get('area_built_up') and usable and usable != data.get('area_land'):
         data['area_built_up'] = usable
     if not data.get('area_land') and land:
         data['area_land'] = land

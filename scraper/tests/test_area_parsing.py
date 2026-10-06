@@ -84,3 +84,9 @@ class TestEnrichAreas:
         d = {"title": "RD 2+kk, ZP 246 m², zahrada 350 m²", "property_type": "Dům", "area_built_up": 246}
         _enrich_listing_fields(d)
         assert d["area_land"] == 350
+
+    def test_land_number_is_not_repeated_as_built_up(self):
+        d = {"title": "Prodej rodinného domu s garáží, sklepem a zahradou, 1223 m²,", "property_type": "Dům",
+             "area_land": 1223}
+        _enrich_listing_fields(d)
+        assert (d.get("area_built_up"), d["area_land"]) == (None, 1223)
