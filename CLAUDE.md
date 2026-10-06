@@ -76,6 +76,10 @@ Endpoints are registered in `src/RealEstate.Api/Endpoints/` as extension methods
 
 **Změny cen v hledání:** `priceChangedSince` (+ `priceDropsOnly`) vrací inzeráty se změnou ceny od data podle `listing_price_history`; výsledky nesou `previousPrice`, `priceChangePct`, `priceChangedAt`. MCP `search_listings(price_changed_in_days=N, price_drops_only=True)` a změnu vypisuje u ceny.
 
+**Záznam uživatele patří domu, ne kopii inzerátu (od 6. 10. 2026):** `DuplicateDetectionService.AttachRemembered` připojí stažené inzeráty s uživatelovým záznamem (stav ≠ New, poznámky, `user_listing_photos`) k živé kopii téhož domu – aktivní párování nemění, jen při jednoznačné shodě. Inzerát bez vlastního stavu ho převezme od kopie ve skupině (`UserStateFromListingId` v detailu i seznamu, filtr `userStatus`, `GET /api/listings/{id}/inspection-photos` vrací fotky celé skupiny). „Moje inzeráty" a filtr `Visited` ukazují i stažené; stažený záznam s živou kopií se zobrazí jako karta té živé. `upload-inspection-photos` fotky jen přidává.
+
+**Poznámka k ceně:** scraper smí poslat `price_note` (upsert ji vždy přepíše) a `keep_last_price` – rezervovaná nabídka bez ceny si nechá poslední známou. Premia Reality: `td.prodano` → deaktivace, `td.rezervace` → štítek „Rezervace".
+
 **Zmizelé z trhu:** `POST /api/listings/search` s `deactivatedSince` vrací neaktivní inzeráty stažené od data, u kterých už neběží ani kopie ve skupině duplicit (řazení `deactivated`); MCP `search_listings(gone_in_days=N)`. Bez toho filtru hledání vrací jen aktivní.
 
 Long-running listing actions (photo classification `bulk-classify`, alt texts, `analyze-local`, `export-drive`, `export-analysis-to-drive`) run as server-side background jobs (`IBackgroundJobService`, in-memory, cancelled only on app shutdown). `?wait=false` returns 202 + `jobId`, default waits as before; status via `GET /api/jobs/{id}` and `GET /api/jobs?listingId=&active=true`. The Blazor detail page starts jobs with `wait=false`, polls them and resumes tracking after navigation, so leaving the page never aborts the work.
