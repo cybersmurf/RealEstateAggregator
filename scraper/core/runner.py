@@ -87,6 +87,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             "REALCITY",
             "BEZREALITKY",
             "OKDRAZBY",
+            "ULOVDOMOV",
         ]
         
         # Import scraperů až tady, aby byly lazy loaded
@@ -111,6 +112,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
         from core.scrapers.realcity_scraper import RealcityScraper
         from core.scrapers.bezrealitky_scraper import BezrealitkyScraper
         from core.scrapers.okdrazby_scraper import OkdrazbyScraper
+        from core.scrapers.ulovdomov_scraper import UlovDomovScraper
 
         # Vybuduj tasku pro paralelní scraping
         tasks = []
@@ -283,6 +285,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             logger.info(f"Job {job_id}: Scheduling OK dražby scraper...")
             scraper = OkdrazbyScraper()
             tasks.append(("OKDRAZBY", scraper.run(full_rescan=request.full_rescan)))
+
+        if "ULOVDOMOV" in source_codes:
+            logger.info(f"Job {job_id}: Scheduling UlovDomov scraper...")
+            scraper = UlovDomovScraper()
+            tasks.append(("ULOVDOMOV", scraper.run(full_rescan=request.full_rescan)))
 
         # Čas před spuštěním scrapingu – slouží pro deaktivaci neviděných inzerátů
         scrape_started_at = datetime.utcnow()

@@ -96,7 +96,7 @@ public sealed class DuplicateDetectionService(
     /// Zdroje, které posílají GPS, ale je to jen střed obce geokódovaný portálem
     /// (medián odchylky proti Sreality 0,8–3 km, měřeno 30. 9. 2026). Bereme je jako přibližné.
     /// </summary>
-    public static readonly string[] ApproxGpsSources = ["REALITYCECHY", "REALITYMIX", "REALCITY", "BEZREALITKY"];
+    public static readonly string[] ApproxGpsSources = ["REALITYCECHY", "REALITYMIX", "REALCITY", "BEZREALITKY", "ULOVDOMOV"];
 
     /// <summary>
     /// Typy, které různé zdroje zaměňují u téže nemovitosti: chata/dům, dům/ostatní (Reas),

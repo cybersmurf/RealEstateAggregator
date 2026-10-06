@@ -206,6 +206,16 @@ public static class DbInitializer
                 SupportsListScrape = true,
                 ScraperType = "Python",
             },
+            new()
+            {
+                Code = "ULOVDOMOV",
+                Name = "UlovDomov",
+                BaseUrl = "https://www.ulovdomov.cz",
+                IsActive = true,
+                SupportsUrlScrape = false,
+                SupportsListScrape = true,
+                ScraperType = "Python",
+            },
         };
 
         var newSources = allSources.Where(s => !existingCodes.Contains(s.Code)).ToList();

@@ -154,13 +154,13 @@ test:
 scrape:
 	curl -s -X POST http://localhost:8001/v1/scrape/run \
 	  -H "Content-Type: application/json" \
-	  -d '{"source_codes":["REMAX","MMR","PRODEJMETO","ZNOJMOREALITY","SREALITY","IDNES","NEMZNOJMO","HVREALITY","PREMIAREALITY","DELUXREALITY","LEXAMO","CENTURY21","REAS","BAZOS","REALINGO","REALMIX","REALITYCECHY","REALITYMIX","REALCITY","BEZREALITKY","OKDRAZBY"],"full_rescan":false}' \
+	  -d '{"source_codes":["REMAX","MMR","PRODEJMETO","ZNOJMOREALITY","SREALITY","IDNES","NEMZNOJMO","HVREALITY","PREMIAREALITY","DELUXREALITY","LEXAMO","CENTURY21","REAS","BAZOS","REALINGO","REALMIX","REALITYCECHY","REALITYMIX","REALCITY","BEZREALITKY","OKDRAZBY","ULOVDOMOV"],"full_rescan":false}' \
 	  | python3 -m json.tool
 
 scrape-full:
 	curl -s -X POST http://localhost:8001/v1/scrape/run \
 	  -H "Content-Type: application/json" \
-	  -d '{"source_codes":["REMAX","MMR","PRODEJMETO","ZNOJMOREALITY","SREALITY","IDNES","NEMZNOJMO","HVREALITY","PREMIAREALITY","DELUXREALITY","LEXAMO","CENTURY21","REAS","BAZOS","REALINGO","REALMIX","REALITYCECHY","REALITYMIX","REALCITY","BEZREALITKY","OKDRAZBY"],"full_rescan":true}' \
+	  -d '{"source_codes":["REMAX","MMR","PRODEJMETO","ZNOJMOREALITY","SREALITY","IDNES","NEMZNOJMO","HVREALITY","PREMIAREALITY","DELUXREALITY","LEXAMO","CENTURY21","REAS","BAZOS","REALINGO","REALMIX","REALITYCECHY","REALITYMIX","REALCITY","BEZREALITKY","OKDRAZBY","ULOVDOMOV"],"full_rescan":true}' \
 	  | python3 -m json.tool
 
 # ---- Deploy (server) ----------------------------------------------------------
@@ -273,14 +273,14 @@ server-scrape:
 	@echo ">>> Inkrementální scrape na serveru..."
 	@ssh $(SERVER) "curl -s -X POST http://localhost:8001/v1/scrape/run \
 	  -H 'Content-Type: application/json' \
-	  -d '{\"source_codes\":[\"REMAX\",\"MMR\",\"PRODEJMETO\",\"ZNOJMOREALITY\",\"SREALITY\",\"IDNES\",\"NEMZNOJMO\",\"HVREALITY\",\"PREMIAREALITY\",\"DELUXREALITY\",\"LEXAMO\",\"CENTURY21\",\"REAS\",\"BAZOS\",\"REALINGO\",\"REALMIX\",\"REALITYCECHY\",\"REALITYMIX\",\"REALCITY\",\"BEZREALITKY\",\"OKDRAZBY\"],\"full_rescan\":false}' \
+	  -d '{\"source_codes\":[\"REMAX\",\"MMR\",\"PRODEJMETO\",\"ZNOJMOREALITY\",\"SREALITY\",\"IDNES\",\"NEMZNOJMO\",\"HVREALITY\",\"PREMIAREALITY\",\"DELUXREALITY\",\"LEXAMO\",\"CENTURY21\",\"REAS\",\"BAZOS\",\"REALINGO\",\"REALMIX\",\"REALITYCECHY\",\"REALITYMIX\",\"REALCITY\",\"BEZREALITKY\",\"OKDRAZBY\",\"ULOVDOMOV\"],\"full_rescan\":false}' \
 	  | python3 -m json.tool"
 
 server-scrape-full:
 	@echo ">>> Plný rescan na serveru..."
 	@ssh $(SERVER) "curl -s -X POST http://localhost:8001/v1/scrape/run \
 	  -H 'Content-Type: application/json' \
-	  -d '{\"source_codes\":[\"REMAX\",\"MMR\",\"PRODEJMETO\",\"ZNOJMOREALITY\",\"SREALITY\",\"IDNES\",\"NEMZNOJMO\",\"HVREALITY\",\"PREMIAREALITY\",\"DELUXREALITY\",\"LEXAMO\",\"CENTURY21\",\"REAS\",\"BAZOS\",\"REALINGO\",\"REALMIX\",\"REALITYCECHY\",\"REALITYMIX\",\"REALCITY\",\"BEZREALITKY\",\"OKDRAZBY\"],\"full_rescan\":true}' \
+	  -d '{\"source_codes\":[\"REMAX\",\"MMR\",\"PRODEJMETO\",\"ZNOJMOREALITY\",\"SREALITY\",\"IDNES\",\"NEMZNOJMO\",\"HVREALITY\",\"PREMIAREALITY\",\"DELUXREALITY\",\"LEXAMO\",\"CENTURY21\",\"REAS\",\"BAZOS\",\"REALINGO\",\"REALMIX\",\"REALITYCECHY\",\"REALITYMIX\",\"REALCITY\",\"BEZREALITKY\",\"OKDRAZBY\",\"ULOVDOMOV\"],\"full_rescan\":true}' \
 	  | python3 -m json.tool"
 
 # ---- Server Secrets ------------------------------------------------------------

@@ -17,7 +17,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 
 ### Klíčové funkce
 
-✅ **Automatický scraping** – 21 zdrojů (SReality, IDNES, REMAX, Century21, MMR, Premiera Reality, Bazoš aj.)  
+✅ **Automatický scraping** – 22 zdrojů (SReality, IDNES, REMAX, Century21, MMR, Premiera Reality, Bazoš aj.)  
 ✅ **Jednotný datový model** – normalizace PropertyType/OfferType včetně dražeb (Auction)  
 ✅ **Pokročilé filtrování** – typ, nabídka, cena, lokalita, fulltextový GIN index  
 ✅ **RAG + AI chat** – lokální Ollama (nomic-embed-text + qwen2.5:14b), pgvector 768 dim  
@@ -127,7 +127,7 @@ RealEstateAggregator/
 │   └── RealEstate.Tests/            # 79 xUnit testů (Cadastre, ExportBuilder, Rag, Unit)
 │
 ├── scraper/                         # Python FastAPI scraping service
-│   ├── core/scrapers/               # 21 scraperů (remax, sreality, bazos, realingo, bezrealitky, okdrazby, ...)
+│   ├── core/scrapers/               # 22 scraperů (remax, sreality, bazos, realingo, bezrealitky, okdrazby, ulovdomov, ...)
 │   ├── core/runner.py               # Orchestrátor + APScheduler
 │   ├── core/filters.py              # FilterManager (geo, quality, price)
 │   ├── core/notifications.py        # Slack alerting
@@ -353,7 +353,7 @@ AI analýza inzerátu
 ## 🔄 Workflow scrapingu
 
 1. **APScheduler** spustí scraping denně v 3:00 (weekly full_rescan neděle 2:00)
-2. **Runner** projde všechny aktivní scrapers (21 zdrojů)
+2. **Runner** projde všechny aktivní scrapers (22 zdrojů)
 3. Pro každý scraper:
    - Fetch listings (paginace přes listing stránky)
    - Fetch detail (HTML/JSON detailu)
@@ -429,7 +429,7 @@ Tři bulk Ollama joby zpracovávají inzeráty na pozadí:
 - [x] **Deactivate-dead endpoint** – HTTP HEAD check
 - [x] **Docker security** – porty bind na 127.0.0.1
 - [x] **Retry fix** – retry pouze 429/5xx, ne 4xx
-- [x] 21 scraperů (30. 9. 2026 přidány Reality Čechy, RealityMIX, Realcity, Bezrealitky, OK dražby)
+- [x] 22 scraperů (30. 9. 2026 přidány Reality Čechy, RealityMIX, Realcity, Bezrealitky, OK dražby; 6. 10. 2026 UlovDomov)
 - [x] pgAdmin v Docker Compose
 
 ### Plánováno

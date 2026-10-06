@@ -27,6 +27,7 @@ public sealed class SourceLogoProvider
         { "REALCITY",      "/images/logos/REALCITY.svg" },
         { "BEZREALITKY",   "/images/logos/BEZREALITKY.svg" },
         { "OKDRAZBY",      "/images/logos/OKDRAZBY.svg" },
+        { "ULOVDOMOV",     "/images/logos/ULOVDOMOV.svg" },
         { "REAS",          "/images/logos/REAS.svg" },
         { "BAZOS",         "/images/logos/BAZOS.svg" },
     };
