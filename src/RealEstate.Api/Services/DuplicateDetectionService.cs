@@ -95,8 +95,9 @@ public sealed class DuplicateDetectionService(
     /// <summary>
     /// Zdroje, které posílají GPS, ale je to jen střed obce geokódovaný portálem
     /// (medián odchylky proti Sreality 0,8–3 km, měřeno 30. 9. 2026). Bereme je jako přibližné.
+    /// UlovDomov sem nepatří: proti Sreality má medián 21 m a 90 % dvojic do 300 m (339 dvojic, 6. 10. 2026).
     /// </summary>
-    public static readonly string[] ApproxGpsSources = ["REALITYCECHY", "REALITYMIX", "REALCITY", "BEZREALITKY", "ULOVDOMOV"];
+    public static readonly string[] ApproxGpsSources = ["REALITYCECHY", "REALITYMIX", "REALCITY", "BEZREALITKY"];
 
     /// <summary>
     /// Typy, které různé zdroje zaměňují u téže nemovitosti: chata/dům, dům/ostatní (Reas),
