@@ -985,3 +985,65 @@ class TestBazosCadastralArea:
         built, land = BazosScraper()._extract_areas("Rodinný dům", "Dům má 140 m² a stojí v klidné ulici.", "Dům")
         assert built == 140
         assert land is None
+
+
+class TestBazosSimilarListingsBlock:
+    """Šatov (6. 10. 2026): popis je v <div class=popisdetail>; první <div class=popis> na stránce patří
+    bloku „Podobné inzeráty" – dům 4+1 dostal popis a 180 m² cizí novostavby a nespároval se se Sreality."""
+
+    HTML = """
+    <html><body>
+    <div class="drobky"><a href="https://reality.bazos.cz/prodam/">Prodej</a> &gt;
+      <a href="https://reality.bazos.cz/prodam/dum/">Domy</a> &gt; <b>Inzerát č. 224450984</b></div>
+    <div class="maincontent">
+    <div class="inzeratydetnadpis"><H1 class=nadpisdetail>Prodej rodinného domu s garáží, sklepem a zahradou, 1223 m²,</H1>
+      <span class=velikost10> - [29.9. 2026]</span></div>
+    <div class=popisdetail>Ev.č. MZ26058<br>
+    Samostatně stojící rodinný dům o dispozici 4+1, podsklepený, s garáží a dílnou.<br>
+    Celková plocha pozemku je 1.223m2. Užitná plocha 120 m².</div>
+    <table><tr><td>Lokalita:</td><td><a href="#">Mapa</a> <a href="#">671 22</a> <a href="#">Znojmo</a></td></tr>
+    <tr><td>Vidělo:</td><td>312 lidí</td></tr>
+    <tr><td>Cena:</td><td><b>7 600 000 Kč</b></td></tr></table>
+    <div class="podobne">
+    <div class="listainzerat">Podobné inzeráty</div>
+    <div class="inzeraty inzeratyflex">
+    <div class="inzeratynadpis"><a href="/inzerat/223822637/prodej-novostavba.php"><img src="https://www.bazos.cz/img/1t/637/223822637.jpg" class="obrazek"></a>
+    <span class=nadpis><a href="/inzerat/223822637/prodej-novostavba.php">Prodej, novostavba rodinný dům 5+2kk, 180 m2, Šatov, Znojmo</a></span>
+    <div class=popis>Nabízíme k prodeji novostavbu rodinného domu o dispozici 5+2kk v obci Šatov. Podlahová plocha 180 m², nabízí moderní bydlení ...</div></div>
+    <div class="inzeratycena"><b>11 799 000 Kč</b></div>
+    <div class="inzeratylok">Znojmo<br>671 22</div>
+    </div></div>
+    </div></body></html>
+    """
+
+    ITEM = {"external_id": "224450984", "detail_url": "https://reality.bazos.cz/inzerat/224450984/prodej-rodinneho-domu.php"}
+
+    def test_popis_je_z_detailu_ne_z_podobnych_inzeratu(self):
+        listing = BazosScraper()._parse_detail_page(self.HTML, self.ITEM)
+        assert listing is not None
+        assert listing["description"].startswith("Ev.č. MZ26058")
+        assert "novostavbu" not in listing["description"]
+        assert listing["area_built_up"] == 120
+        assert listing["price"] == 7_600_000
+        assert listing["location_text"] == "671 22 Znojmo"
+
+    def test_bez_popisdetail_se_cizi_uryvek_nepouzije(self):
+        html = self.HTML.replace("class=popisdetail", "class=text")
+        listing = BazosScraper()._parse_detail_page(html, self.ITEM)
+        assert listing is not None
+        assert "novostavbu" not in listing["description"]
+
+    def test_plocha_pozemku_je_n_m2(self):
+        built, land = BazosScraper()._extract_areas(
+            "Prodej rodinného domu s garáží, sklepem a zahradou, 1223 m²,",
+            "Samostatně stojící rodinný dům 4+1. Celková plocha pozemku je 1.223m2 na níž se nachází spousta stromů.",
+            "Dům")
+        assert built is None
+        assert land == 1223
+
+    def test_cislo_za_zahradou_v_titulku_je_pozemek(self):
+        built, land = BazosScraper()._extract_areas(
+            "Prodej rodinného domu s garáží, sklepem a zahradou, 1223 m²,", "Dům po rekonstrukci.", "Dům")
+        assert built is None
+        assert land == 1223
+        assert BazosScraper()._extract_areas("Prodej rodinného domu 150 m², Znojmo", "Dům.", "Dům") == (150, None)

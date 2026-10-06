@@ -520,6 +520,7 @@ public class DuplicateDetectionJevisoviceTests
     [InlineData("Prodej dvougeneračního rodinného domu s výhledem na zámek", "PRODEJ DVOUGENERAČNÍHO RODINNÉHO DOMU S VÝHLEDEM NA ZÁMEK", true)]
     [InlineData("Prodej dvougeneračního rodinného domu s výhledem na zámek Jevišovice", "Prodej dvougeneračního rodinného domu s výhledem n", true)]  // Bazoš ořezává
     [InlineData("Prodej dvougeneračního rodinného domu s výhledem na zámek", "Prodej prostorného rodinného domu se zahradou a garáží", false)]
+    [InlineData("Prodej rodinného domu s garáží, sklepem a zahradou, 1223 m²,", "Prodej rodinného domu s garáží, sklepem a zahradou, 1223 m2, Šatov - Znojmo", true)]  // m² = m2
     public void TitlesMatch_Cases(string a, string b, bool expected)
         => Assert.Equal(expected, DuplicateDetectionService.TitlesMatch(a, b));
 

@@ -375,10 +375,13 @@ public sealed class DuplicateDetectionService(
         return parts;
     }
 
-    /// <summary>Malá písmena, bez diakritiky, sjednocené mezery – pro porovnání obcí a okresů.</summary>
+    /// <summary>
+    /// Malá písmena, bez diakritiky, sjednocené mezery – pro porovnání obcí, okresů, titulků a popisů.
+    /// Kompatibilní rozklad sjednotí i „m²" a „m2" (Bazoš vs. Reality Čechy u téhož titulku).
+    /// </summary>
     public static string NormalizeText(string value)
     {
-        var decomposed = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var decomposed = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormKD);
         var sb = new StringBuilder(decomposed.Length);
         foreach (var ch in decomposed)
         {

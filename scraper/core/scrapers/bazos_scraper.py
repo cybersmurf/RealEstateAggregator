@@ -279,6 +279,12 @@ class BazosScraper:
         """
         soup = BeautifulSoup(html, "html.parser")
 
+        # Blok „Podobné inzeráty" pod detailem nese titulky, úryvky popisů (<div class=popis>),
+        # ceny a lokality CIZÍCH inzerátů. Šatov 6. 10. 2026: dům 4+1 dostal popis sousední
+        # novostavby 5+2kk a z něj plochu 180 m² – a nespároval se se Sreality.
+        for similar in soup.select("div.podobne"):
+            similar.decompose()
+
         # ── Titulek ──────────────────────────────────────────────────────────
         h1 = soup.find("h1")
         title_raw = h1.get_text(" ", strip=True) if h1 else item.get("title", "")
@@ -380,8 +386,9 @@ class BazosScraper:
 
     def _extract_description(self, soup: BeautifulSoup) -> str:
         """Extrahuje popis nemovitosti."""
-        # Bazos.cz používá <div class="popis"> pro popis inzerátu
-        for selector in (".popis", "#popis", ".inzerat-popis", ".detailpopis"):
+        # Bazos.cz má popis inzerátu v <div class=popisdetail>; <div class=popis> je úryvek
+        # v seznamu a v bloku podobných inzerátů, proto až jako záloha
+        for selector in (".popisdetail", ".popis", "#popis", ".inzerat-popis", ".detailpopis"):
             el = soup.select_one(selector)
             if el:
                 return self._clean_description(el.get_text("\n", strip=True))
@@ -533,7 +540,8 @@ class BazosScraper:
             full_text,
             re.IGNORECASE,
         ) or re.search(
-            r"(?:pozem\w*|zahrad\w*|parcel\w*)\s+(?:o\s+(?:\w+\s+)?(?:výměře|velikosti|ploše)\s+)?([\d][\d\s\.]+)\s*(?:m[²2]|㎡)",
+            # (?:je|činí|má) – "Celková plocha pozemku je 1.223m2"
+            r"(?:pozem\w*|zahrad\w*|parcel\w*)\s+(?:(?:je|činí|má)\s+)?(?:o\s+(?:\w+\s+)?(?:výměře|velikosti|ploše)\s+)?([\d][\d\s\.]+)\s*(?:m[²2]|㎡)",
             full_text,
             re.IGNORECASE,
         )
@@ -618,7 +626,9 @@ class BazosScraper:
                 try:
                     val = float(m.group(1))
                     if 10 <= val <= 100000:
-                        if property_type == "Pozemek":
+                        # "…sklepem a zahradou, 1223 m²" – číslo hned za zahradou/pozemkem je pozemek
+                        after_land_word = _LAND_CONTEXT_RE.search(title[max(0, m.start() - 20):m.start()])
+                        if property_type == "Pozemek" or after_land_word:
                             area_land = val
                         else:
                             area_built_up = val
