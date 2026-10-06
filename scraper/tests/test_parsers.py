@@ -1264,3 +1264,32 @@ class TestIdnesDistrictList:
         assert IdnesRealityScraper.TIME_BUDGET_SECONDS <= SCRAPER_TASK_TIMEOUT_SECONDS - 5 * 60
         assert not IdnesRealityScraper.out_of_time(started=100.0, now=100.0 + 35 * 60)
         assert IdnesRealityScraper.out_of_time(started=100.0, now=100.0 + 36 * 60)
+
+
+class TestIdnesDetailPrice:
+    """6. 10. 2026: u zlevněné nabídky se ukládala přeškrtnutá původní cena (dům v Jiřicích
+    9 150 000 místo 8 495 000 Kč) a nájmy pod 10 000 Kč zůstávaly bez ceny."""
+
+    @staticmethod
+    def _parse(price_html: str, offer: str = "prodej") -> Dict[str, Any]:
+        html = f"<html><body><h1>Prodej domu 135 m² s pozemkem 212 m²</h1>{price_html}</body></html>"
+        url = f"https://reality.idnes.cz/detail/{offer}/dum/jirice-u-miroslavi/69fb047786bd14b712002395/"
+        return IdnesRealityScraper()._parse_detail_page(html, url)
+
+    def test_zlevnena_nabidka_ma_platnou_cenu_ne_preskrtnutou(self):
+        d = self._parse('<p class="b-detail__price"><del class="block">9‍ 150‍ 000‍ Kč</del> '
+                        '<strong>8‍ 495‍ 000‍ Kč</strong></p>')
+        assert d["price"] == 8_495_000
+
+    def test_bezna_cena(self):
+        assert self._parse('<p class="b-detail__price"><strong>5 990 000 Kč</strong></p>')["price"] == 5_990_000
+
+    def test_najem_pod_deset_tisic(self):
+        d = self._parse('<p class="b-detail__price"><strong>5 000 Kč/měsíc</strong></p>', offer="pronajem")
+        assert (d["price"], d["offer_type"]) == (5_000, "Rent")
+
+    def test_prodej_za_par_tisic_je_nesmysl(self):
+        assert self._parse('<p class="b-detail__price"><strong>5 000 Kč</strong></p>')["price"] is None
+
+    def test_cena_na_dotaz(self):
+        assert self._parse('<p class="b-detail__price"><strong>Info o ceně u RK</strong></p>')["price"] is None

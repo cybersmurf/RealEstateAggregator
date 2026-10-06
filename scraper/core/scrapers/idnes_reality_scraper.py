@@ -342,6 +342,29 @@ class IdnesRealityScraper:
             "district": item.get("district", ""),
         })
 
+    @staticmethod
+    def parse_detail_price(price_elem: Any, is_rent: bool) -> Optional[int]:
+        """
+        Cena z prvku .b-detail__price. U zlevněné nabídky je v něm napřed přeškrtnutá původní
+        cena (<del>9 150 000 Kč</del>) a až za ní platná – dřív se ukládala ta přeškrtnutá.
+        Nájmy bývají pod 10 000 Kč, proto mají nižší spodní mez než prodej.
+        """
+        for old in price_elem.select("del, s, strike"):
+            old.decompose()
+        # IDNES wraps digits with ZWJ (\u200d) and NBSP (\u00a0) – strip them first
+        price_text = price_elem.get_text(" ", strip=True).replace("\u200d", "").replace("\u00a0", " ")
+        # e.g. "1 500 000 Kč" or "2.500.000 Kč" or "950000 Kč"
+        price_match = re.search(r"\b(\d[\d\s.]{2,10}\d)\s*(Kč|CZK)", price_text)
+        if not price_match:
+            return None
+        digits = re.sub(r"[^\d]", "", price_match.group(1))
+        try:
+            val = int(digits)
+        except ValueError:
+            return None
+        minimum = 500 if is_rent else 10_000
+        return val if minimum <= val <= 500_000_000 else None
+
     _RE_RESERVED_TITLE = re.compile(r"\s*rezervov[aá]no\s*$", re.IGNORECASE)
 
     @classmethod
@@ -397,21 +420,7 @@ class IdnesRealityScraper:
             for sel in [".b-detail__price", ".cena", "[itemprop='price']"]:
                 price_elem = soup.select_one(sel)
                 if price_elem:
-                    price_text = price_elem.get_text(strip=True)
-                    # IDNES wraps digits with ZWJ (\u200d) and NBSP (\u00a0) – strip them first
-                    price_text = price_text.replace("\u200d", "").replace("\u00a0", " ")
-                    # Match a plausible Czech price: 4-9 digits optionally separated by spaces/dots
-                    # e.g. "1 500 000 Kč" or "2.500.000 Kč" or "950000 Kč"
-                    price_match = re.search(r"\b(\d[\d\s.]{2,10}\d)\s*(Kč|CZK)", price_text)
-                    if price_match:
-                        digits = re.sub(r"[^\d]", "", price_match.group(1))
-                        try:
-                            val = int(digits)
-                            # Sanity check: 10 000 – 500 000 000 Kč
-                            if 10_000 <= val <= 500_000_000:
-                                price = val
-                        except ValueError:
-                            pass
+                    price = self.parse_detail_price(price_elem, is_rent="/pronajem/" in url.lower())
                     break
 
             # Extract location - try HTML first, fallback to URL slug
