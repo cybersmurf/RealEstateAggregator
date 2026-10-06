@@ -6,8 +6,11 @@ using RealEstate.Infrastructure;
 
 namespace RealEstate.Api.Services;
 
-/// <summary>Dvojice fotek ze stejného místa a úhlu; <see cref="Edited"/> = která z nich je upravená (pořadí ve vzorku).</summary>
-public sealed record PhotoTwin(int A, int B, int? Edited, string Reason);
+/// <summary>
+/// Dvojice fotek ze stejného místa a úhlu; <see cref="Edited"/> = která z nich je upravená (pořadí ve vzorku),
+/// <see cref="Kind"/> = "render" (vizualizace / virtuální zařízení) nebo "retouch" (retuš téže fotografie).
+/// </summary>
+public sealed record PhotoTwin(int A, int B, int? Edited, string Reason, string Kind = "render");
 
 public sealed record PhotoTwinResultDto(Guid ListingId, int PhotosChecked, int GroupsChecked, int TwinsFound, string? Message);
 
@@ -46,13 +49,18 @@ public sealed class PhotoTwinService(
 
         Find "twins": pairs of images taken from the SAME camera position that show the SAME room or facade (same walls, windows, doors, ceiling and perspective) but with a different interior or finish - different or missing furniture, different floor or wall colours, repaired versus damaged surfaces. Such a pair means one image is a retouch, a virtual staging or a render of the other.
 
-        NOT twins: two ordinary photos of the same room from different angles; two different rooms; near-identical duplicates with no visible difference.
+        NOT twins: two ordinary photos of the same room from different angles; two different rooms.
 
         Respond with JSON only:
-        {"twins":[{"a":1,"b":4,"edited":4,"reason":"..."}]}
+        {"twins":[{"a":1,"b":4,"kind":"render","edited":4,"reason":"..."}]}
 
         "a", "b" - image numbers of the pair
-        "edited" - the number of the image that is the edited, staged or rendered version, or null when you cannot tell
+        "kind" - exactly one of:
+          render - one image is a 3D render or virtual staging built on the other (new furniture, floors, facade, lighting that is clearly computer-generated)
+          retouch - the same photograph, edited: defects, stains, cables, objects or markings removed or surfaces repainted
+          duplicate - the same image twice with no real difference
+          retake - two real photographs from the same spot at different times (moved objects, a parked car, different daylight)
+        "edited" - the number of the image that is the rendered or retouched version, or null when you cannot tell
         "reason" - one sentence in Czech: what is identical (the composition) and what differs
 
         An empty "twins" array is the expected answer for most listings. Never guess.
@@ -108,8 +116,8 @@ public sealed class PhotoTwinService(
                     if (!seenPairs.Add(key)) continue;   // tatáž dvojice z překryvu dávek
 
                     var edited = twin.Edited is { } e ? loaded[e - 1].Photo : null;
-                    MarkTwin(a, b, edited == a, twin.Reason);
-                    MarkTwin(b, a, edited == b, twin.Reason);
+                    MarkTwin(a, b, edited == a, twin.Reason, twin.Kind);
+                    MarkTwin(b, a, edited == b, twin.Reason, twin.Kind);
                     found++;
                 }
             }
@@ -143,7 +151,10 @@ public sealed class PhotoTwinService(
         return chunks;
     }
 
-    /// <summary>Odpověď modelu → platné dvojice (čísla v rozsahu 1..count, různé fotky).</summary>
+    /// <summary>
+    /// Odpověď modelu → platné dvojice (čísla v rozsahu 1..count, různé fotky). Duplikáty téže fotky
+    /// a dvě běžné fotky z různé doby (kind duplicate / retake) dvojčata nejsou a zahazují se.
+    /// </summary>
     public static List<PhotoTwin> ParseTwins(string? raw, int count)
     {
         var twins = new List<PhotoTwin>();
@@ -162,12 +173,17 @@ public sealed class PhotoTwinService(
                 var (a, b) = (Number(item, "a"), Number(item, "b"));
                 if (a is null || b is null || a == b || a > count || b > count) continue;
 
+                var kind = item.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String
+                    ? k.GetString()!.Trim().ToLowerInvariant()
+                    : "";
+                if (kind is not ("render" or "retouch")) continue;
+
                 var edited = Number(item, "edited");
                 if (edited != a && edited != b) edited = null;
                 var reason = item.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String
                     ? r.GetString()!.Trim()
                     : "";
-                twins.Add(new PhotoTwin(a.Value, b.Value, edited, reason));
+                twins.Add(new PhotoTwin(a.Value, b.Value, edited, reason, kind));
             }
         }
         catch (JsonException)
@@ -177,41 +193,55 @@ public sealed class PhotoTwinService(
         return twins;
     }
 
-    /// <summary>Označí fotku jako dvojče jiné; upravená verze dostane i štítek vizualizace.</summary>
-    public static void MarkTwin(ListingPhoto photo, ListingPhoto other, bool isEdited, string reason)
+    /// <summary>
+    /// Označí fotku jako dvojče jiné. Vizualizace (kind render) dostane i štítek „visualization"
+    /// a ztrácí příznak poškození; retušovaná fotka jen poznámku – pořád je to fotografie domu.
+    /// </summary>
+    public static void MarkTwin(ListingPhoto photo, ListingPhoto other, bool isEdited, string reason, string kind = "render")
     {
+        var isRender = isEdited && kind == "render";
         var labels = ReadLabels(photo.PhotoLabels);
         if (!labels.Contains(TwinLabel)) labels.Add(TwinLabel);
-        if (isEdited && !labels.Contains(PhotoClassificationService.VisualizationLabel))
+        if (isRender && !labels.Contains(PhotoClassificationService.VisualizationLabel))
             labels.Insert(0, PhotoClassificationService.VisualizationLabel);
         photo.PhotoLabels = JsonSerializer.Serialize(labels);
 
         var note = $"{TwinNotePrefix}{other.Order + 1}"
-                   + (isEdited ? " – tahle verze je upravená" : "")
+                   + (isRender ? RenderNote : isEdited ? " – tahle verze je retušovaná" : "")
                    + (string.IsNullOrWhiteSpace(reason) ? "." : $": {reason.TrimEnd('.')}.");
         photo.PhotoDescription = string.IsNullOrWhiteSpace(photo.PhotoDescription)
             ? note
             : $"{photo.PhotoDescription.TrimEnd()}\n{note}";
 
-        // Upravený záběr neukazuje skutečný stav – „poškození" na něm nic neznamená
-        if (isEdited) photo.DamageDetected = false;
+        // Vizualizace neukazuje skutečný stav – „poškození" na ní nic neznamená
+        if (isRender) photo.DamageDetected = false;
     }
 
-    /// <summary>Odstraní štítek a poznámky z předchozího hledání (štítek vizualizace nechává – mohl ho dát i klasifikátor).</summary>
+    private const string RenderNote = " – tahle verze je vizualizace";
+
+    /// <summary>
+    /// Odstraní štítek a poznámky z předchozího hledání. Štítek vizualizace bere zpět jen tehdy,
+    /// když ho přidalo hledání dvojčat – klasifikátor své vizualizace značí popisem „Vizualizace: …".
+    /// </summary>
     public static void ClearTwinMarks(ListingPhoto photo)
     {
+        var lines = (photo.PhotoDescription ?? "").Split('\n').ToList();
+        var notes = lines.Where(line => line.StartsWith(TwinNotePrefix, StringComparison.Ordinal)).ToList();
+        var kept = lines.Except(notes).ToList();
+        var ownText = string.Join('\n', kept).TrimEnd();
+
         var labels = ReadLabels(photo.PhotoLabels);
-        if (labels.Remove(TwinLabel))
+        var changed = labels.Remove(TwinLabel);
+        // Starší běhy psaly „upravená" i u retuše; obojí znamenalo štítek vizualizace od nás
+        var markedByTwins = notes.Any(n => n.Contains(RenderNote, StringComparison.Ordinal)
+                                           || n.Contains(" – tahle verze je upravená", StringComparison.Ordinal));
+        if (markedByTwins && !ownText.StartsWith("Vizualizace", StringComparison.OrdinalIgnoreCase))
+            changed |= labels.Remove(PhotoClassificationService.VisualizationLabel);
+        if (changed)
             photo.PhotoLabels = labels.Count > 0 ? JsonSerializer.Serialize(labels) : null;
 
-        if (photo.PhotoDescription?.Contains(TwinNotePrefix, StringComparison.Ordinal) == true)
-        {
-            var kept = photo.PhotoDescription
-                .Split('\n')
-                .Where(line => !line.StartsWith(TwinNotePrefix, StringComparison.Ordinal))
-                .ToList();
-            photo.PhotoDescription = kept.Count > 0 ? string.Join('\n', kept).TrimEnd() : null;
-        }
+        if (notes.Count > 0)
+            photo.PhotoDescription = ownText.Length > 0 ? ownText : null;
     }
 
     private static List<string> ReadLabels(string? json)

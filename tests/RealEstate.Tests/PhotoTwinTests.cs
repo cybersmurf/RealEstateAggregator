@@ -29,16 +29,19 @@ public class PhotoTwinTests
     {
         var twins = PhotoTwinService.ParseTwins("""
             {"twins":[
-              {"a":1,"b":3,"edited":3,"reason":"Stejný pohled na obývací pokoj, na druhé fotce je jiný nábytek."},
-              {"a":2,"b":2,"edited":2,"reason":"tatáž fotka"},
-              {"a":4,"b":9,"edited":4,"reason":"mimo rozsah"},
-              {"a":2,"b":4,"edited":7,"reason":"upravená neznámá"}
+              {"a":1,"b":3,"kind":"render","edited":3,"reason":"Stejný pohled na obývací pokoj, na druhé fotce je jiný nábytek."},
+              {"a":2,"b":2,"kind":"render","edited":2,"reason":"tatáž fotka"},
+              {"a":4,"b":9,"kind":"render","edited":4,"reason":"mimo rozsah"},
+              {"a":2,"b":4,"kind":"Retouch","edited":7,"reason":"upravená neznámá"},
+              {"a":1,"b":2,"kind":"duplicate","edited":null,"reason":"identické duplikáty leteckého snímku"},
+              {"a":3,"b":4,"kind":"retake","edited":4,"reason":"před domem navíc parkuje auto"},
+              {"a":1,"b":4,"edited":4,"reason":"bez druhu"}
             ]}
             """, count: 4);
 
         Assert.Equal(2, twins.Count);
-        Assert.Equal(new PhotoTwin(1, 3, 3, "Stejný pohled na obývací pokoj, na druhé fotce je jiný nábytek."), twins[0]);
-        Assert.Null(twins[1].Edited);
+        Assert.Equal(new PhotoTwin(1, 3, 3, "Stejný pohled na obývací pokoj, na druhé fotce je jiný nábytek.", "render"), twins[0]);
+        Assert.Equal((2, 4, (int?)null, "retouch"), (twins[1].A, twins[1].B, twins[1].Edited, twins[1].Kind));
     }
 
     [Theory]
@@ -46,6 +49,7 @@ public class PhotoTwinTests
     [InlineData("nic jsem nenašel")]
     [InlineData("""{"twins":[]}""")]
     [InlineData("""{"pairs":[{"a":1,"b":2}]}""")]
+    [InlineData("""{"twins":[{"a":1,"b":2,"kind":"duplicate"}]}""")]
     public void ParseTwins_NothingUsable_IsEmpty(string? raw)
         => Assert.Empty(PhotoTwinService.ParseTwins(raw, 5));
 
@@ -61,19 +65,46 @@ public class PhotoTwinTests
         Assert.Equal("""["fireplace","twin"]""", original.PhotoLabels);
         Assert.Equal("Obývací pokoj s krbem.\nDvojče fotky č. 4: Stejný záběr, jiný nábytek.", original.PhotoDescription);
         Assert.Equal("""["visualization","twin"]""", edited.PhotoLabels);
-        Assert.EndsWith("Dvojče fotky č. 3 – tahle verze je upravená: Stejný záběr, jiný nábytek.", edited.PhotoDescription);
+        Assert.EndsWith("Dvojče fotky č. 3 – tahle verze je vizualizace: Stejný záběr, jiný nábytek.", edited.PhotoDescription);
         Assert.False(edited.DamageDetected);
     }
 
     [Fact]
-    public void ClearTwinMarks_RemovesTwinLabelAndNote_KeepsTheRest()
+    public void MarkTwin_RetouchedPhoto_StaysAPhotograph()
+    {
+        var original = Photo(order: 0, description: "Stěna se skvrnou.", damage: true);
+        var retouched = Photo(order: 1, description: "Čistá stěna.", damage: true);
+
+        PhotoTwinService.MarkTwin(retouched, original, isEdited: true, "Skvrna na stěně chybí.", "retouch");
+
+        Assert.Equal("""["twin"]""", retouched.PhotoLabels);
+        Assert.EndsWith("Dvojče fotky č. 1 – tahle verze je retušovaná: Skvrna na stěně chybí.", retouched.PhotoDescription);
+        Assert.True(retouched.DamageDetected);
+    }
+
+    [Fact]
+    public void ClearTwinMarks_RemovesTwinLabelAndNote_KeepsClassifiersVisualization()
     {
         var photo = Photo(order: 0, labels: """["visualization","twin"]""",
-            description: "Vizualizace: obývací pokoj.\nDvojče fotky č. 2 – tahle verze je upravená: jiný nábytek.");
+            description: "Vizualizace: obývací pokoj.\nDvojče fotky č. 2 – tahle verze je vizualizace: jiný nábytek.");
 
         PhotoTwinService.ClearTwinMarks(photo);
 
         Assert.Equal("""["visualization"]""", photo.PhotoLabels);
         Assert.Equal("Vizualizace: obývací pokoj.", photo.PhotoDescription);
+    }
+
+    [Theory]
+    [InlineData("vizualizace")]
+    [InlineData("upravená")]   // formulace prvního běhu
+    public void ClearTwinMarks_TakesBackVisualizationLabelItAddedItself(string wording)
+    {
+        var photo = Photo(order: 0, labels: """["visualization","garden","twin"]""",
+            description: $"Průčelí domu s předzahrádkou.\nDvojče fotky č. 25 – tahle verze je {wording}: před domem parkuje auto.");
+
+        PhotoTwinService.ClearTwinMarks(photo);
+
+        Assert.Equal("""["garden"]""", photo.PhotoLabels);
+        Assert.Equal("Průčelí domu s předzahrádkou.", photo.PhotoDescription);
     }
 }
