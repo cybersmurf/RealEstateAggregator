@@ -79,6 +79,10 @@ public sealed class ListingDetailDto
     public string? LocationFromSourceCode { get; set; }
 
     public ListingUserStateDto UserState { get; set; } = new();
+    /// <summary>Stav a poznámky jsou převzaté od jiné kopie téhož domu – Id inzerátu se záznamem.</summary>
+    public Guid? UserStateFromListingId { get; set; }
+    /// <summary>Zdroj kopie, od které je stav převzatý.</summary>
+    public string? UserStateFromSourceCode { get; set; }
 
     // Google Drive export info
     public string? DriveFolderUrl { get; set; }

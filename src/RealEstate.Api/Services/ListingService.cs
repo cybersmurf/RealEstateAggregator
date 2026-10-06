@@ -123,6 +123,7 @@ public class ListingService : IListingService
         {
             var pageIds = items.Select(i => i.Id).ToList();
             await EnrichPriceChangesAsync(items, pageIds, cancellationToken);
+            await InheritGroupUserStatesAsync(items, entities, cancellationToken);
             var duplicateSources = await _dbContext.Listings
                 .AsNoTracking()
                 .Where(l => l.IsActive
@@ -179,16 +180,26 @@ public class ListingService : IListingService
                 duplicateOfTitle = primary.Title;
                 duplicateOfSourceCode = primary.SourceCode;
             }
+        }
 
-            // Pokud na duplikátu chybí user state, půjčíme si ho z primárního
-            if (userState is null)
+        // Stav a poznámky patří domu, ne jedné kopii inzerátu: bez vlastního záznamu je převezmeme
+        // od kterékoli kopie ve skupině – i dávno stažené, u které bývá záznam z prohlídky.
+        Guid? userStateFromListingId = null;
+        string? userStateFromSourceCode = null;
+        if (userState is null || (userState.Status == "New" && string.IsNullOrWhiteSpace(userState.Notes)))
+        {
+            var inherited = PickInheritedState(
+                await LoadGroupUserStatesAsync([entity.DuplicateOfListingId ?? entity.Id], cancellationToken), entity.Id);
+            if (inherited is not null)
             {
-                var primaryState = await _dbContext.UserListingStates
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(
-                        s => s.ListingId == dupId && s.UserId == UserId,
-                        cancellationToken);
-                userState = primaryState;
+                userState = new UserListingState
+                {
+                    Status = inherited.Status,
+                    Notes = inherited.Notes,
+                    LastUpdated = inherited.LastUpdated
+                };
+                userStateFromListingId = inherited.ListingId;
+                userStateFromSourceCode = inherited.SourceCode;
             }
         }
 
@@ -311,6 +322,8 @@ SellerName = sellerName,
                     LastUpdated = userState.LastUpdated
                 }
                 : new ListingUserStateDto(),
+            UserStateFromListingId = userStateFromListingId,
+            UserStateFromSourceCode = userStateFromSourceCode,
             DriveFolderUrl = entity.DriveFolderId is not null
                 ? $"https://drive.google.com/drive/folders/{entity.DriveFolderId}"
                 : null,
@@ -591,8 +604,22 @@ SellerName = sellerName,
         if (!string.IsNullOrWhiteSpace(filter.UserStatus))
         {
             var userId = UserId;
-            predicate = predicate.And(x =>
-                x.UserStates.Any(s => s.UserId == userId && s.Status == filter.UserStatus));
+            var status = filter.UserStatus;
+            if (status == "New")
+            {
+                predicate = predicate.And(x => x.UserStates.Any(s => s.UserId == userId && s.Status == status));
+            }
+            else
+            {
+                // Stav nese dům, ne kopie: vyhoví i inzerát bez vlastního stavu, jehož jiná kopie
+                // ve skupině duplicit ho má (navštívený dům, který se vrátil na jiný portál).
+                predicate = predicate.And(x =>
+                    x.UserStates.Any(s => s.UserId == userId && s.Status == status)
+                    || (!x.UserStates.Any(s => s.UserId == userId && s.Status != "New")
+                        && _dbContext.UserListingStates.Any(s => s.UserId == userId && s.Status == status && s.ListingId != x.Id
+                            && (s.ListingId == (x.DuplicateOfListingId ?? x.Id)
+                                || s.Listing.DuplicateOfListingId == (x.DuplicateOfListingId ?? x.Id)))));
+            }
         }
 
         // Změna ceny od data: v historii je záznam po datu, před kterým je záznam s jinou (vyšší) cenou.
@@ -830,6 +857,32 @@ SellerName = sellerName,
 
         var dtos = listings.Select(MapToSummaryDto).ToList();
 
+        // Stažený inzerát, jehož dům běží dál na jiném portálu: karta ukáže živou kopii a stav
+        // si nese s sebou. Když má živá kopie vlastní stav, zůstanou obě karty.
+        var gone = listings.Where(l => !l.IsActive && l.DuplicateOfListingId != null).ToList();
+        if (gone.Count > 0)
+        {
+            var primaryIds = gone.Select(l => l.DuplicateOfListingId!.Value).Distinct().ToList();
+            var liveCopies = await _repository.Query(UserId)
+                .Where(l => l.IsActive && primaryIds.Contains(l.Id))
+                .ToListAsync(cancellationToken);
+
+            foreach (var old in gone)
+            {
+                var live = liveCopies.FirstOrDefault(l => l.Id == old.DuplicateOfListingId);
+                if (live is null || dtos.Any(d => d.Id == live.Id)) continue;
+
+                var index = dtos.FindIndex(d => d.Id == old.Id);
+                var record = dtos[index];
+                var card = MapToSummaryDto(live);
+                card.UserStatus = record.UserStatus;
+                card.HasNotes = record.HasNotes;
+                card.UserStatusLastUpdated = record.UserStatusLastUpdated;
+                card.UserStateFromListingId = old.Id;
+                dtos[index] = card;
+            }
+        }
+
         // Skupiny dle stavu
         var groups = dtos
             .GroupBy(d => d.UserStatus)
@@ -851,6 +904,57 @@ SellerName = sellerName,
             CountsByStatus = countsByStatus,
             Groups = groups
         };
+    }
+
+    private sealed record GroupUserState(Guid ListingId, Guid RootId, string Status, string? Notes, DateTime LastUpdated, string SourceCode);
+
+    /// <summary>Stavy, které uživatel dal kterékoli kopii domů z daných skupin duplicit (klíč = primár skupiny).</summary>
+    private async Task<List<GroupUserState>> LoadGroupUserStatesAsync(IReadOnlyCollection<Guid> rootIds, CancellationToken cancellationToken)
+    {
+        var userId = UserId;
+        return await _dbContext.UserListingStates
+            .AsNoTracking()
+            .Where(s => s.UserId == userId && s.Status != "New"
+                        && (rootIds.Contains(s.ListingId)
+                            || (s.Listing.DuplicateOfListingId != null && rootIds.Contains(s.Listing.DuplicateOfListingId.Value))))
+            .Select(s => new GroupUserState(
+                s.ListingId, s.Listing.DuplicateOfListingId ?? s.ListingId, s.Status, s.Notes, s.LastUpdated, s.Listing.SourceCode))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>Který stav z kopií převzít: prohlídka má přednost, pak naposledy změněný.</summary>
+    private static GroupUserState? PickInheritedState(IEnumerable<GroupUserState> states, Guid exceptListingId)
+        => states
+            .Where(s => s.ListingId != exceptListingId)
+            .OrderBy(s => s.Status switch { "Visited" => 0, "ToVisit" => 1, "Liked" => 2, _ => 3 })
+            .ThenByDescending(s => s.LastUpdated)
+            .FirstOrDefault();
+
+    /// <summary>
+    /// Inzeráty bez vlastního stavu převezmou stav od jiné kopie téhož domu ve skupině duplicit –
+    /// navštívený dům zůstane označený i u kopie, která se objevila až po prohlídce.
+    /// </summary>
+    private async Task InheritGroupUserStatesAsync(
+        List<ListingSummaryDto> items, IReadOnlyCollection<Listing> entities, CancellationToken cancellationToken)
+    {
+        var rootOf = entities.ToDictionary(e => e.Id, e => e.DuplicateOfListingId ?? e.Id);
+        var withoutState = items.Where(i => i.UserStatus == "New" && rootOf.ContainsKey(i.Id)).ToList();
+        if (withoutState.Count == 0) return;
+
+        var states = await LoadGroupUserStatesAsync(
+            withoutState.Select(i => rootOf[i.Id]).Distinct().ToList(), cancellationToken);
+        if (states.Count == 0) return;
+
+        foreach (var item in withoutState)
+        {
+            var inherited = PickInheritedState(states.Where(s => s.RootId == rootOf[item.Id]), item.Id);
+            if (inherited is null) continue;
+
+            item.UserStatus = inherited.Status;
+            item.HasNotes = item.HasNotes || !string.IsNullOrWhiteSpace(inherited.Notes);
+            item.UserStatusLastUpdated = inherited.LastUpdated;
+            item.UserStateFromListingId = inherited.ListingId;
+        }
     }
 
     public async Task<List<PriceHistoryDto>?> GetPriceHistoryAsync(Guid listingId, CancellationToken cancellationToken)

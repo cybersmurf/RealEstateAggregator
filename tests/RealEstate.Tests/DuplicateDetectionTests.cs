@@ -652,4 +652,61 @@ public class DuplicateDetectionDescriptionTests
 
         Assert.Empty(DuplicateDetectionService.BuildClusters([sreality1, sreality2, bazos1, bazos2]));
     }
+
+    // Horní Leska (6. 10. 2026): navštívený dům zmizel ze Sreality, ale na webu realitky běží dál.
+    // Stažená kopie s uživatelovým záznamem se připojí k živé, aby stav a poznámky nezůstaly viset.
+
+    [Fact]
+    public void Remembered_GoneCopy_AttachesToLiveCopy()
+    {
+        var gone = SrealityHouse(Body) with { IsActive = false };
+        var live = BazosHouse(Body);
+
+        var attached = DuplicateDetectionService.AttachRemembered([live], [gone], new Dictionary<Guid, Guid>());
+
+        Assert.Equal(live.Id, attached[gone.Id]);
+    }
+
+    [Fact]
+    public void Remembered_LiveCopyInGroup_AttachesToGroupPrimary()
+    {
+        var gone = SrealityHouse(Body) with { IsActive = false };
+        var live = BazosHouse(Body);
+        var primaryId = Guid.NewGuid();
+
+        var attached = DuplicateDetectionService.AttachRemembered(
+            [live], [gone], new Dictionary<Guid, Guid> { [live.Id] = primaryId });
+
+        Assert.Equal(primaryId, attached[gone.Id]);
+    }
+
+    [Fact]
+    public void Remembered_RelistedInSameSource_Attaches()
+    {
+        var gone = SrealityHouse(Body) with { IsActive = false };
+        var relisted = gone with { Id = Guid.NewGuid(), IsActive = true };
+
+        var attached = DuplicateDetectionService.AttachRemembered([relisted], [gone], new Dictionary<Guid, Guid>());
+
+        Assert.Equal(relisted.Id, attached[gone.Id]);
+    }
+
+    [Fact]
+    public void Remembered_TwoDifferentLiveHouses_Ambiguous_NotAttached()
+    {
+        var gone = SrealityHouse(Body) with { IsActive = false };
+        var live1 = BazosHouse(Body);
+        var live2 = BazosHouse(Body) with { SourceId = Guid.NewGuid() };
+
+        Assert.Empty(DuplicateDetectionService.AttachRemembered([live1, live2], [gone], new Dictionary<Guid, Guid>()));
+    }
+
+    [Fact]
+    public void Remembered_DifferentHouse_NotAttached()
+    {
+        var gone = SrealityHouse(Body) with { IsActive = false };
+        var other = BazosHouse("Úplně jiný dům v jiné ulici, po rekonstrukci, s garáží a bazénem.") with { Price = 4_500_000m };
+
+        Assert.Empty(DuplicateDetectionService.AttachRemembered([other], [gone], new Dictionary<Guid, Guid>()));
+    }
 }

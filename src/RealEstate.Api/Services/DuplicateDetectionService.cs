@@ -28,7 +28,8 @@ public sealed record DuplicateCandidate(
     string? District = null,
     string? Title = null,
     string? Disposition = null,
-    string? Description = null);
+    string? Description = null,
+    bool IsActive = true);
 
 public sealed class DuplicateDetectionService(
     RealEstateDbContext ctx,
@@ -112,19 +113,30 @@ public sealed class DuplicateDetectionService(
 
     public async Task<DuplicateScanResultDto> DetectAsync(CancellationToken cancellationToken)
     {
-        var candidates = await ctx.Listings
+        // Aktivní inzeráty + stažené, ke kterým má někdo vlastní záznam (stav, poznámky, fotky
+        // z prohlídky). Ty se nepárují mezi sebou, jen se připojí ke své živé kopii – dům, kde
+        // už uživatel byl, se jinak po návratu na jiný portál tváří jako neviděný.
+        var all = await ctx.Listings
             .AsNoTracking()
-            .Where(l => l.IsActive)
+            .Where(l => l.IsActive
+                        || l.UserStates.Any(s => s.Status != "New" || (s.Notes != null && s.Notes != ""))
+                        || ctx.UserListingPhotos.Any(p => p.ListingId == l.Id))
             .Select(l => new DuplicateCandidate(
                 l.Id, l.SourceId, l.PropertyType, l.OfferType,
                 l.Price, l.Latitude, l.Longitude,
                 l.Municipality, l.AreaBuiltUp, l.AreaLand, l.FirstSeenAt,
                 l.GeocodeSource != "nominatim" && !ApproxGpsSources.Contains(l.SourceCode),
                 l.District, l.Title, l.Disposition,
-                l.Price >= ExactPriceEvidenceMin ? l.Description : null))
+                l.Price >= ExactPriceEvidenceMin ? l.Description : null,
+                l.IsActive))
             .ToListAsync(cancellationToken);
 
+        var candidates = all.Where(c => c.IsActive).ToList();
         var mapping = BuildClusters(candidates); // dupId -> primaryId
+
+        var remembered = AttachRemembered(candidates, all.Where(c => !c.IsActive).ToList(), mapping);
+        foreach (var (rememberedId, primaryId) in remembered)
+            mapping[rememberedId] = primaryId;
 
         // Reset všech vazeb (i u neaktivních – primární inzerát mohl mezitím zmizet
         // a vazba na neaktivní primár by aktivní duplikát schovala z vyhledávání).
@@ -144,8 +156,8 @@ public sealed class DuplicateDetectionService(
 
         var clusters = mapping.Values.Distinct().Count();
         logger.LogInformation(
-            "Detekce duplikátů: {Active} aktivních inzerátů, {Clusters} skupin, {Dups} označených duplikátů",
-            candidates.Count, clusters, mapping.Count);
+            "Detekce duplikátů: {Active} aktivních inzerátů, {Clusters} skupin, {Dups} označených duplikátů, {Remembered} stažených se záznamem připojeno k živé kopii",
+            candidates.Count, clusters, mapping.Count, remembered.Count);
 
         return new DuplicateScanResultDto(candidates.Count, clusters, mapping.Count);
     }
@@ -478,6 +490,39 @@ public sealed class DuplicateDetectionService(
         foreach (var (dupId, repId) in repeatOf)
             result[dupId] = result.TryGetValue(repId, out var primaryId) ? primaryId : repId;
 
+        return result;
+    }
+
+    /// <summary>
+    /// Připojí stažené inzeráty s uživatelovým záznamem k živé kopii téhož domu: mapa stažený → primár
+    /// skupiny, do které patří jeho aktivní protějšek (jiný portál, nebo znovu vložený inzerát téhož
+    /// zdroje). Jen při jednoznačné shodě – když protějšky vedou do dvou různých skupin, nepřipojí se nic.
+    /// Aktivní párování se tím nemění; běží nad hotovou mapou z <see cref="BuildClusters"/>.
+    /// </summary>
+    public static Dictionary<Guid, Guid> AttachRemembered(
+        IReadOnlyList<DuplicateCandidate> active,
+        IReadOnlyList<DuplicateCandidate> remembered,
+        IReadOnlyDictionary<Guid, Guid> mapping)
+    {
+        var result = new Dictionary<Guid, Guid>();
+        if (remembered.Count == 0) return result;
+
+        var activeByOffer = active.Where(c => c.Price is > 0).ToLookup(c => c.OfferType);
+        foreach (var gone in remembered.Where(c => c.Price is > 0))
+        {
+            var price = (double)gone.Price!.Value;
+            var groups = new HashSet<Guid>();
+            foreach (var live in activeByOffer[gone.OfferType])
+            {
+                var livePrice = (double)live.Price!.Value;
+                if (Math.Abs(livePrice - price) > Math.Max(livePrice, price) * LaggingPriceTolerance) continue;
+                if (IsDuplicatePair(gone, live) || IsSameSourceRepeat(gone, live))
+                    groups.Add(mapping.TryGetValue(live.Id, out var primaryId) ? primaryId : live.Id);
+            }
+
+            if (groups.Count == 1)
+                result[gone.Id] = groups.First();
+        }
         return result;
     }
 

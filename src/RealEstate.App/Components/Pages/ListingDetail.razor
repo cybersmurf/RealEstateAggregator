@@ -37,6 +37,30 @@
                 </MudAlert>
             }
 
+            <!-- Záznam uživatele je u jiné kopie téhož domu -->
+            @if (_listing.UserStateFromListingId is { } recordListingId)
+            {
+                <MudAlert Severity="Severity.Success" Icon="@Icons.Material.Filled.Bookmark" Dense="false">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudText>
+                            @(_listing.UserState.Status == "Visited" ? "Tady už jste byli." : "Tento dům už máte označený.")
+                            Stav a poznámky jsou převzaté od jiné kopie téhož domu
+                            @if (!string.IsNullOrEmpty(_listing.UserStateFromSourceCode))
+                            {
+                                <text> (@_listing.UserStateFromSourceCode)</text>
+                            }
+                            .
+                        </MudText>
+                        <MudSpacer />
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.OpenInNew"
+                                   OnClick="@(() => Navigation.NavigateTo($"/listings/{recordListingId}"))">
+                            Otevřít záznam
+                        </MudButton>
+                    </MudStack>
+                </MudAlert>
+            }
+
             <!-- Duplicate banner -->
             @if (_listing.DuplicateOfListingId is not null)
             {

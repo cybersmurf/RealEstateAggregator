@@ -384,6 +384,25 @@ public static class ExportEndpoints
         }
     }
 
+    /// <summary>Inzerát a všechny jeho kopie ve skupině duplicit (včetně stažených).</summary>
+    private static async Task<List<Guid>> InspectionGroupMemberIdsAsync(RealEstateDbContext db, Guid id, CancellationToken ct)
+    {
+        var rootId = await db.Listings
+            .AsNoTracking()
+            .Where(l => l.Id == id)
+            .Select(l => l.DuplicateOfListingId ?? l.Id)
+            .FirstOrDefaultAsync(ct);
+        if (rootId == Guid.Empty) return [id];
+
+        var ids = await db.Listings
+            .AsNoTracking()
+            .Where(l => l.Id == rootId || l.DuplicateOfListingId == rootId)
+            .Select(l => l.Id)
+            .ToListAsync(ct);
+        if (!ids.Contains(id)) ids.Add(id);
+        return ids;
+    }
+
     /// <summary>
     /// První volné pořadové číslo pro nově nahrané fotky z prohlídky: za počtem záznamů
     /// i za nejvyšším číslem v názvech souborů na disku („071_prohlidka_72_IMG_6670.jpeg" → 72).
@@ -406,8 +425,11 @@ public static class ExportEndpoints
         [FromServices] IStorageService storageService,
         CancellationToken ct)
     {
+        // Fotky z prohlídky patří domu: vrátíme je i u kopie, která se objevila až po prohlídce
+        // (záznam visí na původním, mezitím staženém inzerátu ze stejné skupiny duplicit).
+        var memberIds = await InspectionGroupMemberIdsAsync(db, id, ct);
         var photos = await db.UserListingPhotos
-            .Where(p => p.ListingId == id)
+            .Where(p => memberIds.Contains(p.ListingId))
             .OrderBy(p => p.UploadedAt)
             .ToListAsync(ct);
 
@@ -438,8 +460,9 @@ public static class ExportEndpoints
         [FromServices] RealEstateDbContext db,
         CancellationToken ct)
     {
+        var memberIds = await InspectionGroupMemberIdsAsync(db, id, ct);
         var photo = await db.UserListingPhotos
-            .FirstOrDefaultAsync(p => p.Id == photoId && p.ListingId == id, ct);
+            .FirstOrDefaultAsync(p => p.Id == photoId && memberIds.Contains(p.ListingId), ct);
         if (photo is null)
             return Results.NotFound();
 

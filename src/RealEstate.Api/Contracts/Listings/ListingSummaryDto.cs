@@ -41,6 +41,8 @@ public sealed class ListingSummaryDto
     public string UserStatus { get; set; } = "New"; // "New", "Liked", "Disliked"...
     public bool HasNotes { get; set; }
     public DateTime? UserStatusLastUpdated { get; set; }
+    /// <summary>Stav je převzatý od jiné kopie téhož domu (skupina duplicit) – Id inzerátu, kde záznam je.</summary>
+    public Guid? UserStateFromListingId { get; set; }
 
     /// <summary>Strukturovaná AI data z popisu (jsonb as string) – pro badge výpočet v UI.</summary>
     public string? AiNormalizedData { get; set; }
