@@ -52,6 +52,24 @@ DISTRICT_MUNICIPALITY_SLUGS: Dict[str, FrozenSet[str]] = {
 }
 
 
+def official_municipality_districts() -> Dict[str, str]:
+    """
+    Normalizovaný název obce („hrusovany nad jevisovkou") → okres, pro obce okresů Znojmo
+    a Brno-venkov a pro Brno. Názvy, které jsou v obou okresech, ve slovníku nejsou.
+    """
+    result: Dict[str, str] = {}
+    ambiguous = set()
+    for district, slugs in DISTRICT_MUNICIPALITY_SLUGS.items():
+        for slug in slugs:
+            key = slug.replace("-", " ")
+            if key in result and result[key] != district:
+                ambiguous.add(key)
+            result[key] = district
+    for key in ambiguous:
+        del result[key]
+    return result
+
+
 def municipality_slug(name: str) -> str:
     """„Hrušovany nad Jevišovkou" → „hrusovany-nad-jevisovkou"."""
     return normalize_place(name).replace(" ", "-")

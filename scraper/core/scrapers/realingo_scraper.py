@@ -30,13 +30,15 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.realingo.cz"
 
-# Co scrapovat: (cesta výpisu, typ nemovitosti, typ nabídky). Okres Brno-venkov
-# jde přidat stejně (Okres_Brno-venkov), zatím ale jen Znojemsko – překryv se
-# Sreality je tam vyšší a filtr target_districts stejně pustí jen koridor.
+# Co scrapovat: (cesta výpisu, typ nemovitosti, typ nabídky). Brno-venkov přidán 6. 10. 2026 –
+# portál tam má 434 domů, 240 bytů a 781 pozemků a nebrali jsme z nich nic.
 DEFAULT_LISTS: List[Tuple[str, str, str]] = [
     ("/prodej_domy/Okres_Znojmo/", "Dům", "Prodej"),
     ("/prodej_byty/Okres_Znojmo/", "Byt", "Prodej"),
     ("/prodej_pozemky/Okres_Znojmo/", "Pozemek", "Prodej"),
+    ("/prodej_domy/Okres_Brno-venkov/", "Dům", "Prodej"),
+    ("/prodej_byty/Okres_Brno-venkov/", "Byt", "Prodej"),
+    ("/prodej_pozemky/Okres_Brno-venkov/", "Pozemek", "Prodej"),
 ]
 
 # Původní zdroj inzerátu, který už máme vlastním scraperem → přeskočit
@@ -79,29 +81,93 @@ class RealingoScraper:
 
     SOURCE_CODE = "REALINGO"
 
+    # Limit úlohy v runneru je 45 min; běh proto končí sám, jakmile vyčerpá rozpočet (viz iDNES).
+    TIME_BUDGET_SECONDS = 36 * 60
+
     def __init__(self, lists: Optional[List[Tuple[str, str, str]]] = None) -> None:
         self.lists = lists or DEFAULT_LISTS
         self.scraped_count = 0
         self.skipped_origin = 0
+        # False = některou stránku výpisu se nepodařilo načíst; co jsme neviděli, nemusí být stažené
+        self.lists_complete = True
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
-        max_pages = 20 if full_rescan else 3
+        # 40 položek na stránku; pozemky v Brně-venkově mají 781 položek = 20 stránek těsně
+        max_pages = 30 if full_rescan else 3
         return await self.scrape(max_pages=max_pages)
 
     async def scrape(self, max_pages: int = 3) -> int:
+        """
+        Dvě fáze: napřed všechny výpisy (levné), potom detaily – jen u inzerátů, které ještě
+        neznáme, a při změně ceny. Původ inzerátu (externalUrl) je až v detailu a dvě třetiny
+        nabídek pocházejí z portálů, které bereme přímo; ty si pamatujeme (scrape_skips),
+        jinak by se jejich detail stahoval každou noc znovu jen proto, aby se zahodil.
+        """
         logger.info("Starting Realingo scraper (max_pages=%s, lists=%s)", max_pages, len(self.lists))
+        started = time.monotonic()
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
                 self._http_client = client
-                for path, property_type, offer_type in self.lists:
-                    await self._scrape_list(path, property_type, offer_type, max_pages, metrics)
+                try:
+                    db = get_db_manager()
+                    known = await db.get_known_prices(self.SOURCE_CODE)
+                    skipped = await db.get_skipped_ids(self.SOURCE_CODE)
+
+                    items: List[Dict[str, Any]] = []
+                    seen: set[str] = set()
+                    for path, property_type, offer_type in self.lists:
+                        for item in await self._collect_list(path, property_type, offer_type, max_pages, metrics):
+                            if item["id"] not in seen:
+                                seen.add(item["id"])
+                                items.append(item)
+
+                    touched = await db.touch_listings(
+                        self.SOURCE_CODE, [(i["id"], None, None) for i in items if i["id"] in known])
+                    if not self.lists_complete:
+                        kept = await db.mark_active_seen(self.SOURCE_CODE)
+                        logger.warning("Realingo lists incomplete – %s active listings kept as seen", kept)
+
+                    todo = self.select_for_detail(items, known, skipped)
+                    logger.info("Realingo lists: %s listings, %s known refreshed, %s remembered as scraped elsewhere, %s need detail",
+                                len(items), touched, sum(1 for i in items if i["id"] in skipped), len(todo))
+
+                    newly_skipped: List[str] = []
+                    for idx, item in enumerate(todo):
+                        if time.monotonic() - started >= self.TIME_BUDGET_SECONDS:
+                            logger.info("Realingo time budget used up after %s details – %s left for the next run",
+                                        idx, len(todo) - idx)
+                            break
+                        try:
+                            detail_html = await self._fetch(urljoin(BASE_URL, item["url"]))
+                            normalized = self.parse_detail_page(
+                                detail_html, item, item["property_type"], item["offer_type"])
+                            if normalized is None:
+                                self.skipped_origin += 1
+                                newly_skipped.append(item["id"])
+                                continue
+                            await self._save_listing(normalized)
+                            self.scraped_count += 1
+                            metrics.increment_scraped()
+                        except Exception as exc:
+                            logger.error("Error processing %s: %s", item.get("url"), exc)
+                            metrics.increment_failed()
+                        await asyncio.sleep(0.4)
+
+                    await db.remember_skipped(self.SOURCE_CODE, newly_skipped, "origin scraped directly")
+                    self.scraped_count += touched
+                except Exception as exc:
+                    logger.error("Realingo scraper failed: %r", exc)
+                    metrics.increment_failed()
         self._http_client = None
         logger.info("Realingo scraper done. Scraped %s, skipped (origin already scraped) %s",
                     self.scraped_count, self.skipped_origin)
         return self.scraped_count
 
-    async def _scrape_list(self, path: str, property_type: str, offer_type: str, max_pages: int, metrics) -> None:
+    async def _collect_list(self, path: str, property_type: str, offer_type: str,
+                            max_pages: int, metrics: Any) -> List[Dict[str, Any]]:
+        """Položky jednoho výpisu (všechny stránky), každá s typem z konfigurace výpisu."""
+        collected: List[Dict[str, Any]] = []
         page = 1
         while page <= max_pages:
             url = urljoin(BASE_URL, path if page == 1 else f"{path.rstrip('/')}/{page}_strana/")
@@ -111,35 +177,42 @@ class RealingoScraper:
                     html = await self._fetch(url)
                     metrics.record_fetch(time.perf_counter() - start)
                 items, total = self.parse_list_page(html)
-                if not items:
-                    logger.info("No items on %s page %s, stopping", path, page)
-                    break
-                logger.info("%s page %s: %s listings (total %s)", path, page, len(items), total)
-                for item in items:
-                    try:
-                        detail_html = await self._fetch(urljoin(BASE_URL, item["url"]))
-                        normalized = self.parse_detail_page(detail_html, item, property_type, offer_type)
-                        if normalized is None:
-                            self.skipped_origin += 1
-                            continue
-                        await self._save_listing(normalized)
-                        self.scraped_count += 1
-                        metrics.increment_scraped()
-                        await asyncio.sleep(0.4)
-                    except Exception as exc:
-                        logger.error("Error processing %s: %s", item.get("url"), exc)
-                        metrics.increment_failed()
-                if page * 40 >= (total or 0):
-                    break
-                page += 1
-                await asyncio.sleep(1.0)
-            except httpx.HTTPStatusError as exc:
-                logger.error("HTTP error %s page %s: %s", path, page, exc)
-                break
             except Exception as exc:
-                logger.error("Error %s page %s: %s", path, page, exc)
+                # Nenačtená stránka = neúplný výpis; pokračujeme s tím, co máme
+                logger.error("Realingo list %s page %s failed: %r", path, page, exc)
                 metrics.increment_failed()
+                self.lists_complete = False
                 break
+            if not items:
+                logger.info("No items on %s page %s, stopping", path, page)
+                break
+            logger.info("%s page %s: %s listings (total %s)", path, page, len(items), total)
+            for item in items:
+                item["property_type"], item["offer_type"] = property_type, offer_type
+            collected.extend(items)
+            if page * 40 >= (total or 0):
+                break
+            page += 1
+            await asyncio.sleep(1.0)
+        return collected
+
+    @staticmethod
+    def select_for_detail(items: List[Dict[str, Any]], known: Dict[str, Optional[float]],
+                          skipped: set) -> List[Dict[str, Any]]:
+        """
+        Které položky potřebují detail: napřed známé se změněnou cenou, potom nové. Známé se
+        stejnou cenou ne; zapamatované „bereme odjinud" taky ne.
+        """
+        changed: List[Dict[str, Any]] = []
+        new: List[Dict[str, Any]] = []
+        for item in items:
+            if item["id"] in known:
+                old_price, list_price = known[item["id"]], item.get("price")
+                if list_price is not None and (old_price is None or abs(float(old_price) - float(list_price)) > 0.5):
+                    changed.append(item)
+            elif item["id"] not in skipped:
+                new.append(item)
+        return changed + new
 
     @http_retry
     async def _fetch(self, url: str) -> str:
@@ -174,7 +247,10 @@ class RealingoScraper:
     def parse_list_page(self, html: str) -> Tuple[List[Dict[str, Any]], int]:
         data = self._next_data(html)
         lst = data["props"]["pageProps"]["store"]["offer"]["list"]
-        items = [{"id": str(o["id"]), "url": o["url"]} for o in lst.get("data", []) if o.get("url")]
+        items = [
+            {"id": str(o["id"]), "url": o["url"], "price": ((o.get("price") or {}).get("total") or None)}
+            for o in lst.get("data", []) if o.get("url")
+        ]
         return items, int(lst.get("total") or 0)
 
     def parse_detail_page(self, html: str, list_item: Dict[str, Any], property_type: str, offer_type: str) -> Optional[Dict[str, Any]]:

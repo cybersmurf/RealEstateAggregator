@@ -5,6 +5,7 @@ Provides async connection pool and CRUD operations for listings.
 import hashlib
 import os
 import re
+import time
 import asyncpg
 import httpx
 import logging
@@ -370,6 +371,11 @@ class DatabaseManager:
         # Doplň chybějící sémantická pole regex extrakcí
         _enrich_listing_fields(listing_data)
 
+        # Okres z GPS nebo názvu obce, když ho scraper neposlal – MUSÍ být před filtrem lokality:
+        # ten hledá okres v textu a „ulice Dlouhá, Hrabětice" bez okresu zahodil (audit 6. 10. 2026:
+        # RE/MAX, Premia Reality, Nemovitosti Znojmo a Znojmo Reality tak ztrácely vesnické nabídky).
+        await self._derive_district(listing_data)
+
         # 🔥 Kontrola filtrů
         filter_mgr = get_filter_manager()
         should_include, exclusion_reason = filter_mgr.should_include_listing(listing_data)
@@ -655,6 +661,88 @@ class DatabaseManager:
                 seen_since,
             )
 
+    # Zdroje, jejichž nabídka je z našich okresů už výběrem nebo povahou (místní realitky,
+    # hledání omezené na okresy). Jen u nich smí okres určit samotný název obce – u celostátních
+    # zdrojů by „Nová Ves" odjinud dostala náš okres a prošla filtrem.
+    _DISTRICT_BY_NAME_SOURCES = frozenset({
+        "PREMIAREALITY", "NEMZNOJMO", "ZNOJMOREALITY", "HVREALITY", "DELUXREALITY",
+        "REALMIX", "CENTURY21", "REMAX", "MMR",
+    })
+    _MUNICIPALITY_MAP_TTL_SECONDS = 6 * 3600
+
+    async def _municipality_districts(self, conn) -> Dict[str, str]:
+        """
+        Slovník normalizovaný název obce → okres: úřední seznam obcí okresů Znojmo a Brno-venkov
+        doplněný o obce a části obcí, které zná Sreality (okres tam dává portál sám). Jen
+        jednoznačné názvy. Drží se v paměti 6 hodin.
+        """
+        from .district_lookup import normalize_place
+        from .district_municipalities import official_municipality_districts
+
+        cached = getattr(self, "_municipality_map_cache", None)
+        if cached and time.monotonic() - cached[0] < self._MUNICIPALITY_MAP_TTL_SECONDS:
+            return cached[1]
+
+        rows = await conn.fetch(
+            """
+            SELECT municipality, min(district) AS district
+            FROM re_realestate.listings
+            WHERE source_code = 'SREALITY'
+              AND municipality IS NOT NULL AND municipality <> ''
+              AND district IS NOT NULL AND district <> ''
+            GROUP BY municipality
+            HAVING count(DISTINCT district) = 1 AND count(*) >= 2
+            """
+        )
+        from_sreality: Dict[str, Optional[str]] = {}
+        for row in rows:
+            key = normalize_place(row["municipality"])
+            # Stejný název po odstranění diakritiky ve dvou okresech = nejednoznačné
+            from_sreality[key] = row["district"] if from_sreality.get(key, row["district"]) == row["district"] else None
+
+        known = {k: v for k, v in from_sreality.items() if v}
+        known.update(official_municipality_districts())   # úřední seznam má přednost
+        self._municipality_map_cache = (time.monotonic(), known)
+        return known
+
+    async def _derive_district(self, listing_data: Dict[str, Any]) -> None:
+        """
+        Doplní listing_data["district"], když chybí: z GPS (polygon okresu), jinak u místních
+        zdrojů z názvu obce. Chyba (tabulka okresů chybí, DB nedostupná) inzerát nezastaví.
+        """
+        if listing_data.get("district"):
+            return
+        from .district_lookup import district_from_place_names
+
+        lat, lon = listing_data.get("latitude"), listing_data.get("longitude")
+        by_name = listing_data.get("source_code") in self._DISTRICT_BY_NAME_SOURCES
+        if (lat is None or lon is None) and not by_name:
+            return
+        try:
+            async with self.acquire() as conn:
+                if lat is not None and lon is not None \
+                        and await conn.fetchval("SELECT to_regclass('re_realestate.districts') IS NOT NULL"):
+                    district = await conn.fetchval(
+                        """
+                        SELECT name FROM re_realestate.districts
+                        WHERE ST_Covers(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
+                        LIMIT 1
+                        """,
+                        float(lon), float(lat),
+                    )
+                    if district:
+                        listing_data["district"] = district
+                        return
+                if by_name:
+                    district = district_from_place_names(
+                        listing_data.get("location_text"), listing_data.get("municipality"),
+                        await self._municipality_districts(conn),
+                    )
+                    if district:
+                        listing_data["district"] = district
+        except Exception as exc:  # noqa: BLE001 – doplnění je best-effort
+            logger.debug(f"District derivation failed: {exc}")
+
     async def get_known_prices(self, source_code: str) -> Dict[str, Optional[float]]:
         """external_id → cena všech inzerátů zdroje (i stažených). Pro scrapery, které detail
         stahují jen u nových inzerátů a při změně ceny (iDNES)."""
@@ -707,6 +795,47 @@ class DatabaseManager:
             )
         return int(status.split()[-1])
 
+    _SCRAPE_SKIPS_DDL = """
+        CREATE TABLE IF NOT EXISTS re_realestate.scrape_skips (
+            source_code      text NOT NULL,
+            external_id      text NOT NULL,
+            reason           text,
+            first_skipped_at timestamptz NOT NULL DEFAULT now(),
+            PRIMARY KEY (source_code, external_id)
+        )
+    """
+    _SCRAPE_SKIPS_KEEP_DAYS = 60
+
+    async def get_skipped_ids(self, source_code: str) -> set:
+        """
+        Inzeráty zdroje, u kterých scraper po stažení detailu zjistil, že je neukládá (Realingo:
+        původní inzerát je z portálu, který bereme přímo). Pamatujeme si je, aby se jejich detail
+        nestahoval každou noc znovu; po 60 dnech se záznam zapomene a ověří znovu.
+        """
+        async with self.acquire() as conn:
+            await conn.execute(self._SCRAPE_SKIPS_DDL)
+            await conn.execute(
+                "DELETE FROM re_realestate.scrape_skips WHERE first_skipped_at < now() - make_interval(days => $1)",
+                self._SCRAPE_SKIPS_KEEP_DAYS,
+            )
+            rows = await conn.fetch(
+                "SELECT external_id FROM re_realestate.scrape_skips WHERE source_code = $1", source_code)
+        return {r["external_id"] for r in rows}
+
+    async def remember_skipped(self, source_code: str, external_ids: Sequence[str], reason: str) -> None:
+        if not external_ids:
+            return
+        async with self.acquire() as conn:
+            await conn.execute(self._SCRAPE_SKIPS_DDL)
+            await conn.executemany(
+                """
+                INSERT INTO re_realestate.scrape_skips (source_code, external_id, reason)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (source_code, external_id) DO NOTHING
+                """,
+                [(source_code, external_id, reason) for external_id in external_ids],
+            )
+
     async def fill_missing_districts(self) -> Tuple[int, int]:
         """
         Doplní listings.district tam, kde ho zdroj nedal (Reas, Prodejme.to, část iDNES).
@@ -744,24 +873,7 @@ class DatabaseManager:
             if not missing:
                 return from_gps, 0
 
-            # Slovník obec → okres: jen Sreality (okres dává portál sám) a jen obce v jediném okrese
-            rows = await conn.fetch(
-                """
-                SELECT municipality, min(district) AS district
-                FROM re_realestate.listings
-                WHERE source_code = 'SREALITY'
-                  AND municipality IS NOT NULL AND municipality <> ''
-                  AND district IS NOT NULL AND district <> ''
-                GROUP BY municipality
-                HAVING count(DISTINCT district) = 1 AND count(*) >= 2
-                """
-            )
-            known: Dict[str, Optional[str]] = {}
-            for row in rows:
-                key = normalize_place(row["municipality"])
-                # Stejný název po odstranění diakritiky ve dvou okresech = nejednoznačné
-                known[key] = row["district"] if known.get(key, row["district"]) == row["district"] else None
-            unique = {k: v for k, v in known.items() if v}
+            unique = await self._municipality_districts(conn)
 
             updates = []
             for row in missing:

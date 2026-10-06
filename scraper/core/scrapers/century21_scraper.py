@@ -316,12 +316,15 @@ class Century21Scraper:
             if slug_match:
                 location = slug_match.group(1).replace("-", " ").title()
 
-        # Zajistíme, aby location_text vždy obsahoval "Znojmo" – všechny C21 listingy
-        # pocházejí ze Znojemského okresu (URL filter), ale LOKALITA vrací jen obec (např. "Dobšice").
-        if location and "znojmo" not in location.lower() and "jihomoravsk" not in location.lower():
-            location = f"{location}, okres Znojmo"
-        elif not location:
-            location = "okres Znojmo"
+        # LOKALITA vrací jen obec (např. "Dobšice"). Dřív se ke všemu připisovalo ", okres Znojmo",
+        # jenže hledání pokrývá i Brno-venkov – Rosice, Kuřim nebo Rozdrojovice se tak ukládaly
+        # jako okres Znojmo. Okres teď doplní upsert z názvu obce (database._derive_district).
+        # Kraj připsat lze (hledání je omezené na okresy Znojmo a Brno-venkov) – filtr lokality
+        # tak nabídku pustí, i když se okres z názvu místní části určit nepodaří.
+        if not location:
+            location = "Jihomoravský kraj"
+        elif "jihomoravsk" not in location.lower():
+            location = f"{location}, Jihomoravský kraj"
 
         # Popis
         description = self._extract_description(soup)
