@@ -1122,39 +1122,112 @@ class TestPremiaRealityListingStatus:
         assert listing["price_note"] == "Informace o ceně v RK"
 
 
-class TestIdnesTargetUrl:
-    """6. 10. 2026: slug „miroslav" seděl kdekoli v adrese, takže se k nám dostaly byty z pražské
-    ulice Miroslava Hájka a z Ostravy. Obec musí stát na začátku lokality."""
+class TestIdnesDistrictList:
+    """6. 10. 2026: iDNES se hledal v sitemapě podle 13 názvů obcí v URL – pokrývalo to 370 z ~2 900
+    nabídek obou okresů a slug „miroslav" pouštěl dovnitř pražskou ulici Miroslava Hájka.
+    Nově se prochází výpis okresu; obec a okres jsou v položce výpisu."""
 
-    @pytest.mark.parametrize("locality", [
-        "znojmo",
-        "znojmo-leska-horni",
-        "miroslav",
-        "miroslav-merunkova",
-        "jirice-u-miroslavi",
-        "miroslavske-kninice",
-        "pohorelice-znojemska",
-        "pasohlavky-musov",
-        "dolni-kounice-ruzova",
+    LIST_HTML = """
+    <div class="c-products"><div class="c-products__list grid">
+      <div class="c-products__item"><div class="c-products__inner">
+        <a href="https://reality.idnes.cz/detail/prodej/dum/sanov-hlavni/6a5a5dc8169cb408c00ec037/" data-brand="RK" class="c-products__link">
+          <h2 class="c-products__title">prodej domu 141 m² s pozemkem 457 m²</h2>
+          <p class="c-products__info">Hlavní, Šanov, okres Znojmo</p>
+          <p class="c-products__price"><strong>5 990 000 Kč</strong></p></a></div></div>
+      <div class="c-products__item"><div class="c-products__inner">
+        <a href="/detail/pronajem/byt/znojmo-vancurova/6aa149ee84341c5a9c0074c4/" class="c-products__link">
+          <p class="c-products__info">Vančurova, Znojmo</p>
+          <p class="c-products__price"><strong>14 000 Kč/měsíc</strong></p></a></div></div>
+      <div class="c-products__item c-products__item-advertisment"><div>reklama</div></div>
+      <div class="c-products__item"><div class="c-products__inner">
+        <a href="https://reality.idnes.cz/detail/prodej/dum/hosteradice/6ac4ce690d001cc7620864a4/" class="c-products__link">
+          <p class="c-products__info">Hostěradice - Chlupice, okres Znojmo</p>
+          <p class="c-products__price"><strong>Info o ceně u RK</strong></p></a></div></div>
+      <div class="c-products__item"><div class="c-products__inner">
+        <a href="https://reality.idnes.cz/detail/prodej/byt/praha-18-miroslava-hajna/6aa7b86b4097a7b4720ef722/" class="c-products__link">
+          <p class="c-products__info">Miroslava Hájka, Praha 18</p>
+          <p class="c-products__price"><strong>7 490 000 Kč</strong></p></a></div></div>
+    </div></div>
+    """
+
+    def setup_method(self):
+        self.page = IdnesRealityScraper.parse_list_page(self.LIST_HTML, "Znojmo")
+        self.items = self.page["items"]
+
+    def test_polozky_bez_reklamy_a_cizich_okresu(self):
+        assert [i["external_id"] for i in self.items] == [
+            "6a5a5dc8169cb408c00ec037", "6aa149ee84341c5a9c0074c4", "6ac4ce690d001cc7620864a4"]
+        assert self.page["other_district"] == 1
+
+    def test_obec_okres_a_cena_z_vypisu(self):
+        house = self.items[0]
+        assert house["url"] == "https://reality.idnes.cz/detail/prodej/dum/sanov-hlavni/6a5a5dc8169cb408c00ec037/"
+        assert (house["municipality"], house["district"], house["location_text"]) == ("Šanov", "Znojmo", "Hlavní, Šanov, okres Znojmo")
+        assert house["price"] == 5_990_000
+
+    def test_okresni_mesto_bez_slova_okres_a_relativni_odkaz(self):
+        flat = self.items[1]
+        assert flat["url"].startswith("https://reality.idnes.cz/detail/pronajem/byt/znojmo-vancurova/")
+        assert (flat["municipality"], flat["price"]) == ("Znojmo", 14_000)
+
+    def test_cast_obce_a_cena_na_dotaz(self):
+        assert (self.items[2]["municipality"], self.items[2]["price"]) == ("Hostěradice", None)
+
+    @pytest.mark.parametrize("info, district, expected", [
+        ("Dlouhá, Tišnov, okres Brno-venkov", "Brno-venkov", "Tišnov"),
+        ("Rudka, okres Brno-venkov", "Brno-venkov", "Rudka"),
+        ("Kounicova, Brno", "Brno-venkov", None),              # Brno-město není Brno-venkov
+        ("Šatov, okres Znojmo", "Brno-venkov", None),
+        ("okres Znojmo", "Znojmo", None),
+        ("", "Znojmo", None),
     ])
-    def test_cilova_obec_projde(self, locality):
-        from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
-        url = f"https://reality.idnes.cz/detail/prodej/dum/{locality}/69946d79cd2f043044055d82/"
-        assert IdnesRealityScraper._is_target_url(url)
+    def test_lokalita(self, info, district, expected):
+        assert IdnesRealityScraper.parse_list_location(info, district) == expected
 
-    @pytest.mark.parametrize("locality", [
-        "praha-18-miroslava-hajna",          # ulice Miroslava Hájka
-        "ostrava-miroslava-bajera",
-        "horni-jeleni-miroslavska",
-        "benatky-nad-jizerou-miroslava-soumara",
-        "brno-znojemska",                    # ulice Znojemská v Brně
-        "miroslavov",                        # jiná obec se stejným začátkem
+    @pytest.mark.parametrize("text, expected", [
+        ("65 000 Kč (92 Kč/m² )", 65_000),
+        ("2.500.000 Kč", 2_500_000),
+        ("Info o ceně u RK", None),
+        ("", None),
     ])
-    def test_ulice_nebo_jina_obec_neprojde(self, locality):
-        from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
-        url = f"https://reality.idnes.cz/detail/prodej/byt/{locality}/6aa7b86b4097a7b4720ef722/"
-        assert not IdnesRealityScraper._is_target_url(url)
+    def test_cena(self, text, expected):
+        assert IdnesRealityScraper.parse_list_price(text) == expected
 
-    def test_adresa_mimo_detail_neprojde(self):
-        from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
-        assert not IdnesRealityScraper._is_target_url("https://reality.idnes.cz/s/prodej/domy/znojmo/")
+    def test_detail_jen_pro_nove_a_zmenenou_cenu(self):
+        known = {"6a5a5dc8169cb408c00ec037": 6_490_000.0,   # zlevnil
+                 "6aa149ee84341c5a9c0074c4": 14_000.0}      # beze změny
+        selected = IdnesRealityScraper.select_for_detail(self.items, known)
+        assert [i["external_id"] for i in selected] == ["6a5a5dc8169cb408c00ec037", "6ac4ce690d001cc7620864a4"]
+
+    def test_znamy_s_cenou_na_dotaz_detail_nepotrebuje(self):
+        assert IdnesRealityScraper.select_for_detail([self.items[2]], {"6ac4ce690d001cc7620864a4": 5_000_000.0}) == []
+
+    def test_lokalita_z_vypisu_prepise_odhad_z_adresy_a_rezervace_jde_do_stitku(self):
+        normalized = {"title": "Prodej pole 50 076 m²rezervováno", "location_text": "Sanov Hlavni", "price": None}
+        IdnesRealityScraper.apply_list_item(normalized, self.items[0])
+        assert normalized["title"] == "Prodej pole 50 076 m²"
+        assert (normalized["price_note"], normalized["keep_last_price"]) == ("Rezervace", True)
+        assert (normalized["location_text"], normalized["municipality"], normalized["district"]) == (
+            "Hlavní, Šanov, okres Znojmo", "Šanov", "Znojmo")
+
+    @pytest.mark.parametrize("path, expected", [
+        ("prodej/dum/sanov-hlavni", ("House", "Sale")),
+        ("pronajem/byt/znojmo-vancurova", ("Apartment", "Rent")),
+        ("drazba/pozemek/bozice", ("Land", "Auction")),          # dražby se dřív ukládaly jako prodej
+        ("prodej/komercni-nemovitost/znojmo", ("Commercial", "Sale")),
+        ("prodej/maly-objekt-nebo-garaz/znojmo", ("Other", "Sale")),
+    ])
+    def test_typ_nemovitosti_a_nabidky_z_adresy(self, path, expected):
+        url = f"https://reality.idnes.cz/detail/{path}/6a5a5dc8169cb408c00ec037/"
+        assert IdnesRealityScraper.types_from_url(url) == expected
+
+    def test_predvyber_podle_filtru_pozemek_nad_limit_se_nestahuje(self):
+        from core.filters import get_filter_manager
+        land_limit = get_filter_manager().search_filters.get("land", {}).get("max_price")
+        if not land_limit:
+            pytest.skip("settings.yaml nemá limit ceny pozemků")
+        item = {"url": "https://reality.idnes.cz/detail/prodej/pozemek/bozice/6ac4dbdd7e90fcadae0d7a0f/",
+                "price": float(land_limit) + 1, "location_text": "Božice, okres Znojmo", "district": "Znojmo"}
+        assert not IdnesRealityScraper.passes_filters(item)
+        assert IdnesRealityScraper.passes_filters({**item, "price": float(land_limit) - 1})
+        assert IdnesRealityScraper.passes_filters({**item, "price": None})   # cena na dotaz projde

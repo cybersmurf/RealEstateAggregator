@@ -72,6 +72,13 @@ class FilterManager:
         
         return (True, None)
     
+    def passes_search_filters(self, listing_data: Dict[str, Any]) -> bool:
+        """
+        Jen geografické, typové a cenové filtry – pro předvýběr z výpisu, než se stahuje detail.
+        Stačí property_type, offer_type, price, location_text a district.
+        """
+        return self._check_search_filters(listing_data)[0]
+
     def _check_quality_filters(self, listing_data: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """Kontroluje quality filtry."""
         qf = self.quality_filters

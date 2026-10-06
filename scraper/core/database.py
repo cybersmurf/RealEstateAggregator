@@ -655,6 +655,46 @@ class DatabaseManager:
                 seen_since,
             )
 
+    async def get_known_prices(self, source_code: str) -> Dict[str, Optional[float]]:
+        """external_id → cena všech inzerátů zdroje (i stažených). Pro scrapery, které detail
+        stahují jen u nových inzerátů a při změně ceny (iDNES)."""
+        async with self.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT external_id, price FROM re_realestate.listings
+                WHERE source_code = $1 AND external_id IS NOT NULL
+                """,
+                source_code,
+            )
+        return {r["external_id"]: (float(r["price"]) if r["price"] is not None else None) for r in rows}
+
+    async def touch_listings(
+        self, source_code: str, items: Sequence[Tuple[str, Optional[str], Optional[str]]]
+    ) -> int:
+        """
+        Označí známé inzeráty jako viděné (bez stahování detailu): last_seen_at, znovu aktivní.
+        Položka = (external_id, obec, okres); obec a okres se doplní jen tam, kde chybí.
+
+        Returns: počet položek, které se obnovovaly.
+        """
+        if not items:
+            return 0
+        now = datetime.utcnow()
+        async with self.acquire() as conn:
+            await conn.executemany(
+                """
+                UPDATE re_realestate.listings
+                SET last_seen_at   = $5,
+                    is_active      = true,
+                    deactivated_at = NULL,
+                    municipality   = COALESCE(NULLIF(municipality, ''), $3),
+                    district       = COALESCE(NULLIF(district, ''), $4)
+                WHERE source_code = $1 AND external_id = $2
+                """,
+                [(source_code, external_id, municipality, district, now) for external_id, municipality, district in items],
+            )
+        return len(items)
+
     async def fill_missing_districts(self) -> Tuple[int, int]:
         """
         Doplní listings.district tam, kde ho zdroj nedal (Reas, Prodejme.to, část iDNES).

@@ -1,18 +1,26 @@
 """
 Idnes Reality scraper for Czech real estate listings.
 
-Strategy:
-- Sitemap-based discovery (https://reality.idnes.cz/sitemap.xml)
-- Detail pages only (SSR via httpx + BeautifulSoup)
-- No Playwright needed (server-rendered HTML)
+Strategie: výpis podle okresu + detail (SSR, httpx + BeautifulSoup, bez Playwrightu).
+
+- Výpis `https://reality.idnes.cz/s/{okres}/?page=N` (N od 0, 26 položek na stránku, za poslední
+  stránkou 404) vrací všechny nabídky okresu: Znojmo `okres-znojmo`, Brno-venkov `brno-venkov`.
+  6. 10. 2026: 1 198 + 1 733 nemovitostí. robots.txt výpis i stránkování povoluje
+  (zakazuje jen kombinace s řazením, cenou a více hodnotami).
+- Položka výpisu nese adresu detailu, cenu a lokalitu „Ulice, Obec, okres X" (okresní město bez
+  „okres") – odtud bereme obec i okres, takže odpadá hádání z adresy.
+- Detail se stahuje jen u nových inzerátů a při změně ceny; známým se obnoví „naposledy viděno".
+  Jinak by plný běh znamenal ~3 000 detailů za noc (2,5 h, limit úlohy je 45 min).
+
+Do 6. 10. 2026 se inzeráty hledaly v sitemapě podle 13 názvů obcí v URL: pokrývalo to jen město
+Znojmo a pár obcí (370 z ~2 900 nabídek) a slug „miroslav" pouštěl dovnitř pražskou ulici
+Miroslava Hájka.
 """
 import asyncio
-import gzip
 import logging
 import re
 import time
-import xml.etree.ElementTree as ET
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import httpx
@@ -22,6 +30,7 @@ from ..http_utils import http_retry
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..filters import get_filter_manager
 from ..area_parsing import parse_title_areas
 
 logger = logging.getLogger(__name__)
@@ -31,64 +40,36 @@ class IdnesRealityScraper:
     """Scraper for reality.idnes.cz (Czech News Agency real estate portal)."""
 
     BASE_URL = "https://reality.idnes.cz"
-    SITEMAP_URL = f"{BASE_URL}/sitemap.xml"
-    SITEMAP_BASE = f"{BASE_URL}/sitemap/"
-    # These sub-sitemaps contain individual listing detail pages
-    # nemovitosti-hledani.xml.gz contains search/filter pages only
-    LISTING_SITEMAPS = ["nemovitosti.xml.gz", "nemovitosti2.xml.gz", "nemovitosti3.xml.gz"]
-    SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
-    # Slugy obcí, které chceme scrapovat (bez diakritiky, lowercase, jako v iDnes URL).
-    # Adresa detailu je /detail/{nabídka}/{typ}/{obec[-část][-ulice]}/{id}/ a obec stojí vždy
-    # na začátku lokality – viz _is_target_url.
-    TARGET_URL_SLUGS = [
-        "znojmo",
-        "brno-venkov",
-        "pohorelice",
-        "miroslav",
-        "jirice-u-miroslavi",
-        "miroslavske-kninice",
-        "musov",
-        "pasohlavky",
-        "vlasatice",
-        "sumice",
-        "olbramovice",
-        "branisovice",
-        "troskotovice",
-        "dolni-kounice",
-        "velke-nemcice",
-    ]
-    _RE_DETAIL_LOCALITY = re.compile(r"/detail/[^/]+/[^/]+/([^/]+)/")
     SOURCE_CODE = "IDNES"
+
+    # Okres → část adresy výpisu (/s/{slug}/)
+    DISTRICT_SEARCH: Dict[str, str] = {
+        "Znojmo": "okres-znojmo",
+        "Brno-venkov": "brno-venkov",
+    }
+    MAX_LIST_PAGES = 200            # pojistka; 26 položek na stránku
+    INCREMENTAL_LIST_PAGES = 3      # inkrementální běh: jen první stránky každého okresu
+    MAX_DETAILS_PER_RUN = 800       # ~2,4 s na detail → vejde se do 45min limitu úlohy
 
     def __init__(self):
         """Initialize the scraper."""
         self.scraped_count = 0
+        self.skipped_other_district = 0
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
         """
         Main entry point called from runner.py.
 
-        Args:
-            full_rescan: If True, scrape all listings; otherwise limit to max_pages
-
         Returns:
-            Number of successfully scraped listings
+            Počet inzerátů viděných ve výpisech (obnovené + nově stažené) – runner podle něj
+            pozná, že běh proběhl, a po plném rescanu deaktivuje ty, které ve výpisu nebyly.
         """
-        max_pages = 999 if full_rescan else 100
-        return await self.scrape(max_pages=max_pages)
+        max_list_pages = self.MAX_LIST_PAGES if full_rescan else self.INCREMENTAL_LIST_PAGES
+        return await self.scrape(max_list_pages=max_list_pages)
 
-    async def scrape(self, max_pages: int = 100) -> int:
-        """
-        Main scraping orchestrator.
-
-        Args:
-            max_pages: Maximum detail pages to process
-
-        Returns:
-            Number of scraped listings
-        """
-        logger.info(f"Starting Idnes Reality scraper (max_pages={max_pages})")
+    async def scrape(self, max_list_pages: int = INCREMENTAL_LIST_PAGES) -> int:
+        logger.info(f"Starting Idnes Reality scraper (max_list_pages={max_list_pages})")
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
@@ -98,38 +79,49 @@ class IdnesRealityScraper:
                 self._http_client = client
 
                 try:
-                    # 🔥 Fetch listing URLs from gz sub-sitemaps
-                    with timer("Fetch gz sitemaps"):
-                        listing_urls = await self._fetch_all_listing_urls()
+                    db = get_db_manager()
+                    known = await db.get_known_prices(self.SOURCE_CODE)
 
-                    if not listing_urls:
-                        logger.warning("No listings found in sitemap")
+                    with timer("Fetch iDNES district lists"):
+                        items = await self._fetch_district_items(max_list_pages)
+                    if not items:
+                        logger.warning("No listings found in iDNES district lists")
                         return 0
 
-                    logger.info(f"Found {len(listing_urls)} listings in sitemap")
+                    # Známé inzeráty stačí „vidět" (a doplnit jim obec a okres z výpisu)
+                    touched = await db.touch_listings(
+                        self.SOURCE_CODE,
+                        [(i["external_id"], i["municipality"], i["district"]) for i in items if i["external_id"] in known],
+                    )
 
-                    # 🔥 Process detail pages
+                    details = [i for i in self.select_for_detail(items, known) if self.passes_filters(i)]
+                    logger.info(
+                        f"iDNES lists: {len(items)} listings, {touched} known refreshed, "
+                        f"{len(details)} need detail (limit {self.MAX_DETAILS_PER_RUN}), "
+                        f"{self.skipped_other_district} skipped as other district"
+                    )
+
                     count = 0
-                    for idx, listing_url in enumerate(listing_urls[:max_pages]):
+                    for idx, item in enumerate(details[: self.MAX_DETAILS_PER_RUN]):
                         try:
-                            with timer(f"Fetch detail {idx + 1}/{min(len(listing_urls), max_pages)}"):
-                                detail_html = await self._fetch_page(listing_url)
+                            with timer(f"Fetch detail {idx + 1}/{min(len(details), self.MAX_DETAILS_PER_RUN)}"):
+                                detail_html = await self._fetch_page(item["url"])
 
-                            normalized = self._parse_detail_page(detail_html, listing_url)
-
+                            normalized = self._parse_detail_page(detail_html, item["url"])
                             if normalized:
+                                self.apply_list_item(normalized, item)
                                 await self._save_listing(normalized)
                                 count += 1
                                 metrics.increment_scraped()
 
                         except Exception as exc:
-                            logger.error(f"Error processing listing {listing_url}: {exc}")
+                            logger.error(f"Error processing listing {item['url']}: {exc}")
                             metrics.increment_failed()
 
                         # Throttling
                         await asyncio.sleep(0.5)
 
-                    self.scraped_count = count
+                    self.scraped_count = touched + count
 
                 except Exception as exc:
                     logger.error(f"Scraping failed: {exc}")
@@ -141,62 +133,189 @@ class IdnesRealityScraper:
         logger.info(f"Idnes Reality scraper finished. Scraped {self.scraped_count} listings")
         return self.scraped_count
 
-    async def _fetch_all_listing_urls(self) -> List[str]:
-        """
-        Fetch Znojmo listing URLs from IDNES gz sub-sitemaps.
+    async def _fetch_district_items(self, max_list_pages: int) -> List[Dict[str, Any]]:
+        """Projde výpisy okresů a vrátí položky (bez duplicit), každou s obcí a okresem."""
+        items: List[Dict[str, Any]] = []
+        seen: set[str] = set()
 
-        The main sitemap.xml is a sitemap index pointing to .gz sub-sitemaps.
-        nemovitosti*.xml.gz files contain individual listing detail pages.
-        Filter: URL must contain /detail/ AND 'znojmo' in path.
+        for district, slug in self.DISTRICT_SEARCH.items():
+            for page in range(min(max_list_pages, self.MAX_LIST_PAGES)):
+                url = f"{self.BASE_URL}/s/{slug}/" + (f"?page={page}" if page else "")
+                try:
+                    html = await self._fetch_page(url)
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 404:
+                        break  # za poslední stránkou
+                    logger.error(f"iDNES list {url} failed: {exc}")
+                    break
 
-        Returns:
-            List of detail page URLs for Znojmo area.
-        """
-        if self._http_client is None:
-            raise RuntimeError("HTTP client not initialized")
+                page_items = self.parse_list_page(html, district)
+                if not page_items["items"] and not page_items["other_district"]:
+                    break
+                self.skipped_other_district += page_items["other_district"]
+                for item in page_items["items"]:
+                    if item["external_id"] not in seen:
+                        seen.add(item["external_id"])
+                        items.append(item)
 
-        ns = self.SITEMAP_NS
-        urls: List[str] = []
+                await asyncio.sleep(0.5)
 
-        for sitemap_name in self.LISTING_SITEMAPS:
-            sitemap_url = self.SITEMAP_BASE + sitemap_name
-            try:
-                logger.debug(f"Fetching gz sitemap: {sitemap_url}")
-                response = await self._http_client.get(sitemap_url)
-                response.raise_for_status()
+            logger.info(f"iDNES district {district}: {len(items)} listings so far")
 
-                # Decompress gzip content
-                xml_bytes = gzip.decompress(response.content)
-                root = ET.fromstring(xml_bytes)
+        return items
 
-                batch_urls = [
-                    loc_elem.text
-                    for loc_elem in root.findall(f".//{{{ns}}}loc")
-                    if loc_elem.text
-                    and self._is_target_url(loc_elem.text)
-                ]
-                urls.extend(batch_urls)
-                logger.info(f"Sitemap {sitemap_name}: {len(batch_urls)} target-area URLs")
+    # ── čisté funkce (testovatelné bez HTTP a DB) ────────────────────────────
 
-            except Exception as exc:
-                logger.error(f"Failed to process sitemap {sitemap_name}: {exc}")
-
-        logger.info(f"Total target-area detail URLs found: {len(urls)}")
-        return urls
+    _RE_LIST_PRICE = re.compile(r"(\d[\d\s.]*)\s*(?:Kč|CZK)")
 
     @classmethod
-    def _is_target_url(cls, url: str) -> bool:
+    def parse_list_page(cls, html: str, district: str) -> Dict[str, Any]:
         """
-        Detail z cílové obce: lokalita v adrese ZAČÍNÁ slugem obce (celým slovem).
+        Stránka výpisu → {"items": [...], "other_district": N}.
 
-        Dřív stačil výskyt kdekoli v URL, takže „miroslav" pustilo dovnitř i byty v pražské
-        ulici Miroslava Hájka, ostravské Miroslava Bajera nebo dům v Horním Jelení, Miroslavská.
+        Položka: url, external_id, location_text, municipality, district, price.
+        Reklamní bloky se přeskakují; nabídka s lokalitou z jiného okresu (zvýrazněné „tipy")
+        se nepočítá mezi položky.
         """
-        match = cls._RE_DETAIL_LOCALITY.search(url.lower())
+        soup = BeautifulSoup(html, "html.parser")
+        items: List[Dict[str, Any]] = []
+        other_district = 0
+
+        for node in soup.select("div.c-products__item"):
+            if "c-products__item-advertisment" in (node.get("class") or []):
+                continue
+            link = node.select_one("a.c-products__link[href]")
+            href = str(link.get("href", "")) if link else ""
+            if "/detail/" not in href:
+                continue
+            url = urljoin(cls.BASE_URL, href)
+
+            info_el = node.select_one(".c-products__info")
+            info = " ".join(info_el.get_text(" ", strip=True).split()) if info_el else ""
+            location = cls.parse_list_location(info, district)
+            if location is None:
+                other_district += 1
+                continue
+
+            price_el = node.select_one(".c-products__price")
+            items.append({
+                "url": url,
+                "external_id": cls._extract_external_id(url),
+                "location_text": info,
+                "municipality": location,
+                "district": district,
+                "price": cls.parse_list_price(price_el.get_text(" ", strip=True) if price_el else ""),
+            })
+
+        return {"items": items, "other_district": other_district}
+
+    @staticmethod
+    def parse_list_location(info: str, district: str) -> Optional[str]:
+        """
+        „Hlavní, Šanov, okres Znojmo" → obec „Šanov"; okresní město se píše bez okresu
+        („Vančurova, Znojmo"). None = lokalita chybí nebo patří do jiného okresu.
+        """
+        parts = [p.strip() for p in info.split(",") if p.strip()]
+        if not parts:
+            return None
+        if parts[-1].lower().startswith("okres "):
+            if parts[-1][6:].strip() != district:
+                return None
+            parts = parts[:-1]
+            if not parts:
+                return None
+        elif parts[-1] != district:
+            return None
+        # „Hostěradice - Chlupice" = obec - část obce
+        return parts[-1].split(" - ")[0].strip() or None
+
+    @classmethod
+    def parse_list_price(cls, text: str) -> Optional[float]:
+        """„5 990 000 Kč", „14 000 Kč/měsíc", „65 000 Kč (92 Kč/m²)" → číslo; „Info o ceně u RK" → None."""
+        clean = text.replace("\u200d", "").replace("\u00a0", " ")
+        match = cls._RE_LIST_PRICE.search(clean)
         if not match:
-            return False
-        locality = match.group(1)
-        return any(locality == slug or locality.startswith(slug + "-") for slug in cls.TARGET_URL_SLUGS)
+            return None
+        digits = re.sub(r"[^\d]", "", match.group(1))
+        return float(digits) if digits else None
+
+    @staticmethod
+    def select_for_detail(items: List[Dict[str, Any]], known: Dict[str, Optional[float]]) -> List[Dict[str, Any]]:
+        """
+        Které položky potřebují detail: napřed známé se změněnou cenou (ať se zapíše do historie),
+        potom nové. Známé se stejnou cenou detail nepotřebují.
+        """
+        changed: List[Dict[str, Any]] = []
+        new: List[Dict[str, Any]] = []
+        for item in items:
+            if item["external_id"] not in known:
+                new.append(item)
+                continue
+            old_price, list_price = known[item["external_id"]], item["price"]
+            if list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5):
+                changed.append(item)
+        return changed + new
+
+    @staticmethod
+    def types_from_url(url: str) -> Tuple[str, str]:
+        """
+        (typ nemovitosti, typ nabídky) z adresy detailu /detail/{prodej|pronajem|drazba}/{typ}/…
+        Dražby se dřív ukládaly jako prodej.
+        """
+        url_lower = url.lower()
+        property_type = "Other"
+        if "/byt/" in url_lower or "/byt-" in url_lower:
+            property_type = "Apartment"
+        elif "/dum/" in url_lower or "/dum-" in url_lower or "/domy/" in url_lower:
+            property_type = "House"
+        elif "/pozemek/" in url_lower or "/pozemek-" in url_lower:
+            property_type = "Land"
+        elif "/chata/" in url_lower or "/chalupa/" in url_lower or "/chata-" in url_lower:
+            property_type = "Cottage"
+        elif "/komercni" in url_lower or "/komerci" in url_lower:
+            property_type = "Commercial"
+        elif "/garaz/" in url_lower or "/garaz-" in url_lower:
+            property_type = "Garage"
+
+        if "/pronajem/" in url_lower:
+            offer_type = "Rent"
+        elif "/drazba/" in url_lower:
+            offer_type = "Auction"
+        else:
+            offer_type = "Sale"
+        return property_type, offer_type
+
+    @classmethod
+    def passes_filters(cls, item: Dict[str, Any]) -> bool:
+        """
+        Projde položka výpisu cenovými a typovými filtry (settings.yaml)? Co by upsert stejně
+        zahodil (pozemek nad limit), nemá smysl stahovat – a stahovalo by se každou noc znovu,
+        protože se to nikdy neuloží.
+        """
+        property_type, offer_type = cls.types_from_url(item["url"])
+        return get_filter_manager().passes_search_filters({
+            "property_type": property_type,
+            "offer_type": offer_type,
+            "price": item.get("price"),
+            "location_text": item.get("location_text", ""),
+            "district": item.get("district", ""),
+        })
+
+    _RE_RESERVED_TITLE = re.compile(r"\s*rezervov[aá]no\s*$", re.IGNORECASE)
+
+    @classmethod
+    def apply_list_item(cls, normalized: Dict[str, Any], item: Dict[str, Any]) -> None:
+        """Do dat z detailu doplní lokalitu z výpisu (obec, okres) a štítek rezervace z titulku."""
+        normalized["location_text"] = item["location_text"][:200]
+        normalized["municipality"] = item["municipality"]
+        normalized["district"] = item["district"]
+
+        title = normalized.get("title") or ""
+        if cls._RE_RESERVED_TITLE.search(title):
+            # iDNES lepí „rezervováno" hned za titulek („Prodej pole 50 076 m²rezervováno")
+            normalized["title"] = cls._RE_RESERVED_TITLE.sub("", title)
+            normalized["price_note"] = "Rezervace"
+            normalized["keep_last_price"] = True
 
     @http_retry
     async def _fetch_page(self, url: str) -> str:
@@ -280,25 +399,11 @@ class IdnesRealityScraper:
 
             location = location or "Znojmo"
 
-            # Determine property type from URL (IDNES uses English slugs)
-            # URL segments: /dum/, /byt/, /pozemek/, /chata/, /komercni-nemovitost/, etc.
+            property_type, url_offer_type = self.types_from_url(url)
             url_lower = url.lower()
-            property_type = "Other"
-            if "/byt/" in url_lower or "/byt-" in url_lower:
-                property_type = "Apartment"
-            elif "/dum/" in url_lower or "/dum-" in url_lower or "/domy/" in url_lower:
-                property_type = "House"
-            elif "/pozemek/" in url_lower or "/pozemek-" in url_lower:
-                property_type = "Land"
-            elif "/chata/" in url_lower or "/chalupa/" in url_lower or "/chata-" in url_lower:
-                property_type = "Cottage"
-            elif "/komercni" in url_lower or "/komerci" in url_lower:
-                property_type = "Commercial"
-            elif "/garaz/" in url_lower or "/garaz-" in url_lower:
-                property_type = "Garage"
 
             # Offer type from URL
-            offer_type = "Rent" if "/pronajem/" in url_lower else "Sale"
+            offer_type = url_offer_type
 
             # Extract photos - IDNES: plain <img> without class, src from sta-reality2.1gr.cz
             photos = []
