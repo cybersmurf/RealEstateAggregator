@@ -88,3 +88,28 @@ def test_negace_plati_jen_pro_dany_vyskyt():
     d = {"title": "Dům", "description": "Není novostavba. Ale sousední objekt je novostavba po kolaudaci."}
     _enrich_listing_fields(d)
     assert d.get("condition") == "Novostavba"
+
+
+def test_drevena_okna_nejsou_drevostavba():
+    # Dyjákovice (6. 10. 2026): „okna jsou kombinací starších dřevěných a plastových" → uložilo se „Dřevo"
+    for desc in (
+        "Dům má sedlovou střechu, okna jsou kombinací starších dřevěných a plastových.",
+        "V pokojích jsou dřevěné podlahy, původní dřevěné trámy a dřevěné schodiště.",
+        "Na zahradě stojí pergola, podlahy jsou ze dřeva.",
+    ):
+        d = {"title": "Prodej rodinného domu 116 m², pozemek 2006 m²", "description": desc}
+        _enrich_listing_fields(d)
+        assert d.get("construction_type") is None, f"{desc!r} → {d.get('construction_type')}"
+
+
+def test_drevena_stavba_je_drevo():
+    for desc in (
+        "Jedná se o dřevěnou stavbu s tradičním vzhledem.",
+        "Nabízíme roubenku po rekonstrukci.",
+        "Dům je postaven jako rámová dřevěná konstrukce.",
+        "Zděný sklep, nad ním dřevěná chata.",
+        "Dům je celý ze dřeva.",
+    ):
+        d = {"title": "Prodej chaty", "description": desc}
+        _enrich_listing_fields(d)
+        assert d.get("construction_type") == "Dřevo", f"{desc!r} → {d.get('construction_type')}"

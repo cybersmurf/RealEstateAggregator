@@ -58,7 +58,13 @@ _RE_NEGATED_BEFORE = re.compile(r'(?:\bnení|\bnejde o|\bnikoli|\bne\b|\bbez)\s*
 _RE_CONSTRUCTION_MAP = [
     (re.compile(r'cihlová|cihlový|ciheln|cihla|z cihel', re.IGNORECASE), 'Cihla'),
     (re.compile(r'panel[oá]|panelový d\u016fm|panelová budova', re.IGNORECASE), 'Panel'),
-    (re.compile(r'd\u0159ev\u011bn|d\u0159evosta|srubov|rouben|ze d\u0159eva', re.IGNORECASE), 'D\u0159evo'),
+    # Jen když je ze dřeva STAVBA – samotné „dřevěn" chytalo podlahy, okna, trámy a parkety
+    # (6. 10. 2026: ze 484 aktivních „Dřevo" byla dřevostavba, srub nebo dřevěná chata jen u 104).
+    (re.compile(
+        r'd\u0159evostav|\bsrub\w*|rouben\w*'
+        r'|d\u0159ev\u011bn\w+\s+(?:\w+\s+)?(?:stavb|d\u016fm|dom[ue]k?\b|domk|chat|chalup|konstrukc|objekt|budov|novostavb|rodinn)'
+        r'|(?:d\u016fm|domek|stavba|chata|konstrukce|objekt)\s+(?:je\s+)?(?:\w+\s+)?ze\s+d\u0159eva',
+        re.IGNORECASE), 'D\u0159evo'),
     (re.compile(r'montovan|prefabrik\xe1t|skelet', re.IGNORECASE), 'Montovaná'),
     (re.compile(r'\bzd\u011bn[a\xe1\xe9\xfd]\b', re.IGNORECASE), 'Zděná'),
 ]

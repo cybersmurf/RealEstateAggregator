@@ -518,6 +518,15 @@ class SrealityScraper:
             if value:
                 normalized[key] = value
 
+        # Typ stavby a stav objektu: strukturovaná pole detailu mají přednost před regexem z popisu
+        # (Dyjákovice 6. 10. 2026: „Smíšená", ale kvůli „dřevěným oknům" v textu se uložilo „Dřevo").
+        construction_type = self._codebook_name(detail.get("building_type"), self._BUILDING_TYPE_NAMES)
+        if construction_type:
+            normalized["construction_type"] = construction_type
+        condition = self._codebook_name(detail.get("building_condition"))
+        if condition:
+            normalized["condition"] = condition
+
         # Dražba: strukturované položky detailu (items[] = {name, value}) mají přednost
         # před regexem v _enrich_auction_fields, který doběhne jako fallback při upsertu.
         self._merge_auction_items(normalized, detail.get("items"))
@@ -601,6 +610,24 @@ class SrealityScraper:
             "seller_phone": ", ".join(phones[:3]) or None,
             "seller_company": company,
         }
+
+    # Názvy typu stavby ze Sreality → hodnoty, které používá regex doplnění a filtr konstrukce
+    _BUILDING_TYPE_NAMES = {
+        "Cihlová": "Cihla",
+        "Panelová": "Panel",
+        "Dřevostavba": "Dřevo",
+        "Skeletová": "Skelet",
+    }
+
+    @staticmethod
+    def _codebook_name(field: Any, names: Optional[Dict[str, str]] = None) -> Optional[str]:
+        """Název z číselníku {name, value}; nevyplněná položka (value 0, „- vyber stav") = None."""
+        if not isinstance(field, dict) or not field.get("value"):
+            return None
+        name = " ".join(str(field.get("name") or "").split())
+        if not name or name.startswith("-") or name.lower() == "nedefinováno":
+            return None
+        return (names or {}).get(name, name)[:50]
 
     @staticmethod
     def _merge_auction_items(normalized: Dict[str, Any], items: Any) -> None:

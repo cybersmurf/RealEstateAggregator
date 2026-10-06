@@ -1047,3 +1047,29 @@ class TestBazosSimilarListingsBlock:
         assert built is None
         assert land == 1223
         assert BazosScraper()._extract_areas("Prodej rodinného domu 150 m², Znojmo", "Dům.", "Dům") == (150, None)
+
+
+class TestSrealityBuildingCodebooks:
+    """Dyjákovice (6. 10. 2026): detail říká „Smíšená" a „Před rekonstrukcí", scraper pole nečetl
+    a konstrukci hádal z popisu („dřevěná okna" → Dřevo)."""
+
+    BASE = {"title": "Prodej rodinného domu 116 m², pozemek 2006 m²", "external_id": "2934251596"}
+
+    def test_typ_stavby_a_stav_z_detailu(self):
+        detail = {"building_type": {"name": "Smíšená", "value": 7},
+                  "building_condition": {"name": "Před rekonstrukcí", "value": 8}}
+        merged = SrealityScraper(fetch_details=False)._merge_detail(dict(self.BASE), detail)
+        assert merged["construction_type"] == "Smíšená"
+        assert merged["condition"] == "Před rekonstrukcí"
+
+    def test_nazvy_se_sjednoti_se_slovnikem_filtru(self):
+        merged = SrealityScraper(fetch_details=False)._merge_detail(
+            dict(self.BASE), {"building_type": {"name": "Cihlová", "value": 2}})
+        assert merged["construction_type"] == "Cihla"
+
+    def test_nevyplnena_polozka_se_neulozi(self):
+        detail = {"building_type": {"name": "- vyber stavbu", "value": 0},
+                  "building_condition": {"name": "- vyber stav", "value": 0}}
+        merged = SrealityScraper(fetch_details=False)._merge_detail(dict(self.BASE), detail)
+        assert "construction_type" not in merged
+        assert "condition" not in merged
