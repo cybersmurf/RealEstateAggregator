@@ -1120,3 +1120,41 @@ class TestPremiaRealityListingStatus:
         listing = self._parse('<tr><td class="price">Cena</td><td><strong>Informace o ceně v RK</strong></td></tr>')
         assert listing["price"] is None
         assert listing["price_note"] == "Informace o ceně v RK"
+
+
+class TestIdnesTargetUrl:
+    """6. 10. 2026: slug „miroslav" seděl kdekoli v adrese, takže se k nám dostaly byty z pražské
+    ulice Miroslava Hájka a z Ostravy. Obec musí stát na začátku lokality."""
+
+    @pytest.mark.parametrize("locality", [
+        "znojmo",
+        "znojmo-leska-horni",
+        "miroslav",
+        "miroslav-merunkova",
+        "jirice-u-miroslavi",
+        "miroslavske-kninice",
+        "pohorelice-znojemska",
+        "pasohlavky-musov",
+        "dolni-kounice-ruzova",
+    ])
+    def test_cilova_obec_projde(self, locality):
+        from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
+        url = f"https://reality.idnes.cz/detail/prodej/dum/{locality}/69946d79cd2f043044055d82/"
+        assert IdnesRealityScraper._is_target_url(url)
+
+    @pytest.mark.parametrize("locality", [
+        "praha-18-miroslava-hajna",          # ulice Miroslava Hájka
+        "ostrava-miroslava-bajera",
+        "horni-jeleni-miroslavska",
+        "benatky-nad-jizerou-miroslava-soumara",
+        "brno-znojemska",                    # ulice Znojemská v Brně
+        "miroslavov",                        # jiná obec se stejným začátkem
+    ])
+    def test_ulice_nebo_jina_obec_neprojde(self, locality):
+        from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
+        url = f"https://reality.idnes.cz/detail/prodej/byt/{locality}/6aa7b86b4097a7b4720ef722/"
+        assert not IdnesRealityScraper._is_target_url(url)
+
+    def test_adresa_mimo_detail_neprojde(self):
+        from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
+        assert not IdnesRealityScraper._is_target_url("https://reality.idnes.cz/s/prodej/domy/znojmo/")

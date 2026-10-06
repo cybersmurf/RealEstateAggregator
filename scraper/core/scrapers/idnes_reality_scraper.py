@@ -37,14 +37,18 @@ class IdnesRealityScraper:
     # nemovitosti-hledani.xml.gz contains search/filter pages only
     LISTING_SITEMAPS = ["nemovitosti.xml.gz", "nemovitosti2.xml.gz", "nemovitosti3.xml.gz"]
     SITEMAP_NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
-    # Slugy lokalit které chceme skrápat (bez diakritiky, lowercase, jako v iDnes URL)
+    # Slugy obcí, které chceme scrapovat (bez diakritiky, lowercase, jako v iDnes URL).
+    # Adresa detailu je /detail/{nabídka}/{typ}/{obec[-část][-ulice]}/{id}/ a obec stojí vždy
+    # na začátku lokality – viz _is_target_url.
     TARGET_URL_SLUGS = [
         "znojmo",
         "brno-venkov",
         "pohorelice",
         "miroslav",
+        "jirice-u-miroslavi",
+        "miroslavske-kninice",
         "musov",
-        "pasohlav",
+        "pasohlavky",
         "vlasatice",
         "sumice",
         "olbramovice",
@@ -53,6 +57,7 @@ class IdnesRealityScraper:
         "dolni-kounice",
         "velke-nemcice",
     ]
+    _RE_DETAIL_LOCALITY = re.compile(r"/detail/[^/]+/[^/]+/([^/]+)/")
     SOURCE_CODE = "IDNES"
 
     def __init__(self):
@@ -168,8 +173,7 @@ class IdnesRealityScraper:
                     loc_elem.text
                     for loc_elem in root.findall(f".//{{{ns}}}loc")
                     if loc_elem.text
-                    and "/detail/" in loc_elem.text
-                    and any(slug in loc_elem.text.lower() for slug in self.TARGET_URL_SLUGS)
+                    and self._is_target_url(loc_elem.text)
                 ]
                 urls.extend(batch_urls)
                 logger.info(f"Sitemap {sitemap_name}: {len(batch_urls)} target-area URLs")
@@ -179,6 +183,20 @@ class IdnesRealityScraper:
 
         logger.info(f"Total target-area detail URLs found: {len(urls)}")
         return urls
+
+    @classmethod
+    def _is_target_url(cls, url: str) -> bool:
+        """
+        Detail z cílové obce: lokalita v adrese ZAČÍNÁ slugem obce (celým slovem).
+
+        Dřív stačil výskyt kdekoli v URL, takže „miroslav" pustilo dovnitř i byty v pražské
+        ulici Miroslava Hájka, ostravské Miroslava Bajera nebo dům v Horním Jelení, Miroslavská.
+        """
+        match = cls._RE_DETAIL_LOCALITY.search(url.lower())
+        if not match:
+            return False
+        locality = match.group(1)
+        return any(locality == slug or locality.startswith(slug + "-") for slug in cls.TARGET_URL_SLUGS)
 
     @http_retry
     async def _fetch_page(self, url: str) -> str:
