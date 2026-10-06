@@ -27,8 +27,31 @@ CATEGORIES = [
     ("byty",    "Byt"),
     ("domy",    "Dům"),
     ("parcely", "Pozemek"),
-    ("rekreace","Dům"),   # chaty, zahrady
+    ("rekreace","Pozemek"),  # na webu jsou tu zahrady (chaty má realitka mezi domy)
     ("ostatni", "Ostatní"),
+]
+
+# Slug okresu v URL detailu („…-okres-znojmo-…") → název okresu. Víceslovné okresy musí být
+# vyjmenované, jinak by z „-okres-brno-venkov-dum-…" nešlo poznat, kde okres končí.
+DISTRICT_SLUGS = {
+    "znojmo": "Znojmo", "brno-venkov": "Brno-venkov", "brno-mesto": "Brno-město",
+    "trebic": "Třebíč", "breclav": "Břeclav", "hodonin": "Hodonín", "vyskov": "Vyškov",
+    "blansko": "Blansko", "jihlava": "Jihlava", "zdar-nad-sazavou": "Žďár nad Sázavou",
+    "ceska-lipa": "Česká Lípa", "cesky-krumlov": "Český Krumlov", "ceske-budejovice": "České Budějovice",
+    "usti-nad-orlici": "Ústí nad Orlicí", "usti-nad-labem": "Ústí nad Labem", "jicin": "Jičín",
+    "louny": "Louny", "jindrichuv-hradec": "Jindřichův Hradec", "havlickuv-brod": "Havlíčkův Brod",
+    "pelhrimov": "Pelhřimov", "prostejov": "Prostějov", "olomouc": "Olomouc",
+}
+
+# Typ podle řádku tabulky („Nemovitost" u domů, „Typ nemovitosti" u bytů, „Podtyp nemovitosti"
+# u zahrad a komerčních objektů). Pořadí rozhoduje – první shoda vyhrává.
+_TYPE_LABEL_PATTERNS = [
+    (re.compile(r"\bbyt"), "Byt"),
+    (re.compile(r"d[ůu]m|\bvil[ay]|chat[ay]|chalup"), "Dům"),
+    (re.compile(r"pozem|parcel|zahrad|\bpole\b|\bles\b|\blouk|\bsad|vinic"), "Pozemek"),
+    (re.compile(r"gar[áa][žz]"), "Garáž"),
+    (re.compile(r"kancel|sklad|obchod|v[ýy]rob|komer[čc]|restaur|ubytov"), "Komerční"),
+    (re.compile(r"sklep"), "Ostatní"),
 ]
 
 DEFAULT_HEADERS = {
@@ -166,6 +189,45 @@ class PremiaRealityScraper:
             return "reserved"
         return None
 
+    @staticmethod
+    def _district_from_url(url: str) -> Optional[str]:
+        """Okres ze slugu detailu: „…-strachotice-okres-znojmo-dum-3-1-na-prodej-3164.html" → „Znojmo".
+        Nabídka bez okresu ve slugu (Praha) vrací None."""
+        match = re.search(r"-okres-([a-z-]+)", url.lower())
+        if not match:
+            return None
+        rest = match.group(1)
+        # Nejdelší známý slug má přednost („brno-venkov" před čímkoli kratším)
+        for slug in sorted(DISTRICT_SLUGS, key=len, reverse=True):
+            if rest == slug or rest.startswith(slug + "-"):
+                return DISTRICT_SLUGS[slug]
+        first = rest.split("-")[0]
+        return first.title() if first else None
+
+    @staticmethod
+    def _property_type(params: Dict[str, str], url: str, default_type: str) -> str:
+        """Typ nemovitosti z tabulky parametrů a kategorie v URL.
+
+        Web typ uvádí pod třemi různými popisky: „Nemovitost" (domy), „Typ nemovitosti" (byty)
+        a „Podtyp nemovitosti" (zahrady, pozemky, komerční objekty). Dřív se četl jen první,
+        takže zahrady z /rekreace/ dostaly výchozí typ kategorie „Dům" a pletly se mezi domy.
+        """
+        category_match = re.search(r"premiareality\.cz/([a-z]+)/", url.lower())
+        category = category_match.group(1) if category_match else ""
+        # U pozemků říká podtyp jen účel („Bydlení", „Komerční", „Pole") – typ je vždy pozemek
+        if category == "parcely":
+            return "Pozemek"
+        label = (
+            params.get("nemovitost")
+            or params.get("typ nemovitosti")
+            or params.get("podtyp nemovitosti")
+            or ""
+        ).lower()
+        for pattern, property_type in _TYPE_LABEL_PATTERNS:
+            if pattern.search(label):
+                return property_type
+        return default_type
+
     def _parse_price(self, text: str) -> Optional[float]:
         if not text:
             return None
@@ -223,19 +285,9 @@ class PremiaRealityScraper:
             result["price_note"] = price_text[:200]  # „Informace o ceně v RK"
 
         # Typ nemovitosti
-        nem_type = params.get("nemovitost", "").lower()
-        if "byt" in nem_type:
-            result["property_type"] = "Byt"
-        elif "dům" in nem_type or "dum" in nem_type or "vila" in nem_type or "chata" in nem_type or "chalupa" in nem_type:
-            result["property_type"] = "Dům"
-        elif "pozemek" in nem_type or "parcela" in nem_type or "zahrada" in nem_type:
-            result["property_type"] = "Pozemek"
-        elif "garáž" in nem_type or "garaz" in nem_type:
-            result["property_type"] = "Garáž"
-        elif "komerční" in nem_type or "sklep" in nem_type or "vinný" in nem_type:
-            result["property_type"] = "Ostatní"
-        else:
-            result["property_type"] = list_item.get("default_property_type", "Ostatní")
+        result["property_type"] = self._property_type(
+            params, list_item["url"], list_item.get("default_property_type", "Ostatní")
+        )
 
         # Plochy
         uzitna = params.get("užitná plocha", params.get("uzitna plocha", ""))
@@ -246,22 +298,33 @@ class PremiaRealityScraper:
         if zahrada:
             result["area_land"] = self._parse_area(zahrada)
 
-        # Lokace: Ulice + Město
-        ulice = params.get("ulice", "")
-        mesto = params.get("město", params.get("mesto", ""))
-        if ulice and mesto:
-            result["location_text"] = f"{ulice}, {mesto}"
-        elif mesto:
-            result["location_text"] = mesto
-        elif ulice:
-            result["location_text"] = ulice
-        else:
-            # Fallback z title (bývá tam "Na Hrázi - Znojmo")
+        # Lokace: nabídka s ulicí má řádky „Ulice" + „Město", bez ulice jen „Obec"
+        # („Lokace" je charakter místa – „Klidná část obce" –, ne adresa).
+        ulice = params.get("ulice", "").strip()
+        mesto = (params.get("město") or params.get("mesto") or params.get("obec") or "").strip()
+        if not mesto:
+            # Záloha z podtitulku („Na Hrázi - Znojmo" nebo jen „Strachotice")
             h2 = soup.find("h2")
-            if h2:
-                result["location_text"] = h2.get_text(" ", strip=True)[:200]
+            h2_text = h2.get_text(" ", strip=True) if h2 else ""
+            if " - " in h2_text and not ulice:
+                ulice, mesto = (part.strip() for part in h2_text.rsplit(" - ", 1))
             else:
-                result["location_text"] = "Znojmo a okolí"
+                mesto = h2_text.strip()
+        if ulice and mesto and ulice != mesto:
+            result["location_text"] = f"{ulice}, {mesto}"[:200]
+        elif mesto or ulice:
+            result["location_text"] = (mesto or ulice)[:200]
+        else:
+            result["location_text"] = "Znojmo a okolí"
+        if mesto:
+            result["municipality"] = mesto[:100]
+
+        # Okres: v obsahu stránky není, jen ve slugu URL („…-okres-znojmo-…"). Bez něj viděl
+        # geografický filtr jen název obce („Strachotice") a 6. 10. 2026 tak chybělo 6 z 8 volných
+        # domů na Znojemsku – prošly jen ty, které mají „Znojmo" přímo v adrese.
+        district = self._district_from_url(list_item["url"])
+        if district:
+            result["district"] = district
 
         # Popis – div.col-md-6.ps-5 (dle průzkumu struktury webu)
         desc_el = soup.select_one(".ps-5.pe-5, .ps-5, .col-md-6.ps-5")

@@ -45,6 +45,20 @@ PROPERTY_TYPE_MAP = {
     "sklep": "Ostatní", "vinný": "Ostatní",
 }
 
+# Typ podle popisku, který web uvádí sám: na detailu řádky „Typ nemovitosti" + „Upřesnění"
+# („Domy" + „Rodinný dům"), ve výpisu první položka řádku .portfolio--text--main
+# („Rodinný dům, konstrukce: …"; u bytů dispozice „4+kk, Osobní, …"). První shoda vyhrává:
+# pozemek před komerčním („Pozemek, komerční"), chata před domem („Domy" + „Chata").
+SITE_TYPE_PATTERNS = [
+    (re.compile(r"^\d\s*\+\s*(?:kk|\d)|atypick|garson|\bbyt"), "Byt"),
+    (re.compile(r"pozem|parcel|zahrad|\bpole\b|\blouk|\bles\b"), "Pozemek"),
+    (re.compile(r"chat[ay]?\b|chalup"), "Chata"),
+    (re.compile(r"rodinn|v[íi]cegenera|\bvil[ay]\b|[čc]in[žz]ovn|\bd[ůu]m\b|\bdomy\b"), "Dům"),
+    (re.compile(r"gar[áa][žz]"), "Garáž"),
+    (re.compile(r"sklep"), "Ostatní"),
+    (re.compile(r"obchod|kancel|ordinac|sklad|v[ýy]rob|administrativ|hotel|pen[sz]ion|restaur|provozn|komer[čc]|ubytov"), "Komerční"),
+]
+
 
 class NemovitostiZnojmoScraper:
     """Scraper pro nemovitostiznojmo.cz (Eurobydleni/Urbium platforma)."""
@@ -88,6 +102,13 @@ class NemovitostiZnojmoScraper:
                             try:
                                 detail_html = await self._fetch(item["url"])
                                 normalized = self._parse_detail_page(detail_html, item)
+                                if normalized.pop("sold", False):
+                                    # Prodaná / pronajatá nabídka, kterou web ještě ukazuje – u nás aktivní být nesmí
+                                    logger.info("Listing %s is sold – deactivating", normalized["external_id"])
+                                    await get_db_manager().deactivate_listing(self.SOURCE_CODE, normalized["external_id"])
+                                    self.scraped_count += 1
+                                    await asyncio.sleep(0.5)
+                                    continue
                                 await self._save_listing(normalized)
                                 self.scraped_count += 1
                                 metrics.increment_scraped()
@@ -135,8 +156,8 @@ class NemovitostiZnojmoScraper:
             if any(r["url"] == full_url for r in results):
                 continue
 
-            title_el = link.select_one("h2, h3, h4, .title, strong")
-            title = title_el.get_text(strip=True) if title_el else ""
+            title_el = link.select_one(".portfolio--headline, h2, h3, h4, .title, strong")
+            title = title_el.get_text(" ", strip=True) if title_el else ""
 
             price_text = ""
             for el in link.find_all(string=re.compile(r"Kč|Kc")):
@@ -145,10 +166,20 @@ class NemovitostiZnojmoScraper:
                     price_text = stripped
                     break
 
+            # Popisek typu („Rodinný dům, konstrukce: Cihlová, …") – první položka před čárkou
+            label_el = link.select_one(".portfolio--text--main")
+            site_type = label_el.get_text(" ", strip=True).split(",")[0].strip() if label_el else ""
+
+            # Štítek „Rezervováno" je na každé fotce karty (.portfolio--reserved), karta má třídu js-reserved
+            card = link.find_parent(class_="portfolio--column")
+            reserved = bool(card and (card.select_one(".portfolio--reserved") or "js-reserved" in (card.get("class") or [])))
+
             results.append({
                 "url": full_url,
                 "title": title[:200],
                 "price_text": price_text,
+                "site_type": site_type[:100],
+                "reserved": reserved,
             })
 
         # Paginace: číslované odkazy na stránky
@@ -178,6 +209,43 @@ class NemovitostiZnojmoScraper:
             except ValueError:
                 return None
         return None
+
+    @staticmethod
+    def _parse_tables(soup: BeautifulSoup) -> Dict[str, str]:
+        """Řádky tabulek detailu (<td>popisek</td><th>hodnota</th>) jako {popisek malými: hodnota}.
+
+        Souhrn nahoře má popisky s dvojtečkou („Adresa:" = ulice a PSČ) a nesmí přepsat stejně
+        pojmenované řádky podrobných bloků („Adresa" = obec) – proto se řádky s dvojtečkou vynechají.
+        """
+        params: Dict[str, str] = {}
+        for row in soup.select("table.detail-main--table tr, table.table--info tr"):
+            cells = row.find_all(["td", "th"])
+            if len(cells) < 2:
+                continue
+            label = cells[0].get_text(" ", strip=True)
+            if not label or label.endswith(":"):
+                continue
+            params.setdefault(label.lower(), cells[1].get_text(" ", strip=True))
+        return params
+
+    @staticmethod
+    def _type_from_site_label(label: str) -> Optional[str]:
+        """Typ nemovitosti z popisku webu („Rodinný dům", „4+kk", „Pozemek, komerční", „Domy Chata")."""
+        text = (label or "").strip().lower()
+        if not text:
+            return None
+        for pattern, property_type in SITE_TYPE_PATTERNS:
+            if pattern.search(text):
+                return property_type
+        return None
+
+    @staticmethod
+    def _type_from_title(title_lower: str) -> str:
+        """Záloha, když web typ neuvede: klíčová slova z názvu (první shoda v PROPERTY_TYPE_MAP)."""
+        for keyword, ptype in PROPERTY_TYPE_MAP.items():
+            if keyword in title_lower:
+                return ptype
+        return "Ostatní"
 
     def _parse_detail_page(
         self, html: str, list_item: Dict[str, Any]
@@ -210,16 +278,42 @@ class NemovitostiZnojmoScraper:
                 break
         result["price"] = self._parse_price(price_text)
 
-        # Typ nemovitosti z názvu
-        title_lower = result["title"].lower()
-        result["property_type"] = "Ostatní"
-        for keyword, ptype in PROPERTY_TYPE_MAP.items():
-            if keyword in title_lower:
-                result["property_type"] = ptype
-                break
+        params = self._parse_tables(soup)
 
-        # Offer type
-        result["offer_type"] = "Pronájem" if "pronájem" in title_lower or "pronajm" in title_lower else "Prodej"
+        # Typ nemovitosti: nejdřív to, co uvádí web (tabulka detailu, popisek z výpisu), teprve pak
+        # klíčová slova z názvu. Jen podle názvu skončil „Dům v centru Dyjákovic … nebo 3 byty"
+        # mezi byty a hotely s „ubytováním" taky („byt" je první klíč mapy).
+        title_lower = result["title"].lower()
+        result["property_type"] = (
+            self._type_from_site_label(f'{params.get("typ nemovitosti", "")} {params.get("upřesnění", "")}')
+            or self._type_from_site_label(list_item.get("site_type", ""))
+            or self._type_from_title(title_lower)
+        )
+
+        # Offer type – řádek „Typ prodeje" (prodej / pronájem), záložně název
+        sale_type = params.get("typ prodeje", "").lower()
+        if "pron" in sale_type or "pronájem" in title_lower or "pronajm" in title_lower:
+            result["offer_type"] = "Pronájem"
+        else:
+            result["offer_type"] = "Prodej"
+
+        # Stav nabídky: řádek „Stav inzerátu" („Rezervováno, jen vlastní web"), štítek na fotce
+        # detailu, nebo štítek karty ve výpisu. Rezervovaná nabídka zůstává vidět s poznámkou –
+        # 6. 10. 2026 jich bylo 8 ze 100 a u nás vypadaly jako volné.
+        state = params.get("stav inzerátu", "").lower()
+        if state.startswith(("prodán", "pronaj")):
+            result["sold"] = True
+        elif state.startswith("rezerv") or soup.select_one(".detail-slider--reserved") or list_item.get("reserved"):
+            result["price_note"] = "Rezervace"
+            result["keep_last_price"] = True
+
+        # Obec: řádek „Adresa" (bez dvojtečky) v bloku „Adresa, lokalita, GPS" – „Chvalovice", u části
+        # města „Znojmo, Načeratice" (obec, část obce). „Přesná adresa" je naproti tomu „č.p. 160,
+        # 66902 Znojmo" nebo „Parcela 3070, Načeratice" – podle ní geografický filtr novostavby
+        # v Načeraticích zahazoval, i když patří ke Znojmu.
+        municipality = params.get("adresa", "").split(",")[0].strip()
+        if municipality and not re.search(r"\d", municipality):
+            result["municipality"] = municipality[:100]
 
         # Popis
         desc_el = soup.select_one(".description, article .content, main p, .perex")

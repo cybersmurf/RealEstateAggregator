@@ -3,6 +3,7 @@ HV Reality scraper (hvreality.cz).
 Strategie: httpx + BeautifulSoup, WordPress/Elementor SSR stránky
 """
 import asyncio
+import json
 import logging
 import html as html_mod
 import re
@@ -33,6 +34,28 @@ HV_DISTRICT_SLUGS = {
     "havlickuv-brod": "Havlíčkův Brod", "jindrichuv-hradec": "Jindřichův Hradec", "vyskov": "Vyškov",
     "hodonin": "Hodonín", "blansko": "Blansko", "prostejov": "Prostějov", "olomouc": "Olomouc",
 }
+TARGET_COUNTIES = {"znojmo", "brno-venkov", "brno-město"}
+
+# Pole REST odpovědi. „type" musí zůstat: bez něj plugin All in One SEO vypíše před JSON PHP varování.
+# acf.* má jen typ prodej-nemovitosti (u pronájmů je acf prázdné) – stav nabídky „V NABÍDCE" /
+# „REZERVOVÁNO" / „PRODÁNO", cena a okres přímo z administrace realitky.
+REST_FIELDS = "id,type,link,title,modified,acf.advert_state,acf.advert_sold,acf.advert_price,acf.advert_county"
+
+# Typ nemovitosti podle začátku slugu URL („prodej-chalupy-hrabetice-okres-znojmo-…"). Název
+# inzerátu na to nestačí: „Prodej chalupy 158 m2, pozemek 849 m2" končil jako pozemek a
+# „Prodej ubytovacích prostor" jako byt („byt" v „ubytovacích").
+SLUG_TYPE_PATTERNS = [
+    (re.compile(r"^(?:bytu|byty|byt)(?:-|$)"), "Byt"),
+    (re.compile(r"^(?:rodinneho-domu|rodinne-domy|rodinny-dum|vicegeneracniho-domu|cinzovniho-domu|"
+                r"vily|vila|chalupy|chalupa|chaty|chata|domu|dum|rd)(?:-|$)"), "Dům"),
+    (re.compile(r"^(?:stavebniho-pozemku|specifickeho-pozemku|komercniho-pozemku|pozemku|pozemky|pozemek|"
+                r"stavebni-parcely|parcely|zahrady|zahrada|sadu-vinice|sadu|vinice|pole|lesa|louky)(?:-|$)"), "Pozemek"),
+    (re.compile(r"^(?:garaze|garazoveho-stani|garaz)(?:-|$)"), "Garáž"),
+    (re.compile(r"^(?:vinneho-sklepa|sklepa)(?:-|$)"), "Ostatní"),
+    (re.compile(r"^(?:komercni-nemovitosti|kancelare|kancelarskych-prostor|obchodniho-prostoru|obchodnich-prostor|"
+                r"restaurace|ordinace|skladu|vyrobniho-prostoru|nemovitosti-pro-ubytovani)(?:-|$)"), "Komerční"),
+]
+
 START_URLS = [
     "https://hvreality.cz/prodej-nemovitosti/",
     "https://hvreality.cz/pronajem-nemovitosti/"
@@ -89,11 +112,17 @@ class HvRealityScraper:
                     logger.info("HV Reality REST: %s nabídek v cílových okresech", len(rest_items))
                     for item in rest_items:
                         try:
+                            if item.get("state") == "sold":
+                                # REST už říká „PRODÁNO" – detail není potřeba stahovat (2/3 nabídek webu)
+                                await get_db_manager().deactivate_listing(self.SOURCE_CODE, self._external_id(item["url"]))
+                                self.scraped_count += 1
+                                continue
                             detail_html = await self._fetch(item["url"])
                             normalized = self._parse_detail_page(detail_html, item)
                             if normalized.pop("is_sold", False):
                                 await get_db_manager().deactivate_listing(self.SOURCE_CODE, normalized["external_id"])
                                 self.scraped_count += 1
+                                await asyncio.sleep(0.5)
                                 continue
                             await self._save_listing(normalized)
                             self.scraped_count += 1
@@ -167,11 +196,11 @@ class HvRealityScraper:
             page = 1
             while True:
                 url = (f"{BASE_URL}/wp-json/wp/v2/{post_type}?per_page=100&page={page}"
-                       f"&orderby=modified&order=desc&_fields=id,link,title,modified")
+                       f"&orderby=modified&order=desc&_fields={REST_FIELDS}")
                 try:
                     resp = await self._http_client.get(url)
                     resp.raise_for_status()
-                    data = resp.json()
+                    data = self._loads_rest(resp.text)
                 except Exception as exc:
                     logger.warning("HV Reality REST %s page %s selhalo: %s", post_type, page, exc)
                     return None if not items else items
@@ -183,8 +212,52 @@ class HvRealityScraper:
                     break
                 page += 1
                 await asyncio.sleep(0.5)
-        target = [it for it in items if it["district_slug"] in TARGET_DISTRICT_SLUGS]
+        # Okres ze slugu URL; starší inzeráty „-okres-" ve slugu nemají, tam rozhodne okres z REST
+        target = [
+            it for it in items
+            if it["district_slug"] in TARGET_DISTRICT_SLUGS
+            or (not it["district_slug"] and (it.get("county") or "").lower() in TARGET_COUNTIES)
+        ]
         return target if full_rescan else target[:INCREMENTAL_LIMIT]
+
+    @staticmethod
+    def _loads_rest(text: str) -> Any:
+        """JSON z REST odpovědi; snese i PHP varování vypsaná před samotným polem."""
+        try:
+            return json.loads(text)
+        except ValueError:
+            start = text.find("[{")
+            if start < 0:
+                raise
+            return json.loads(text[start:])
+
+    @staticmethod
+    def _rest_state(acf: Any) -> Optional[str]:
+        """Stav nabídky z REST pole acf: „sold" / „reserved" / „active"; None, když ho REST neuvádí (pronájmy)."""
+        if not isinstance(acf, dict):
+            return None
+        state = str(acf.get("advert_state") or "").strip().upper()
+        if acf.get("advert_sold") is True or state.startswith(("PRODÁN", "PRONAJ")):
+            return "sold"
+        if state.startswith("REZERV"):
+            return "reserved"
+        if state:
+            return "active"
+        return None
+
+    @staticmethod
+    def _external_id(url: str) -> str:
+        return url.strip("/").split("/")[-1]
+
+    @staticmethod
+    def _type_from_url(url: str) -> Optional[str]:
+        """Typ nemovitosti ze slugu: „…/prodej-chalupy-hrabetice-okres-znojmo-…/" → „Dům"."""
+        slug = url.strip("/").split("/")[-1].lower()
+        slug = re.sub(r"^(?:prodej|pronajem|drazba)-", "", slug)
+        for pattern, property_type in SLUG_TYPE_PATTERNS:
+            if pattern.match(slug):
+                return property_type
+        return None
 
     @staticmethod
     def parse_rest_items(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -198,7 +271,14 @@ class HvRealityScraper:
             m = re.search(r"-okres-([a-z-]+?)-(?:prodej|pronajem|drazba|\d)", link) or re.search(r"-okres-([a-z]+)", link)
             slug = m.group(1) if m else ""
             slug = next((k for k in HV_DISTRICT_SLUGS if slug == k or slug.startswith(k + "-")), slug.split("-")[0] if slug else "")
-            out.append({"url": link, "title": title[:200], "district_slug": slug, "modified": row.get("modified")})
+            acf = row.get("acf")
+            price = acf.get("advert_price") if isinstance(acf, dict) else None
+            out.append({
+                "url": link, "title": title[:200], "district_slug": slug, "modified": row.get("modified"),
+                "state": HvRealityScraper._rest_state(acf),
+                "price": float(price) if isinstance(price, (int, float)) and price > 0 else None,
+                "county": (str(acf.get("advert_county") or "").strip() or None) if isinstance(acf, dict) else None,
+            })
         return out
 
     @http_retry
@@ -280,15 +360,26 @@ class HvRealityScraper:
         return None
 
     @staticmethod
-    def _is_sold(soup: BeautifulSoup) -> bool:
-        """HV nechává prodané nabídky online: meta description začíná „PRODÁNO:" a na stránce je
-        nadpis „Prodáno" / „Pronajato" / „Rezervováno"."""
+    def _page_state(soup: BeautifulSoup) -> Optional[str]:
+        """Stav nabídky z detailu: „sold" / „reserved" / None. Záloha pro nabídky, u nichž stav
+        neříká REST (pronájmy): meta description začíná „PRODÁNO:" / „PRONAJATO:" / „REZERVOVÁNO:"
+        a na stránce je stejnojmenný nadpis."""
         tag = soup.select_one('meta[name="description"]')
         content = (tag.get("content") or "") if tag else ""
-        if re.match(r"^\s*(PRODÁNO|PRONAJATO|REZERVOVÁNO)\s*:", content, flags=re.I):
-            return True
-        return any(h.get_text(strip=True).lower() in ("prodáno", "pronajato", "rezervováno")
-                   for h in soup.select("h2, h3, h4, .elementor-heading-title"))
+        match = re.match(r"^\s*(PRODÁNO|PRONAJATO|REZERVOVÁNO)\s*:", content, flags=re.I)
+        label = match.group(1).lower() if match else next(
+            (h.get_text(strip=True).lower() for h in soup.select("h2, h3, h4, .elementor-heading-title")
+             if h.get_text(strip=True).lower() in ("prodáno", "pronajato", "rezervováno")),
+            None,
+        )
+        if label is None:
+            return None
+        return "reserved" if label == "rezervováno" else "sold"
+
+    @staticmethod
+    def _is_sold(soup: BeautifulSoup) -> bool:
+        """HV nechává prodané nabídky online – True pro prodanou / pronajatou nabídku."""
+        return HvRealityScraper._page_state(soup) == "sold"
 
     @staticmethod
     def _parse_locality(soup: BeautifulSoup, url: str) -> Tuple[Optional[str], Optional[str]]:
@@ -329,8 +420,15 @@ class HvRealityScraper:
         }
 
         # External ID z URL
-        result["external_id"] = list_item["url"].strip("/").split("/")[-1]
-        result["is_sold"] = self._is_sold(soup)
+        result["external_id"] = self._external_id(list_item["url"])
+        # Stav: u prodejů ho říká REST (acf.advert_state). Rezervaci detail nijak neoznačí – byt
+        # v Hevlíně byl 6. 10. 2026 v administraci „REZERVOVÁNO" a na stránce o tom nebylo ani slovo.
+        state = list_item.get("state") or self._page_state(soup)
+        result["is_sold"] = state == "sold"
+        if state == "reserved":
+            # Rezervace občas padne – nabídka zůstává vidět, se štítkem a poslední známou cenou
+            result["price_note"] = "Rezervace"
+            result["keep_last_price"] = True
 
         title_el = soup.find("h1")
         result["title"] = (
@@ -344,15 +442,18 @@ class HvRealityScraper:
             if re.search(r"\d", stripped) and len(stripped) < 50:
                 price_text = stripped
                 break
-        result["price"] = self._parse_price(price_text)
+        # Cena z REST (číslo z administrace) má přednost před textem stránky
+        result["price"] = list_item.get("price") or self._parse_price(price_text)
 
-        # Typ nemovitosti z názvu
+        # Typ nemovitosti ze slugu URL, záložně z názvu (starší inzeráty mají slug bez typu)
         title_lower = result["title"].lower()
-        result["property_type"] = "Ostatní"
-        for keyword, ptype in PROPERTY_TYPE_MAP.items():
-            if keyword in title_lower:
-                result["property_type"] = ptype
-                break
+        slug_type = self._type_from_url(list_item["url"])
+        result["property_type"] = slug_type or "Ostatní"
+        if slug_type is None:
+            for keyword, ptype in PROPERTY_TYPE_MAP.items():
+                if keyword in title_lower:
+                    result["property_type"] = ptype
+                    break
 
         # Offer type
         result["offer_type"] = "Pronájem" if "pronájem" in title_lower or "pronajm" in title_lower else "Prodej"
@@ -390,6 +491,7 @@ class HvRealityScraper:
         # (okres Pelhřimov). Spolehlivý zdroj je meta description:
         # „Prodej rodinného domu Křelovice - okres Pelhřimov, Kraj Vysočina. …"
         muni, district = self._parse_locality(soup, list_item.get("url") or result.get("url") or "")
+        district = district or list_item.get("county")
         if muni:
             result["municipality"] = muni[:100]
         if district:

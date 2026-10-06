@@ -98,6 +98,13 @@ class ZnojmoRealityScraper:
             try:
                 detail_html = await self._fetch(item["detail_url"])
                 normalized = self._parse_detail(detail_html, item)
+                if normalized.pop("sold", False):
+                    # Prodaná / pronajatá nabídka, kterou web ještě ukazuje – u nás aktivní být nesmí
+                    logger.info("Listing %s is sold – deactivating", normalized["external_id"])
+                    await get_db_manager().deactivate_listing(self.SOURCE_CODE, normalized["external_id"])
+                    scraped += 1
+                    await asyncio.sleep(0.5)
+                    continue
                 await self._save_listing(normalized)
                 scraped += 1
                 metrics.increment_scraped()
@@ -154,7 +161,9 @@ class ZnojmoRealityScraper:
                 if not title:
                     title = link.get_text(" ", strip=True)
 
-                price_text = self._extract_price_from_context(card)
+                # Cena jen z vlastní karty. Dřív se hledala v rodiči karty, což je obal celého výpisu –
+                # každá položka tak dostala první cenu na stránce (všechny domy „9 900 000 Kč").
+                price_text = self._extract_price_from_card(card)
 
                 results.append(
                     {
@@ -163,6 +172,7 @@ class ZnojmoRealityScraper:
                         "detail_url": full_url,
                         "title": title[:200],
                         "price_text": price_text,
+                        "state": self._extract_state(card),
                         "property_type": config.get("property_type", "Ostatní"),
                     }
                 )
@@ -219,6 +229,24 @@ class ZnojmoRealityScraper:
         logger.debug("Parsed %s unique items from listing", len(results))
         return results
 
+    @staticmethod
+    def _extract_price_from_card(card: Any) -> str:
+        """Cena z jedné karty výpisu („9 900 000 Kč", „9 000 Kč"); rezervovaná karta cenu nemá."""
+        text = card.get_text(" ", strip=True)
+        match = re.search(r"\d[\d\s\xa0]*\s*K[cč]\b", text, re.IGNORECASE)
+        return match.group(0).strip() if match else ""
+
+    @staticmethod
+    def _extract_state(node: Any) -> str:
+        """Stav nabídky z atributu data-estate-state („rezervováno", „prodáno") – malými písmeny, jinak ''.
+
+        `node` je karta výpisu nebo nadpis detailu; hledá se na něm i uvnitř něj.
+        """
+        if node is None:
+            return ""
+        el = node if node.get("data-estate-state") else node.select_one("[data-estate-state]")
+        return (el.get("data-estate-state") or "").strip().lower() if el else ""
+
     def _extract_price_from_context(self, link_el: Any) -> str:
         parent = link_el.find_parent()
         if parent:
@@ -247,13 +275,31 @@ class ZnojmoRealityScraper:
         params = self._parse_params_table(soup)
         json_ld = self._extract_json_ld(soup)
 
-        result["price"] = self._parse_price(
-            params.get("Cena", "") or list_item.get("price_text", "")
-        )
-        if result.get("price") is None:
-            result["price"] = self._parse_price(self._extract_price_from_json_ld(json_ld))
-        if result.get("price") is None:
-            result["price"] = self._parse_price(self._extract_price_from_text(soup))
+        # Stav nabídky: Realman místo ceny vypíše „rezervováno" (řádek Cena i atribut
+        # data-estate-state na nadpisu a na kartě výpisu). 6. 10. 2026 bylo rezervovaných 5 z 12 nabídek.
+        price_cell = params.get("Cena", "")
+        state = self._extract_state(h1) or price_cell.strip().lower()
+        if not state.startswith(("rezerv", "prodán", "pronaj", "realizov")):
+            state = list_item.get("state", "")
+        is_sold = state.startswith(("prodán", "pronaj", "realizov"))
+        is_reserved = state.startswith("rezerv")
+
+        if is_sold:
+            result["sold"] = True
+            result["price"] = None
+        elif is_reserved:
+            # Rezervace občas padne – nabídka zůstává vidět, se štítkem a poslední známou cenou
+            result["price"] = None
+            result["price_note"] = "Rezervace"
+            result["keep_last_price"] = True
+        else:
+            result["price"] = self._parse_price(price_cell or list_item.get("price_text", ""))
+            if result.get("price") is None:
+                result["price"] = self._parse_price(self._extract_price_from_json_ld(json_ld))
+            if result.get("price") is None and not price_cell:
+                result["price"] = self._parse_price(self._extract_price_from_text(soup))
+            if result.get("price") is None and price_cell:
+                result["price_note"] = price_cell[:200]  # „Info v RK", „Dohodou"
 
         result["area_built_up"] = self._parse_area(params.get("Užitná plocha", ""))
         result["area_land"] = self._parse_area(params.get("Plocha pozemku", ""))
@@ -263,6 +309,14 @@ class ZnojmoRealityScraper:
         location_from_ld = self._extract_location_from_json_ld(json_ld)
         location_from_breadcrumbs = self._extract_location_from_breadcrumbs(soup)
         result["location_text"] = locality or location_from_ld or location_from_breadcrumbs or district
+
+        # Okres: web ho má v řádku „Okres", ale do výsledku se nezapisoval – geografický filtr pak
+        # viděl jen obec („Boskovštejn", „Jevišovice") a zahodil vše mimo samotné Znojmo (6 z 12 nabídek).
+        if district:
+            result["district"] = district[:100]
+        # Obec: „Lokalita" je buď „Gagarinova, Znojmo", nebo jen „Boskovštejn"
+        if locality:
+            result["municipality"] = locality.split(",")[-1].strip()[:100]
 
         result["description"] = self._extract_description(soup)
         result["photos"] = self._extract_photos(soup)

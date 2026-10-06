@@ -1,0 +1,212 @@
+[
+ {
+  "id": 59004,
+  "modified": "2026-09-29T12:46:52",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-chalupy-hrabetice-okres-znojmo-prodej-chalupy-s-vinnym-sklepem-a-zahradou-hrabetice-1232-2/",
+  "title": {
+   "rendered": "Prodej chalupy 158 m2, pozemek 849 m2 &#8211; Hrabětice"
+  },
+  "acf": {
+   "advert_state": "V NABÍDCE",
+   "advert_sold": false,
+   "advert_price": "",
+   "advert_county": ""
+  }
+ },
+ {
+  "id": 55707,
+  "modified": "2026-07-16T13:48:04",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-chaty-tavikovice-okres-znojmo-prodej-chaty-68-m2-tavikovice-1111/",
+  "title": {
+   "rendered": "Prodej chaty 68 m2, pozemek 757 m2 &#8211; Tavíkovice"
+  },
+  "acf": {
+   "advert_state": "V NABÍDCE",
+   "advert_sold": false,
+   "advert_price": 2900000,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 53497,
+  "modified": "2026-09-21T15:09:29",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-nemovitosti-pro-ubytovani-lukov-okres-znojmo-prodej-penzionu-s-restauraci-a-vinnym-sklepem-564-m2-lukov-u-znojma-1048/",
+  "title": {
+   "rendered": "Prodej ubytovacích prostor 564 m2 &#8211; Lukov"
+  },
+  "acf": {
+   "advert_state": "V NABÍDCE",
+   "advert_sold": false,
+   "advert_price": 12500000,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 55131,
+  "modified": "2026-09-18T14:06:04",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-bytu-2-1-hevlin-okres-znojmo-prodej-bytu-2-1-48-m2-hevlin-1087/",
+  "title": {
+   "rendered": "Prodej bytu 2+1 48 m2 &#8211; Hevlín"
+  },
+  "acf": {
+   "advert_state": "REZERVOVÁNO",
+   "advert_sold": false,
+   "advert_price": 2990000,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 58670,
+  "modified": "2026-09-25T07:52:15",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-vinneho-sklepa-hrabetice-okres-znojmo-prodej-vinneho-sklepa-uzitna-plocha-50-m2-hrabetice-1153/",
+  "title": {
+   "rendered": "Prodej vinného sklepa 50 m2 &#8211; Hrabětice"
+  },
+  "acf": {
+   "advert_state": "REZERVOVÁNO",
+   "advert_sold": false,
+   "advert_price": 170000,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 55545,
+  "modified": "2026-10-01T17:13:31",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-rodinneho-domu-plavec-okres-znojmo-prodej-dvougeneracniho-domu-103-m2-plavec-1018/",
+  "title": {
+   "rendered": "Prodej rodinného domu 103 m2, pozemek 1223 m2 &#8211; Plaveč"
+  },
+  "acf": {
+   "advert_state": "PRODÁNO",
+   "advert_sold": true,
+   "advert_price": 3600000,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 56713,
+  "modified": "2026-09-30T16:52:42",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-rodinneho-domu-znojmo-okres-znojmo-rd-4-1-s-moznosti-kancelare-ordinace-apod-1068/",
+  "title": {
+   "rendered": "Prodej rodinného domu 240 m2, pozemek 155 m2 &#8211; Znojmo"
+  },
+  "acf": {
+   "advert_state": "PRODÁNO",
+   "advert_sold": true,
+   "advert_price": 5600000,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 39484,
+  "modified": "2026-01-12T00:18:27",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-bytu-21-54-m2-znojmo/",
+  "title": {
+   "rendered": "Prodej bytu 2+1 54 m2 &#8211; Znojmo"
+  },
+  "acf": {
+   "advert_state": "PRODÁNO",
+   "advert_sold": true,
+   "advert_price": 0,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 59773,
+  "modified": "2026-10-06T08:15:36",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-rodinneho-domu-kyjovice-okres-znojmo-prodej-rodinneho-domu-3-1-150-m2-kyjovice-1230/",
+  "title": {
+   "rendered": "Prodej rodinného domu 150 m2, pozemek 285 m2 &#8211; Kyjovice"
+  },
+  "acf": {
+   "advert_state": "V NABÍDCE",
+   "advert_sold": false,
+   "advert_price": 1650000,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 51221,
+  "modified": "2026-03-31T10:40:02",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-zahrady-tavikovice-okres-znojmo-prodej-zahrady-1-221-m2-tavikovice-962/",
+  "title": {
+   "rendered": "Prodej zahrady 1221 m2 &#8211; Tavíkovice"
+  },
+  "acf": {
+   "advert_state": "V NABÍDCE",
+   "advert_sold": false,
+   "advert_price": 4700000,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 55596,
+  "modified": "2026-07-21T07:51:10",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-sadu-vinice-kridluvky-okres-znojmo-prodej-sadu-vinice-22-053-m2-kridluvky-1092/",
+  "title": {
+   "rendered": "Prodej sadu/vinice 22053 m2 &#8211; Křídlůvky"
+  },
+  "acf": {
+   "advert_state": "V NABÍDCE",
+   "advert_sold": false,
+   "advert_price": 2646360,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 52258,
+  "modified": "2026-06-01T06:54:32",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-garazoveho-stani-jihlava-okres-jihlava-prodej-garazoveho-stani-15-m2-jihlava-1005/",
+  "title": {
+   "rendered": "Prodej garážového stání 15 m2 &#8211; Jihlava"
+  },
+  "acf": {
+   "advert_state": "PRODÁNO",
+   "advert_sold": true,
+   "advert_price": 660500,
+   "advert_county": "Jihlava"
+  }
+ },
+ {
+  "id": 56366,
+  "modified": "2026-10-05T09:12:44",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-restaurace-lesna-okres-znojmo-prodej-zavedene-restaurace-lesna-1120/",
+  "title": {
+   "rendered": "Prodej restauračních prostor 450 m2 &#8211; Lesná"
+  },
+  "acf": {
+   "advert_state": "V NABÍDCE",
+   "advert_sold": false,
+   "advert_price": 0,
+   "advert_county": "Znojmo"
+  }
+ },
+ {
+  "id": 59848,
+  "modified": "2026-10-06T16:00:02",
+  "type": "prodej-nemovitosti",
+  "link": "https://hvreality.cz/prodej-nemovitosti/prodej-bytu-3-1-jihlava-okres-jihlava-prodej-bytu-3-1-68-m2-jihlava-antoninuv-dul-1374/",
+  "title": {
+   "rendered": "Prodej bytu 3+1 68 m2 &#8211; Jihlava"
+  },
+  "acf": {
+   "advert_state": "V NABÍDCE",
+   "advert_sold": false,
+   "advert_price": 4490000,
+   "advert_county": "Jihlava"
+  }
+ }
+]
