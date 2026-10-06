@@ -59,7 +59,7 @@ src/RealEstate.Export/         # Export content builders (Markdown, Word)
 src/RealEstate.Background/     # Background jobs (AnalysisJob)
 tests/RealEstate.Tests/        # xUnit tests (79 C# tests)
 scraper/                       # Python FastAPI scraping service (14 zdrojů)
-mcp/server.py                  # FastMCP 3.x MCP server (15 tools)
+mcp/server.py                  # FastMCP 3.x MCP server (16 tools)
 ```
 
 ### Request Flow
@@ -156,7 +156,7 @@ Každý scraper je v `scraper/core/scrapers/<code>_scraper.py`. Runner: `scraper
 
 ---
 
-## MCP Tools (15 nástrojů)
+## MCP Tools (16 nástrojů)
 
 MCP server (`mcp/server.py`) používá FastMCP 3.x a poskytuje přístup k API z Claude Desktop.
 
@@ -171,6 +171,7 @@ MCP server (`mcp/server.py`) používá FastMCP 3.x a poskytuje přístup k API 
 | `analyze_tovisit_listings` | Analýza všech inzerátů k návštěvě |
 | `get_analyses` | Všechny uložené analýzy (plný obsah) |
 | `save_analysis` | Uložit analýzu + auto-embedding |
+| `set_listing_status` | Nastavit stav inzerátu (K návštěvě / Zajímavé / Nezajímavé / Navštíveno), poznámku připíše |
 | `ask_listing` | RAG chat pro jeden inzerát |
 | `ask_general` | RAG chat přes všechny inzeráty |
 | `list_sources` | Přehled aktivních zdrojů |

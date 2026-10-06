@@ -65,7 +65,7 @@ src/RealEstate.Export/        # Export content builders (Markdown, Word)
 src/RealEstate.Background/    # Background job services
 tests/RealEstate.Tests/       # xUnit tests
 scraper/                      # Python FastAPI scraping service (21 sources)
-mcp/server.py                 # FastMCP 3.x MCP server (15 tools)
+mcp/server.py                 # FastMCP 3.x MCP server (16 tools)
 ```
 
 ### API endpoint organization

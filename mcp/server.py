@@ -1408,6 +1408,82 @@ async def save_analysis(
     )
 
 
+# Stav inzerátu: API bere anglické kódy a neznámou hodnotu tiše převede na "New" (= smazání stavu),
+# proto se vstup ověřuje tady. Klíče bez diakritiky, malými písmeny.
+_USER_STATUSES = {
+    "tovisit": "ToVisit", "to_visit": "ToVisit", "k navsteve": "ToVisit",
+    "liked": "Liked", "zajimave": "Liked",
+    "disliked": "Disliked", "nezajimave": "Disliked", "vyradit": "Disliked", "vyrazeno": "Disliked",
+    "visited": "Visited", "navstiveno": "Visited",
+    "new": "New", "bez stavu": "New",
+}
+_USER_STATUS_LABELS = {
+    "ToVisit": "K návštěvě", "Liked": "Zajímavé", "Disliked": "Nezajímavé", "Visited": "Navštíveno", "New": "bez stavu",
+}
+
+
+@mcp.tool()
+async def set_listing_status(
+    listing_ids: list[str] | str,
+    status: str,
+    note: Optional[str] = None,
+    force: bool = False,
+) -> str:
+    """
+    🏷️ Nastaví stav inzerátu v hledáčku: K návštěvě / Zajímavé / Nezajímavé / Navštíveno.
+
+    Stav je vidět na webu (Moje inzeráty, karty v seznamu) a řídí další nástroje –
+    `analyze_tovisit_listings` bere inzeráty ve stavu "K návštěvě".
+
+    Poznámky se NIKDY nemažou: `note` se připíše na nový řádek za dosavadní text.
+    Dům ve stavu "Navštíveno" (záznam z prohlídky) se jinam nepřepne, dokud nepošleš
+    force=True – jinak by zmizel z přehledu míst, kde už uživatel byl.
+
+    Args:
+        listing_ids: UUID inzerátu, nebo víc najednou (list / čárkami oddělený string)
+        status: "ToVisit" (K návštěvě) | "Liked" (Zajímavé) | "Disliked" (Nezajímavé, vyřadit)
+                | "Visited" (Navštíveno) | "New" (bez stavu); česky i anglicky
+        note: Volitelná poznámka, připíše se za stávající (např. důvod vyřazení)
+        force: True = přepnout i dům ve stavu "Navštíveno"
+    """
+    key = "".join(c for c in _ud.normalize("NFD", status.strip().lower()) if _ud.category(c) != "Mn")
+    target = _USER_STATUSES.get(key)
+    if target is None:
+        raise ToolError(f"Neznámý stav '{status}'. Povolené: ToVisit, Liked, Disliked, Visited, New.")
+
+    ids = _as_list(listing_ids)
+    if not ids:
+        raise ToolError("Chybí listing_ids.")
+
+    lines: list[str] = []
+    for listing_id in ids:
+        try:
+            listing = await _call_api("get", f"/api/listings/{listing_id}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (400, 404):
+                lines.append(f"❌ `{listing_id}` – inzerát nenalezen")
+                continue
+            raise
+
+        state = listing.get("userState") or {}
+        current = state.get("status") or "New"
+        notes = (state.get("notes") or "").rstrip()
+        name = f"{listing.get('title', '')} ({listing.get('sourceCode', '')}, {listing.get('locationText', '')})"
+
+        if current == "Visited" and target != "Visited" and not force:
+            lines.append(f"⏭️ `{listing_id}` {name} – ponecháno **Navštíveno** (záznam z prohlídky); přepnutí jen s force=True")
+            continue
+
+        if note and note.strip():
+            notes = f"{notes}\n{note.strip()}" if notes else note.strip()
+
+        await _call_api("post", f"/api/listings/{listing_id}/state", json={"status": target, "notes": notes or None})
+        change = "beze změny stavu" if current == target else f"{_USER_STATUS_LABELS.get(current, current)} → **{_USER_STATUS_LABELS[target]}**"
+        lines.append(f"✅ `{listing_id}` {name} – {change}" + (" + poznámka" if note and note.strip() else ""))
+
+    return "\n".join(lines)
+
+
 @mcp.tool()
 async def ask_listing(
     listing_id: str,
