@@ -1474,6 +1474,10 @@ async def set_listing_status(
             lines.append(f"⏭️ `{listing_id}` {name} – ponecháno **Navštíveno** (záznam z prohlídky); přepnutí jen s force=True")
             continue
 
+        if current == target and not (note and note.strip()):
+            lines.append(f"➖ `{listing_id}` {name} – už je **{_USER_STATUS_LABELS[target]}**, nic se nemění")
+            continue
+
         if note and note.strip():
             notes = f"{notes}\n{note.strip()}" if notes else note.strip()
 
