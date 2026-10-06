@@ -21,7 +21,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 ✅ **Jednotný datový model** – normalizace PropertyType/OfferType včetně dražeb (Auction)  
 ✅ **Pokročilé filtrování** – typ, nabídka, cena, lokalita, fulltextový GIN index  
 ✅ **RAG + AI chat** – lokální Ollama (nomic-embed-text + qwen2.5:14b), pgvector 768 dim  
-✅ **MCP server** – 19 nástrojů pro Claude Desktop / AI asistenty  
+✅ **MCP server** – 20 nástrojů pro Claude Desktop / AI asistenty  
 ✅ **Cloud export s retry** – Google Drive, retry 3×, foto stats v UI  
 ✅ **User management** – označování (líbí/nelíbí/navštívit), poznámky, favority  
 ✅ **Moderní UI** – Blazor + MudBlazor 9, responzivní, filter state persistence  
@@ -60,7 +60,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
                                                    └──────────────────┘
 ┌──────────────────────────────────────────────────────────────────────┐
 │         MCP Server (Python FastMCP 3.x) :8002                        │
-│  19 nástrojů – stdio (Claude Desktop) + SSE (Docker)                │
+│  20 nástrojů – stdio (Claude Desktop) + SSE (Docker)                │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -92,7 +92,7 @@ Real Estate Aggregator je systém pro automatický sběr, normalizaci a správu 
 - **Vision**: Ollama `llama3.2-vision:11b` – foto klasifikace (13 kategorií) + KN OCR
 - **Vektorová DB**: pgvector IVFFlat index (cosine distance)
 - **AI enrichment**: SmartTags · PriceSignal · Normalizace dat (bulk Ollama joby)
-- **MCP Server**: FastMCP 3.x, **19 nástrojů** (search, get_listing, analyses, vision, RAG, bulk_embed, ...)
+- **MCP Server**: FastMCP 3.x, **20 nástrojů** (search, get_listing, analyses, vision, RAG, bulk_embed, ...)
 
 ### Prostorové analýzy (PostGIS)
 - **Geocoding**: Nominatim, 97 % pokrytí (1 522+ bodů)
@@ -134,7 +134,7 @@ RealEstateAggregator/
 │   └── tests/                       # 97 pytest testů
 │
 ├── mcp/
-│   └── server.py                    # FastMCP 3.x MCP server (19 nástrojů)
+│   └── server.py                    # FastMCP 3.x MCP server (20 nástrojů)
 │
 ├── scripts/                         # DB migrace (.sql) + utility skripty
 │   ├── init-db.sql                  # Inicializace schématu
@@ -314,7 +314,7 @@ AI analýza inzerátu
 
 ## 🧠 MCP Server (Claude Desktop integrace)
 
-19 nástrojů přes FastMCP 3.x (`mcp/server.py`):
+20 nástrojů přes FastMCP 3.x (`mcp/server.py`):
 
 | Tool | Popis |
 |---|---|
@@ -331,6 +331,7 @@ AI analýza inzerátu
 | `compare_inspection_photos` | Inzerát vs. skutečnost – porovnání fotek z inzerátu s fotkami z prohlídky |
 | `get_inspection_findings` | Co se v inzerátech liší od skutečnosti nejčastěji (přes navštívené domy) |
 | `detect_photo_twins` | „Dvojčata" v galerii – stejný záběr, jiný interiér (retuš, vizualizace) |
+| `detect_house_position` | Poloha domu vůči sousedům z venkovních fotek – samostatný / přisazený z jedné strany / řadový / rohový |
 | `ask_listing` | RAG chat pro jeden inzerát |
 | `ask_general` | RAG chat přes všechny inzeráty |
 | `list_sources` | Přehled aktivních zdrojů |
@@ -408,7 +409,7 @@ Tři bulk Ollama joby zpracovávají inzeráty na pozadí:
 ### ✅ v1.1 – RAG + AI (Sessions 6–14, únor 2026)
 - [x] RAG lokální AI (pgvector + Ollama, 768 dim)
 - [x] AI chat nad inzerátem (ListingDetail.razor)
-- [x] MCP server (19 nástrojů, Claude Desktop integrace)
+- [x] MCP server (20 nástrojů, Claude Desktop integrace)
 - [x] KN OCR (llama3.2-vision)
 - [x] Background scheduled scraping (APScheduler)
 - [x] Photo download pipeline + klasifikace

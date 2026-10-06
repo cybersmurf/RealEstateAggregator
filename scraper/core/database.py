@@ -468,11 +468,11 @@ class DatabaseManager:
                     district, municipality,
                     auction_date, auction_starting_price, auction_deposit,
                     seller_name, seller_email, seller_phone, seller_company,
-                    price_note
+                    price_note, house_position_listed
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                         $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, true,
-                        $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
+                        $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)
                 ON CONFLICT (source_id, external_id) DO UPDATE
                 SET
                     -- Poznámka k ceně („Rezervace") se přepisuje vždy – po uvolnění rezervace zmizí
@@ -515,7 +515,8 @@ class DatabaseManager:
                     seller_name    = COALESCE(EXCLUDED.seller_name,    re_realestate.listings.seller_name),
                     seller_email   = COALESCE(EXCLUDED.seller_email,   re_realestate.listings.seller_email),
                     seller_phone   = COALESCE(EXCLUDED.seller_phone,   re_realestate.listings.seller_phone),
-                    seller_company = COALESCE(EXCLUDED.seller_company, re_realestate.listings.seller_company)
+                    seller_company = COALESCE(EXCLUDED.seller_company, re_realestate.listings.seller_company),
+                    house_position_listed = COALESCE(EXCLUDED.house_position_listed, re_realestate.listings.house_position_listed)
                 RETURNING id
                 """,
                 listing_id,
@@ -554,6 +555,7 @@ class DatabaseManager:
                 (listing_data.get("seller_phone") or None) and listing_data["seller_phone"][:100],
                 (listing_data.get("seller_company") or None) and listing_data["seller_company"][:200],
                 (listing_data.get("price_note") or None) and listing_data["price_note"][:200],
+                (listing_data.get("house_position_listed") or None) and listing_data["house_position_listed"][:50],
             )
 
             # Pokud UPDATE navrátil existující ID, použij to

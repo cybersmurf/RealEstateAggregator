@@ -1074,6 +1074,16 @@ class TestSrealityBuildingCodebooks:
         assert "construction_type" not in merged
         assert "condition" not in merged
 
+    def test_poloha_domu_podle_maklere(self):
+        merged = SrealityScraper(fetch_details=False)._merge_detail(
+            dict(self.BASE), {"object_kind": {"name": "Řadový", "value": 1}})
+        assert merged["house_position_listed"] == "Řadový"
+
+    def test_nevyplnena_poloha_domu_se_neulozi(self):
+        merged = SrealityScraper(fetch_details=False)._merge_detail(
+            dict(self.BASE), {"object_kind": {"name": "- vyber typ objektu", "value": 0}})
+        assert "house_position_listed" not in merged
+
 
 class TestPremiaRealityListingStatus:
     """Horní Leska (6. 10. 2026): web Premia Reality nechává prodané i rezervované nabídky viset

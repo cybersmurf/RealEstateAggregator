@@ -28,6 +28,11 @@ public static class PhotoEndpoints
             .WithSummary("Najde v galerii inzerátu dvojice fotek se stejným záběrem a jiným interiérem (retuš, vizualizace).")
             .Produces<PhotoTwinResultDto>(200);
 
+        group.MapPost("/detect-house-position", DetectHousePosition)
+            .WithName("DetectHousePosition")
+            .WithSummary("Určí z venkovních a leteckých fotek polohu domu vůči sousedům (samostatný / přisazený / řadový / rohový).")
+            .Produces<HousePositionResultDto>(200);
+
         // ── Mazání lokálních kopií (fotky zdrojů nesmí zůstat na veřejném webu) ──
         group.MapPost("/purge-stored", PurgeStored)
             .WithName("PurgeStoredPhotos")
@@ -124,6 +129,20 @@ public static class PhotoEndpoints
         return Results.Ok(result);
     }
 
+    private static async Task<IResult> DetectHousePosition(
+        [FromQuery] Guid listingId,
+        [FromQuery] bool wait = true,
+        [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs = default!,
+        CancellationToken cancellationToken = default)
+    {
+        var jobId = jobs.Enqueue("house-position", listingId, async (sp, ct) =>
+            await sp.GetRequiredService<IHousePositionService>().DetectAsync(listingId, ct));
+        if (!wait)
+            return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
+        var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(20), cancellationToken);
+        return Results.Ok(job.Result);
+    }
+
     private static async Task<IResult> DetectTwins(
         [FromQuery] Guid listingId,
         [FromQuery] bool wait = true,
@@ -166,7 +185,11 @@ public static class PhotoEndpoints
             var result = await sp.GetRequiredService<IPhotoClassificationService>().ClassifyBatchAsync(batchSize, ct, listingId, onlyMyListings);
             // Po klasifikaci celé galerie rovnou „dvojčata" – stejný záběr, jiný interiér (retuš, vizualizace)
             if (listingId.HasValue && result.Error is null && result.Succeeded > 0)
+            {
                 await sp.GetRequiredService<IPhotoTwinService>().DetectAsync(listingId.Value, ct);
+                // … a polohu domu vůči sousedům – venkovní fotky se mohly změnit
+                await sp.GetRequiredService<IHousePositionService>().DetectAsync(requestedListingId ?? listingId.Value, ct);
+            }
             return result;
         });
         if (!wait)

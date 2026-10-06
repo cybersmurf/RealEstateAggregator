@@ -59,7 +59,7 @@ src/RealEstate.Export/         # Export content builders (Markdown, Word)
 src/RealEstate.Background/     # Background jobs (AnalysisJob)
 tests/RealEstate.Tests/        # xUnit tests (79 C# tests)
 scraper/                       # Python FastAPI scraping service (14 zdrojů)
-mcp/server.py                  # FastMCP 3.x MCP server (19 tools)
+mcp/server.py                  # FastMCP 3.x MCP server (20 tools)
 ```
 
 ### Request Flow
@@ -156,7 +156,7 @@ Každý scraper je v `scraper/core/scrapers/<code>_scraper.py`. Runner: `scraper
 
 ---
 
-## MCP Tools (19 nástrojů)
+## MCP Tools (20 nástrojů)
 
 MCP server (`mcp/server.py`) používá FastMCP 3.x a poskytuje přístup k API z Claude Desktop.
 
@@ -175,6 +175,7 @@ MCP server (`mcp/server.py`) používá FastMCP 3.x a poskytuje přístup k API 
 | `compare_inspection_photos` | Inzerát vs. skutečnost – porovnání fotek z inzerátu s fotkami z prohlídky |
 | `get_inspection_findings` | Co se v inzerátech liší od skutečnosti nejčastěji (přes navštívené domy) |
 | `detect_photo_twins` | „Dvojčata" v galerii – stejný záběr, jiný interiér (retuš, vizualizace) |
+| `detect_house_position` | Poloha domu vůči sousedům z venkovních fotek – samostatný / přisazený z jedné strany / řadový / rohový |
 | `ask_listing` | RAG chat pro jeden inzerát |
 | `ask_general` | RAG chat přes všechny inzeráty |
 | `list_sources` | Přehled aktivních zdrojů |

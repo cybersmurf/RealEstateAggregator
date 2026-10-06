@@ -624,6 +624,9 @@ async def get_listing(listing_id: str) -> str:
         result_lines.append(f"**Konstrukce:** {listing['constructionType']}")
     if listing.get("condition"):
         result_lines.append(f"**Stav:** {listing['condition']}")
+    house_position = _format_house_position(listing)
+    if house_position:
+        result_lines.append(house_position)
 
     # ── Doba na trhu ─────────────────────────────────────────────────────────
     days_on_market = listing.get("daysOnMarket")
@@ -1462,6 +1465,54 @@ async def compare_inspection_photos(listing_id: str, force: bool = False) -> str
         "Nejdřív se klasifikují fotky z prohlídky, potom se porovnávají po částech domu – "
         "podle počtu fotek 3–15 minut. Zavolej `compare_inspection_photos` znovu, až doběhne."
     )
+
+
+def _format_house_position(listing: dict) -> str | None:
+    """Řádek „Poloha domu" pro get_listing: určení z fotek + co uvádí makléř; None u bytů a pozemků."""
+    if listing.get("propertyType") not in ("House", "Cottage"):
+        return None
+    label = listing.get("housePositionLabel")
+    listed = listing.get("housePositionListed")
+    if label:
+        line = f"**Poloha domu:** {label} (podle fotek: {listing.get('housePositionReason') or 'bez zdůvodnění'})"
+    elif listing.get("housePosition") == "unknown":
+        line = "**Poloha domu:** z fotek nejde určit"
+    else:
+        line = "**Poloha domu:** neurčena – spusť `detect_house_position`, neodhaduj ji"
+    if listed:
+        line += f" · makléř uvádí: {listed}"
+    return line
+
+
+@mcp.tool()
+async def detect_house_position(listing_id: str) -> str:
+    """
+    🏘️ Určí z venkovních a leteckých fotek, jak dům stojí vůči sousedním stavbám:
+    samostatný / přisazený z jedné strany / řadový (sousedé z obou stran) / rohový.
+
+    Použij vždy, když hodnotíš, jestli je dům samostatný – neodhaduj to z popisu ani z jedné
+    fotky z ulice. „Řadový" je jen dům se sousedy z OBOU stran; vesnický dům s vjezdem nebo
+    odstupem na jedné straně je „přisazený z jedné strany". Údaj makléře ze Sreality (pole
+    Poloha domu) bývá nepřesný a get_listing ho uvádí zvlášť jako „makléř uvádí".
+
+    Výsledek se uloží k domu (všem kopiím inzerátu) a get_listing ho pak vrací v řádku
+    „Poloha domu". Neklasifikovaná galerie se nejdřív klasifikuje (může trvat minutu až dvě).
+
+    Args:
+        listing_id: UUID inzerátu
+    """
+    try:
+        result = await _call_api("post", "/api/photos/detect-house-position", params={"listingId": listing_id, "wait": "true"})
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (400, 404):
+            return f"Inzerát {listing_id} nenalezen."
+        raise
+
+    if result.get("message"):
+        return result["message"]
+    if result.get("position") == "unknown":
+        return f"Z {result.get('photosUsed', 0)} venkovních fotek nejde polohu domu určit: {result.get('reason') or 'boky domu nejsou vidět'}"
+    return f"**Poloha domu:** {result.get('label')} (z {result.get('photosUsed', 0)} fotek) – {result.get('reason')}"
 
 
 @mcp.tool()

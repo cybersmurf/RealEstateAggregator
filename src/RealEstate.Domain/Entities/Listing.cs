@@ -40,6 +40,12 @@ public class Listing
     public string? SellerPhone { get; set; }
     public string? SellerCompany { get; set; }
 
+    // Poloha domu vůči sousedním stavbám: z fotek (HousePositionService) a podle makléře (scraper)
+    public string? HousePosition { get; set; }
+    public string? HousePositionReason { get; set; }
+    public DateTime? HousePositionAt { get; set; }
+    public string? HousePositionListed { get; set; }
+
     public DateTime? CreatedAtSource { get; set; }
     public DateTime? UpdatedAtSource { get; set; }
     public DateTime FirstSeenAt { get; set; } = DateTime.UtcNow;

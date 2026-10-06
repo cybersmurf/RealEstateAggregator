@@ -42,6 +42,15 @@ public sealed class ListingDetailDto
     public string? ConstructionType { get; set; }
     public string? Condition { get; set; }
 
+    /// <summary>Poloha domu vůči sousedům určená z fotek: detached / semi_detached / terraced / corner / unknown.</summary>
+    public string? HousePosition { get; set; }
+    /// <summary>Český název polohy (samostatný, přisazený z jedné strany, řadový, rohový); null = neurčeno.</summary>
+    public string? HousePositionLabel { get; set; }
+    /// <summary>Co je na které straně domu – zdůvodnění obrazového modelu.</summary>
+    public string? HousePositionReason { get; set; }
+    /// <summary>Poloha, jak ji ve zdroji vyplnil makléř (Sreality: Samostatný / Řadový / Rohový / V bloku).</summary>
+    public string? HousePositionListed { get; set; }
+
     public DateTime FirstSeenAt { get; set; }
     public DateTime? LastSeenAt { get; set; }
     public DateTime? CreatedAtSource { get; set; }

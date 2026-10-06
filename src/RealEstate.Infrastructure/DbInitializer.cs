@@ -297,6 +297,7 @@ public static class DbInitializer
         // Stejný SQL jako scripts/migrate_accounts_market.sql (idempotentní).
         await dbContext.Database.ExecuteSqlRawAsync(AccountsMarketMigrationSql, cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(SellerContactMigrationSql, cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(HousePositionMigrationSql, cancellationToken);
 
         await SeedAdminAsync(dbContext, logger, cancellationToken);
     }
@@ -355,6 +356,15 @@ public static class DbInitializer
             ADD COLUMN IF NOT EXISTS seller_email   TEXT,
             ADD COLUMN IF NOT EXISTS seller_phone   TEXT,
             ADD COLUMN IF NOT EXISTS seller_company TEXT;
+        """;
+
+    /// <summary>Stejné příkazy jako scripts/migrate_house_position.sql – idempotentní.</summary>
+    private const string HousePositionMigrationSql = """
+        ALTER TABLE re_realestate.listings
+            ADD COLUMN IF NOT EXISTS house_position        TEXT,
+            ADD COLUMN IF NOT EXISTS house_position_reason TEXT,
+            ADD COLUMN IF NOT EXISTS house_position_at     TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS house_position_listed TEXT;
         """;
 
     private const string AccountsMarketMigrationSql = """

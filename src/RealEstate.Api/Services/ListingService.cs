@@ -245,6 +245,25 @@ public class ListingService : IListingService
             }
         }
 
+        // Poloha domu je vlastnost domu: kopie, která ji nemá (nový inzerát ve skupině, zdroj bez
+        // údaje makléře), si ji vezme od jiného člena skupiny duplicit.
+        var (housePosition, housePositionReason, housePositionListed) =
+            (entity.HousePosition, entity.HousePositionReason, entity.HousePositionListed);
+        if (housePosition is null || housePositionListed is null)
+        {
+            var members = await _dbContext.Listings
+                .AsNoTracking()
+                .Where(l => l.Id != entity.Id
+                            && (l.Id == groupPrimaryId || l.DuplicateOfListingId == groupPrimaryId)
+                            && (l.HousePosition != null || l.HousePositionListed != null))
+                .OrderByDescending(l => l.HousePositionAt)
+                .Select(l => new { l.HousePosition, l.HousePositionReason, l.HousePositionListed })
+                .ToListAsync(cancellationToken);
+            if (housePosition is null && members.FirstOrDefault(m => m.HousePosition is not null) is { } judged)
+                (housePosition, housePositionReason) = (judged.HousePosition, judged.HousePositionReason);
+            housePositionListed ??= members.FirstOrDefault(m => m.HousePositionListed is not null)?.HousePositionListed;
+        }
+
         return new ListingDetailDto
         {
             Id = entity.Id,
@@ -277,6 +296,10 @@ SellerName = sellerName,
             HasKitchen = entity.HasKitchen,
             ConstructionType = entity.ConstructionType?.ToString(),
             Condition = entity.Condition?.ToString(),
+            HousePosition = housePosition,
+            HousePositionLabel = HousePositions.Label(housePosition),
+            HousePositionReason = housePositionReason,
+            HousePositionListed = housePositionListed,
             FirstSeenAt = entity.FirstSeenAt,
             CreatedAtSource = entity.CreatedAtSource,
             UpdatedAtSource = entity.UpdatedAtSource,

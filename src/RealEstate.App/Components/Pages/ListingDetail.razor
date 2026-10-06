@@ -428,6 +428,27 @@
                                 <td>@_listing.ConstructionType</td>
                             </tr>
                         }
+                        @if (!string.IsNullOrWhiteSpace(_listing.HousePositionLabel) || !string.IsNullOrWhiteSpace(_listing.HousePositionListed))
+                        {
+                            <tr>
+                                <td><strong>Poloha domu</strong></td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(_listing.HousePositionLabel))
+                                    {
+                                        <span>@_listing.HousePositionLabel</span>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">
+                                            Podle fotek: @_listing.HousePositionReason
+                                        </MudText>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(_listing.HousePositionListed))
+                                    {
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">
+                                            Makléř uvádí: @_listing.HousePositionListed
+                                        </MudText>
+                                    }
+                                </td>
+                            </tr>
+                        }
                         @if (!string.IsNullOrWhiteSpace(_listing.Condition))
                         {
                             <tr>

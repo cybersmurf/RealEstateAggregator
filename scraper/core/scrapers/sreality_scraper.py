@@ -527,6 +527,12 @@ class SrealityScraper:
         if condition:
             normalized["condition"] = condition
 
+        # Poloha domu, jak ji vyplnil makléř (Samostatný / Řadový / Rohový / V bloku). Jen jeho tvrzení:
+        # dům s vjezdem a předzahrádkou v Lechovicích má „Řadový" – API ji proto určuje i z fotek.
+        house_position = self._codebook_name(detail.get("object_kind"))
+        if house_position:
+            normalized["house_position_listed"] = house_position
+
         # Dražba: strukturované položky detailu (items[] = {name, value}) mají přednost
         # před regexem v _enrich_auction_fields, který doběhne jako fallback při upsertu.
         self._merge_auction_items(normalized, detail.get("items"))
