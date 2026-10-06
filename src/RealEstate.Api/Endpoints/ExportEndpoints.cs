@@ -327,6 +327,15 @@ public static class ExportEndpoints
         if (form.Files.Count == 0)
             return Results.BadRequest(new { error = "Žádné soubory k nahrání." });
 
+        // Nové fotky se PŘIDÁVAJÍ za dosavadní – číslování pokračuje, aby se na Drivu ani na disku
+        // nepotkaly dva soubory stejného jména. Dřív každé nahrání smazalo lokální kopie i záznamy
+        // všech předchozích fotek inzerátu (zůstaly jen na Drivu).
+        var inspDir = Path.Combine(env.WebRootPath, "uploads", "listings", id.ToString(), "inspection");
+        Directory.CreateDirectory(inspDir);
+        var startIndex = NextInspectionIndex(
+            await db.UserListingPhotos.CountAsync(p => p.ListingId == id, ct),
+            Directory.GetFiles(inspDir).Select(Path.GetFileName));
+
         var files = new List<(string Name, byte[] Data, string ContentType)>();
         for (int i = 0; i < form.Files.Count; i++)
         {
@@ -335,7 +344,7 @@ public static class ExportEndpoints
             await file.CopyToAsync(ms, ct);
             var safeName = Path.GetFileName(file.FileName);
             var ct2 = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
-            files.Add(($"prohlidka_{i + 1:D2}_{safeName}", ms.ToArray(), ct2));
+            files.Add(($"prohlidka_{startIndex + i + 1:D2}_{safeName}", ms.ToArray(), ct2));
         }
 
         try
@@ -343,25 +352,13 @@ public static class ExportEndpoints
             await driveService.UploadInspectionPhotosAsync(inspectionFolderId, files, ct);
 
             // ── Lokální kopie pro MCP/AI analýzu ──────────────────────────────
-            var inspDir = Path.Combine(env.WebRootPath, "uploads", "listings", id.ToString(), "inspection");
-            Directory.CreateDirectory(inspDir);
-
-            // Smažeme staré lokální kopie před uložením nových
-            foreach (var old in Directory.GetFiles(inspDir))
-                File.Delete(old);
-
-            var existingRecords = await db.UserListingPhotos
-                .Where(p => p.ListingId == id)
-                .ToListAsync(ct);
-            db.UserListingPhotos.RemoveRange(existingRecords);
-
             var now = DateTime.UtcNow;
             for (int i = 0; i < files.Count; i++)
             {
                 var (name, data, _) = files[i];
                 var ext = Path.GetExtension(name).ToLowerInvariant();
                 if (string.IsNullOrEmpty(ext)) ext = ".jpg";
-                var fileName = $"{i:D3}_{Path.GetFileNameWithoutExtension(name)}{ext}";
+                var fileName = $"{startIndex + i:D3}_{Path.GetFileNameWithoutExtension(name)}{ext}";
                 var fullPath = Path.Combine(inspDir, fileName);
                 await File.WriteAllBytesAsync(fullPath, data, ct);
 
@@ -385,6 +382,22 @@ public static class ExportEndpoints
         {
             return Results.Problem(title: "Chyba při nahrávání fotek z prohlídky", detail: ex.Message, statusCode: 500);
         }
+    }
+
+    /// <summary>
+    /// První volné pořadové číslo pro nově nahrané fotky z prohlídky: za počtem záznamů
+    /// i za nejvyšším číslem v názvech souborů na disku („071_prohlidka_72_IMG_6670.jpeg" → 72).
+    /// </summary>
+    public static int NextInspectionIndex(int existingRecords, IEnumerable<string?> existingFileNames)
+    {
+        var next = existingRecords;
+        foreach (var name in existingFileNames)
+        {
+            var prefix = name?.Split('_', 2)[0];
+            if (int.TryParse(prefix, out var index) && index + 1 > next)
+                next = index + 1;
+        }
+        return next;
     }
 
     private static async Task<IResult> GetInspectionPhotos(
