@@ -50,7 +50,11 @@ class IdnesRealityScraper:
     }
     MAX_LIST_PAGES = 200            # pojistka; 26 položek na stránku
     INCREMENTAL_LIST_PAGES = 3      # inkrementální běh: jen první stránky každého okresu
-    MAX_DETAILS_PER_RUN = 800       # ~2,4 s na detail → vejde se do 45min limitu úlohy
+    MAX_DETAILS_PER_RUN = 800       # strop počtu detailů na běh
+    # Limit úlohy v runneru je 45 min; kdo ho přetáhne, je zrušen a nahlášen jako selhání.
+    # Detail trvá 2–3 s a výpisy 4–10 min, takže 800 detailů se vejde jen někdy (6. 10. 2026
+    # dva běhy ze čtyř přetáhly) – běh proto končí sám, jakmile vyčerpá časový rozpočet.
+    TIME_BUDGET_SECONDS = 36 * 60
 
     def __init__(self):
         """Initialize the scraper."""
@@ -73,6 +77,7 @@ class IdnesRealityScraper:
 
     async def scrape(self, max_list_pages: int = INCREMENTAL_LIST_PAGES) -> int:
         logger.info(f"Starting Idnes Reality scraper (max_list_pages={max_list_pages})")
+        started = time.monotonic()
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
@@ -112,6 +117,12 @@ class IdnesRealityScraper:
 
                     count = 0
                     for idx, item in enumerate(details[: self.MAX_DETAILS_PER_RUN]):
+                        if self.out_of_time(started, time.monotonic()):
+                            logger.info(
+                                f"iDNES time budget used up after {idx} details – "
+                                f"{len(details) - idx} left for the next run"
+                            )
+                            break
                         try:
                             with timer(f"Fetch detail {idx + 1}/{min(len(details), self.MAX_DETAILS_PER_RUN)}"):
                                 detail_html = await self._fetch_page(item["url"])
@@ -181,6 +192,11 @@ class IdnesRealityScraper:
         return items
 
     # ── čisté funkce (testovatelné bez HTTP a DB) ────────────────────────────
+
+    @classmethod
+    def out_of_time(cls, started: float, now: float) -> bool:
+        """Vyčerpal běh časový rozpočet? (čas od startu včetně procházení výpisů)"""
+        return now - started >= cls.TIME_BUDGET_SECONDS
 
     _RE_LIST_PRICE = re.compile(r"(\d[\d\s.]*)\s*(?:Kč|CZK)")
 

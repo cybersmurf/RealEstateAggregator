@@ -1257,3 +1257,10 @@ class TestIdnesDistrictList:
         assert len(items) == 3
         assert scraper.lists_complete is False
         assert len(calls) == 2
+
+    def test_casovy_rozpocet_behu(self):
+        """Běh musí skončit sám dřív, než ho runner po 45 minutách zruší jako selhání."""
+        from core.runner import SCRAPER_TASK_TIMEOUT_SECONDS
+        assert IdnesRealityScraper.TIME_BUDGET_SECONDS <= SCRAPER_TASK_TIMEOUT_SECONDS - 5 * 60
+        assert not IdnesRealityScraper.out_of_time(started=100.0, now=100.0 + 35 * 60)
+        assert IdnesRealityScraper.out_of_time(started=100.0, now=100.0 + 36 * 60)
