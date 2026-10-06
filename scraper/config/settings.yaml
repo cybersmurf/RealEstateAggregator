@@ -153,20 +153,35 @@ quality_filters:
 # ============================================================================
 scrapers:
   # MM Reality scraper search configurations
+  # Tenhle seznam NAHRAZUJE výchozí seznam ve scraperu (DEFAULT_SEARCH_CONFIGS) – co tu není,
+  # se nestahuje. Do 6. 10. 2026 tu byly jen domy a pozemky Znojmo, takže chyběl celý okres
+  # Brno-venkov a všechny byty. Okres inzerátu se bere z posledního segmentu URL
+  # (znojmo / brno-venkov / brno-mesto), případně z klíče `district`.
   mmreality:
     search_configs:
       - url: "https://www.mmreality.cz/nemovitosti/prodej/domy/znojmo/"
         offer_type: "Prodej"
         property_type: "Dům"
-        
+
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/domy/brno-venkov/"
+        offer_type: "Prodej"
+        property_type: "Dům"
+
       - url: "https://www.mmreality.cz/nemovitosti/prodej/pozemky/znojmo/"
         offer_type: "Prodej"
         property_type: "Pozemek"
-        
-      # Weitere Regionen können hier hinzugefügt werden
-      # - url: "https://www.mmreality.cz/nemovitosti/prodej/domy/brno/"
-      #   offer_type: "Prodej"
-      #   property_type: "Dům"
+
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/pozemky/brno-venkov/"
+        offer_type: "Prodej"
+        property_type: "Pozemek"
+
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/byty/znojmo/"
+        offer_type: "Prodej"
+        property_type: "Byt"
+
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/byty/brno-venkov/"
+        offer_type: "Prodej"
+        property_type: "Byt"
   
   # SREALITY scraper configuration
   sreality:

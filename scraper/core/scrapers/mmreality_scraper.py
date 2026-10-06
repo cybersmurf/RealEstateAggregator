@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 
 
 # Konfigurace search URL pro Znojmo + Brno-venkov
-# 🔥 Možná být přepsáno z settings.yaml v runner.py
+# 🔥 Možná být přepsáno z settings.yaml v runner.py (scrapers.mmreality.search_configs) –
+# pozor, seznam ze settings tenhle nahrazuje celý, nedoplňuje ho.
+# Okres se bere z posledního segmentu URL (viz DISTRICT_SLUGS); klíč "district" ho přebije.
 DEFAULT_SEARCH_CONFIGS = [
     {
         "url": "https://www.mmreality.cz/nemovitosti/prodej/domy/znojmo/",
@@ -60,6 +62,13 @@ DEFAULT_SEARCH_CONFIGS = [
         "property_type": "Pozemek",
     },
 ]
+
+# Slug okresu v URL výpisu → název okresu v DB
+DISTRICT_SLUGS: Dict[str, str] = {
+    "znojmo": "Znojmo",
+    "brno-venkov": "Brno-venkov",
+    "brno-mesto": "Brno-město",
+}
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -219,6 +228,8 @@ class MmRealityScraper:
                 # Vždy zahrneme okres, aby prošel FilterManager (kontroluje "Znojmo" v location_text)
                 location = f"{municipality}, okres {district}" if district and district.lower() not in municipality.lower() else municipality
 
+                point = offer.get("point") or {}
+
                 results.append(
                     {
                         "source_code": self.SOURCE_CODE,
@@ -227,6 +238,11 @@ class MmRealityScraper:
                         "title": title[:200],
                         "price_text": "",
                         "img_alt": location,
+                        # Okres, obec a GPS dává výpis přímo – detail okres nikde neuvádí
+                        "district": (district or "").strip() or None,
+                        "municipality": (offer.get("municipality") or "").strip() or None,
+                        "latitude": point.get("latitude"),
+                        "longitude": point.get("longitude"),
                     }
                 )
         else:
@@ -370,14 +386,37 @@ class MmRealityScraper:
         result["area_land"] = self._parse_area(params.get("Plocha parcely", ""))
         result["location_text"] = self._extract_location(soup) or list_item.get("img_alt", "")
 
+        # Okres: z dat výpisu, jinak z URL výpisu, ze kterého inzerát pochází. Bez něj prošly
+        # geografickým filtrem jen inzeráty, které měly "okres …" náhodou v textu lokality.
+        district = list_item.get("district") or self.district_from_config(config)
+        if district:
+            result["district"] = district
+        if list_item.get("municipality"):
+            result["municipality"] = list_item["municipality"]
+
         result["photos"] = self._extract_photos(soup, html)[:50]
 
         lat, lng = self._extract_coordinates(html)
-        if lat is not None and lng is not None:
-            result["latitude"] = lat
-            result["longitude"] = lng
+        if lat is None or lng is None:
+            # Detail mapu nemusí mít – výpis souřadnice nese vždy
+            lat, lng = list_item.get("latitude"), list_item.get("longitude")
+        if isinstance(lat, (int, float)) and isinstance(lng, (int, float)):
+            result["latitude"] = float(lat)
+            result["longitude"] = float(lng)
 
         return result
+
+    @staticmethod
+    def district_from_config(config: Dict[str, Any]) -> Optional[str]:
+        """
+        Okres search configu: klíč "district", jinak poslední segment URL
+        (…/nemovitosti/prodej/domy/brno-venkov/ → "Brno-venkov"). Neznámý slug → None.
+        """
+        explicit = (config.get("district") or "").strip()
+        if explicit:
+            return explicit
+        path = (config.get("url") or "").split("?")[0].rstrip("/")
+        return DISTRICT_SLUGS.get(path.rsplit("/", 1)[-1].lower())
 
     @staticmethod
     def _parse_params_rows(soup: BeautifulSoup) -> Dict[str, str]:

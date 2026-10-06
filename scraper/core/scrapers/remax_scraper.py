@@ -23,9 +23,47 @@ from ..http_utils import http_retry
 logger = logging.getLogger(__name__)
 
 
+# Výpis podle filtru (typy bez vlastní adresy ve tvaru /reality/<typ>/prodej/…): okres je
+# regions[116][<id>] – 116 = Jihomoravský kraj, 3713 = Znojmo, 3703 = Brno-venkov;
+# types[92] = „Ostatní" (chaty a chalupy, garáže, vinné sklepy, zemědělské objekty),
+# types[91] = komerční. Stejné karty i stránkování (&stranka=N) jako výpisy podle adresy.
+_FILTER_URL = (
+    "https://www.remax-czech.cz/reality/vyhledavani/"
+    "?hledani=2&sale=1&types%5B{type_id}%5D=on&regions%5B116%5D%5B{district_id}%5D=on"
+)
+
+# Stav nabídky podle štítku / textu místo ceny
+_SOLD_KEYWORDS = ("prodáno", "prodano", "pronajato")
+_RESERVED_KEYWORDS = ("rezervováno", "rezervovano", "rezervace")
+
+# Hodnota parametru „Typ nemovitosti" na detailu → náš typ (první shoda vyhrává)
+_TYPE_PARAM_KEYWORDS = [
+    ("chat", "Chata"), ("rekrea", "Chata"),          # „Chaty a rekreační objekty"
+    ("garáž", "Garáž"),
+    ("domy", "Dům"),                                  # „Domy a vily"
+    ("byty", "Byt"),
+    ("pozem", "Pozemek"),
+    ("hotel", "Komerční"), ("penzion", "Komerční"),   # „Hotely, penziony a restaurace"
+    ("restaur", "Komerční"), ("komerč", "Komerční"), ("kancel", "Komerční"),
+    ("obchod", "Komerční"), ("sklad", "Komerční"), ("výrob", "Komerční"), ("zeměděl", "Komerční"),
+]
+
+# Záloha z titulku, když parametr chybí. Jen celá slova – „ubytovacího zařízení" není byt.
+_TITLE_TYPE_PATTERNS = [
+    (re.compile(r"\b(?:dům|domu|domy|vila|vily)\b"), "Dům"),
+    (re.compile(r"\bbyt(?:u|y)?\b"), "Byt"),
+    (re.compile(r"\bpozem(?:ek|ku|ky)\b"), "Pozemek"),
+    (re.compile(r"\bchat[ay]\b|\bchalup"), "Chata"),
+    (re.compile(r"\bgaráž"), "Garáž"),
+    (re.compile(r"komerč|sklado|kancelář|provozov|obchodní|výrobní|restaurac|ubytovac|zeměděl"), "Komerční"),
+]
+
+_RE_LIST_TOTAL = re.compile(r"výsledky\s*\d+\s*-\s*(\d+)\s*z\s*celkem\s*(\d+)")
+
+
 class RemaxScraper:
     """
-    Scraper pro REMAX Czech Republic - Znojmo region.
+    Scraper pro REMAX Czech Republic - okresy Znojmo a Brno-venkov.
     
     Strategy:
     1. List pages: httpx + BeautifulSoup (fast)
@@ -33,43 +71,78 @@ class RemaxScraper:
     
     URL structure:
     - List: https://www.remax-czech.cz/reality/{category}/prodej/jihomoravsky-kraj/znojmo/?stranka=1
+    - List (ostatní, komerční): /reality/vyhledavani/?…&types[92]=on&regions[116][3713]=on&stranka=1
     - Detail: https://www.remax-czech.cz/reality/detail/{id}/{slug}
+
+    Okres: adresa na detailu ho většinou nenese ("ulice Dlouhá, Hrabětice"), takže ho každý
+    inzerát dostává z výpisu, ve kterém byl nalezen (klíč "district" v SEARCH_CONFIGS).
+    Bez toho geografický filtr zahazoval zhruba 40 % stažených inzerátů.
     """
     
     BASE_URL = "https://www.remax-czech.cz"
     SOURCE_CODE = "REMAX"
     
-    # Znojmo + Brno-venkov search URLs (domy + pozemky + byty)
+    # Znojmo + Brno-venkov, prodej: domy, pozemky, byty, ostatní (chaty, garáže…), komerční
     SEARCH_CONFIGS = [
         {
             "url": "https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/znojmo/",
             "offer_type": "Prodej",
             "property_type": "Dům",
+            "district": "Znojmo",
         },
         {
             "url": "https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/brno-venkov/",
             "offer_type": "Prodej",
             "property_type": "Dům",
+            "district": "Brno-venkov",
         },
         {
             "url": "https://www.remax-czech.cz/reality/pozemky/prodej/jihomoravsky-kraj/znojmo/",
             "offer_type": "Prodej",
             "property_type": "Pozemek",
+            "district": "Znojmo",
         },
         {
             "url": "https://www.remax-czech.cz/reality/pozemky/prodej/jihomoravsky-kraj/brno-venkov/",
             "offer_type": "Prodej",
             "property_type": "Pozemek",
+            "district": "Brno-venkov",
         },
         {
             "url": "https://www.remax-czech.cz/reality/byty/prodej/jihomoravsky-kraj/znojmo/",
             "offer_type": "Prodej",
             "property_type": "Byt",
+            "district": "Znojmo",
         },
         {
             "url": "https://www.remax-czech.cz/reality/byty/prodej/jihomoravsky-kraj/brno-venkov/",
             "offer_type": "Prodej",
             "property_type": "Byt",
+            "district": "Brno-venkov",
+        },
+        {
+            "url": _FILTER_URL.format(type_id=92, district_id=3713),
+            "offer_type": "Prodej",
+            "property_type": "Ostatní",
+            "district": "Znojmo",
+        },
+        {
+            "url": _FILTER_URL.format(type_id=92, district_id=3703),
+            "offer_type": "Prodej",
+            "property_type": "Ostatní",
+            "district": "Brno-venkov",
+        },
+        {
+            "url": _FILTER_URL.format(type_id=91, district_id=3713),
+            "offer_type": "Prodej",
+            "property_type": "Komerční",
+            "district": "Znojmo",
+        },
+        {
+            "url": _FILTER_URL.format(type_id=91, district_id=3703),
+            "offer_type": "Prodej",
+            "property_type": "Komerční",
+            "district": "Brno-venkov",
         },
     ]
     
@@ -95,21 +168,34 @@ class RemaxScraper:
         max_pages = 100 if full_rescan else 5
         total = 0
         for config in self.SEARCH_CONFIGS:
-            count = await self.scrape(config["url"], config["offer_type"], config["property_type"], max_pages=max_pages)
+            count = await self.scrape(
+                config["url"], config["offer_type"], config["property_type"],
+                max_pages=max_pages, district=config.get("district"),
+            )
             total += count
         return total
     
-    async def scrape(self, search_url: str, offer_type: str, property_type: str, max_pages: int = 5) -> int:
+    async def scrape(
+        self,
+        search_url: str,
+        offer_type: str,
+        property_type: str,
+        max_pages: int = 5,
+        district: Optional[str] = None,
+    ) -> int:
         """
-        Hlavní entry point pro scraping.
+        Projde jeden výpis (search config) a uloží jeho inzeráty.
         
         Args:
             max_pages: Maximální počet list pages k procházení (default 5 pro testing)
+            district: Okres výpisu – zapíše se ke každému inzerátu
             
         Returns:
-            Počet úspěšně scrapnutých inzerátů
+            Počet inzerátů uložených z TOHOTO výpisu (self.scraped_count je součet za celý běh –
+            run() ho dřív sčítal jako výsledek každého výpisu a výsledek běhu tím nafukoval)
         """
         logger.info(f"Starting REMAX scraper for {search_url} (max_pages={max_pages})")
+        count = 0
         
         with scraper_metrics_context() as metrics:
             # Reuse HTTP client pro všechny requesty
@@ -119,7 +205,7 @@ class RemaxScraper:
                 page = 1
                 
                 while page <= max_pages:
-                    url = f"{search_url}?stranka={page}"
+                    url = self._page_url(search_url, page)
                     
                     try:
                         with timer(f"Fetch list page {page}"):
@@ -141,16 +227,24 @@ class RemaxScraper:
                             # Předáme hint pro offer/property typ z URL konfigurace
                             item["offer_type_hint"] = offer_type
                             item["property_type_hint"] = property_type
+                            item["district"] = district
                             try:
+                                # Prodané má štítek už ve výpisu – detail není potřeba stahovat
+                                if item.get("sold"):
+                                    logger.info(f"Listing {item['external_id']} is sold – deactivating")
+                                    await self._deactivate_listing(item["external_id"])
+                                    metrics.increment_scraped()
+                                    continue
+
                                 # Fetch detail page pro kompletní data
                                 detail_url = item["detail_url"]
                                 detail_html = await self._fetch_page_http(detail_url)
 
-                                # Zkontroluj, zda inzerát není prodaný/rezervovaný
-                                if self._detect_sold_status(detail_html):
-                                    logger.info(f"Listing {item['external_id']} is sold/reserved – deactivating")
-                                    db = get_db_manager()
-                                    await db.deactivate_listing(self.SOURCE_CODE, item["external_id"])
+                                # Prodáno → deaktivovat a neukládat; rezervaci si detail
+                                # označí sám (price_note) a inzerát zůstává
+                                if self._detect_status(detail_html) == "sold":
+                                    logger.info(f"Listing {item['external_id']} is sold – deactivating")
+                                    await self._deactivate_listing(item["external_id"])
                                     metrics.increment_scraped()
                                     continue
 
@@ -158,11 +252,17 @@ class RemaxScraper:
                                 
                                 await self._save_listing(normalized)
                                 self.scraped_count += 1
+                                count += 1
                                 metrics.increment_scraped()
                                 
                             except Exception as exc:
                                 logger.error(f"Error processing item {item.get('title', 'N/A')}: {exc}")
                                 metrics.increment_failed()
+
+                        # Výpis sám říká, kolik má položek – na stránku za poslední se neptáme
+                        if self._has_next_page(html) is False:
+                            logger.info(f"Page {page} is the last one, stopping")
+                            break
 
                         page += 1
                         await asyncio.sleep(1)  # Throttling - respektuj servery
@@ -174,8 +274,26 @@ class RemaxScraper:
                         
                 self._http_client = None
         
-        logger.info(f"REMAX scraper finished. Scraped {self.scraped_count} listings")
-        return self.scraped_count
+        logger.info(f"REMAX list finished. Scraped {count} listings ({self.scraped_count} in this run so far)")
+        return count
+
+    @staticmethod
+    def _page_url(search_url: str, page: int) -> str:
+        """URL stránky výpisu – výpis podle filtru už dotazové parametry má."""
+        separator = "&" if "?" in search_url else "?"
+        return f"{search_url}{separator}stranka={page}"
+
+    @staticmethod
+    def _has_next_page(html: str) -> Optional[bool]:
+        """
+        Podle textu "Zobrazujeme výsledky 1-21 z celkem 26" pozná, jestli výpis pokračuje.
+        None = text na stránce není (jiné rozložení) – pak se stránkuje do první prázdné stránky.
+        """
+        text = re.sub(r"<[^>]+>", " ", html)
+        match = _RE_LIST_TOTAL.search(text)
+        if not match:
+            return None
+        return int(match.group(1)) < int(match.group(2))
 
     @http_retry
     async def _fetch_page_http(self, url: str) -> str:
@@ -192,43 +310,37 @@ class RemaxScraper:
         response.raise_for_status()
         return response.text
 
-    def _detect_sold_status(self, html: str) -> bool:
+    @staticmethod
+    def _status_from_text(text: str) -> Optional[str]:
+        """"Prodáno" / "Pronajato" → "sold", "Rezervováno" → "reserved", jinak None."""
+        low = text.lower()
+        if any(kw in low for kw in _SOLD_KEYWORDS):
+            return "sold"
+        if any(kw in low for kw in _RESERVED_KEYWORDS):
+            return "reserved"
+        return None
+
+    def _detect_status(self, html: str, soup: Optional[BeautifulSoup] = None) -> Optional[str]:
         """
-        Detekuje, zda inzerát na detailní stránce REMAX nese status "Prodáno",
-        "Rezervováno" nebo "Pronajato" (tj. již není dostupný).
+        Stav nabídky na detailu: "sold" (Prodáno / Pronajato), "reserved" nebo None.
 
-        Hledá v:
-          - elementech s třídami obsahujícími "status", "label", "badge", "ribbon"
-          - titulku stránky (h1, h2)
-          - title tagu
+        REMAX stav ukazuje štítkem (.tags__item, u prodaných .tags__item--sold) a textem místo
+        ceny v hlavičce (.pd-header__price = "Prodáno"). Dřív se prohledávaly všechny prvky
+        s třídou obsahující "label"/"tag"/"status" – to by chytilo i popisek zaškrtávátka
+        "rezervováno" ve vyhledávacím formuláři.
         """
-        soup = BeautifulSoup(html, "html.parser")
-        sold_keywords = {"prodáno", "rezervováno", "pronajato", "prodano", "rezervovano"}
+        soup = soup or BeautifulSoup(html, "html.parser")
+        texts = [el.get_text(" ", strip=True) for el in soup.select(".tags__item")]
+        price_el = soup.select_one(".pd-header__price")
+        if price_el:
+            texts.append(price_el.get_text(" ", strip=True))
 
-        # Kontrola title tagu
-        title_tag = soup.find("title")
-        if title_tag:
-            if any(kw in title_tag.get_text().lower() for kw in sold_keywords):
-                return True
-
-        # Kontrola h1/h2 nadpisů
-        for heading in soup.find_all(["h1", "h2"]):
-            if any(kw in heading.get_text().lower() for kw in sold_keywords):
-                return True
-
-        # Kontrola elementů se status/label/badge/ribbon třídami
-        for el in soup.find_all(class_=True):
-            classes = " ".join(el.get("class", []))
-            if any(c in classes for c in ("status", "label", "badge", "ribbon", "stamp", "tag")):
-                if any(kw in el.get_text().lower() for kw in sold_keywords):
-                    return True
-
-        # Kontrola data-atributů (REMAX občas používá data-status)
-        for el in soup.find_all(attrs={"data-status": True}):
-            if any(kw in el["data-status"].lower() for kw in sold_keywords):
-                return True
-
-        return False
+        statuses = {self._status_from_text(text) for text in texts}
+        if "sold" in statuses:
+            return "sold"
+        if "reserved" in statuses:
+            return "reserved"
+        return None
 
     def _parse_list_page(self, html: str) -> List[Dict[str, Any]]:
         """
@@ -266,11 +378,22 @@ class RemaxScraper:
             if not title or len(title) < 5:
                 continue
             
+            # Karta prodané nabídky: třída pl-items__item--sold + štítek "Prodáno" místo ceny
+            sold = False
+            card = link.find_parent(class_="pl-items__item")
+            if card is not None:
+                tags = " ".join(tag.get_text(" ", strip=True) for tag in card.select(".tags__item"))
+                sold = (
+                    "pl-items__item--sold" in card.get("class", [])
+                    or self._status_from_text(tags) == "sold"
+                )
+
             results.append({
                 "source_code": self.SOURCE_CODE,
                 "external_id": external_id,
                 "detail_url": detail_url,
                 "title": title[:200],  # Limit title length
+                "sold": sold,
             })
 
         # Deduplikace podle external_id (u REMAX se často opakují odkazy)
@@ -321,7 +444,16 @@ class RemaxScraper:
         else:
             # 2) Záloha: hint ze scrapnutého list_item
             location_text = list_item.get("location_text", "")
+        # get_text nechává mezeru před čárkou tam, kde je v HTML zalomení
+        location_text = re.sub(r"\s+,", ",", re.sub(r"\s+", " ", location_text)).strip()
         result["location_text"] = location_text[:200]
+
+        # Okres z výpisu (adresa ho často nemá), obec z adresy
+        if list_item.get("district"):
+            result["district"] = list_item["district"]
+        municipality = self._municipality_from_address(location_text)
+        if municipality:
+            result["municipality"] = municipality
 
         # ── Description ────────────────────────────────────────────────────────
         # Cílový selektor: .pd-base-info__content-collapse-inner
@@ -391,8 +523,15 @@ class RemaxScraper:
                     )
                 except ValueError:
                     pass
-        if 'price' not in result:
-            # Záloha: první výskyt "čísla Kč" na stránce
+        # Rezervace: nabídka zůstává, k ceně jde štítek; když web cenu nahradil textem,
+        # upsert nechá poslední známou
+        if self._detect_status(html, soup) == "reserved":
+            result["price_note"] = "Rezervace"
+            result["keep_last_price"] = True
+        if 'price' not in result and price_el is None:
+            # Záloha jen pro stránku bez hlavičky s cenou (jiné rozložení): první výskyt
+            # "čísla Kč". Když hlavička je a číslo v ní není ("Cena na vyžádání v kanceláři",
+            # "Rezervováno"), cena prostě není – první částka na stránce patří něčemu jinému.
             price_node = soup.find(string=re.compile(r'(\d[\d\s\xa0]+)\s*Kč'))
             if price_node:
                 pm = re.search(r'([\d\s\xa0]+)\s*Kč', price_node)
@@ -416,17 +555,11 @@ class RemaxScraper:
 
         # ── Property type ─────────────────────────────────────────────────────
         title_lower = result.get("title", "").lower()
-        typ_param = params.get('Typ nemovitosti', '').lower()
-        if "dům" in title_lower or "domu" in title_lower or "vila" in title_lower or "domy" in typ_param:
-            result["property_type"] = "Dům"
-        elif "byt" in title_lower or "bytu" in title_lower or "byty" in typ_param:
-            result["property_type"] = "Byt"
-        elif "pozemek" in title_lower or "pozemky" in typ_param:
-            result["property_type"] = "Pozemek"
-        elif any(kw in title_lower for kw in ['komerč', 'sklado', 'kancelář', 'provozov']):
-            result["property_type"] = "Komerční"
-        else:
-            result["property_type"] = list_item.get("property_type_hint", "Ostatní")
+        result["property_type"] = self._infer_property_type(
+            title_lower,
+            params.get('Typ nemovitosti', ''),
+            list_item.get("property_type_hint", "Ostatní"),
+        )
 
         # ── Offer type ────────────────────────────────────────────────────────
         if "pronájem" in title_lower or "pronajem" in title_lower:
@@ -437,6 +570,43 @@ class RemaxScraper:
             result["offer_type"] = list_item.get("offer_type_hint", "Prodej")
 
         return result
+
+    @staticmethod
+    def _infer_property_type(title_lower: str, type_param: str, hint: str) -> str:
+        """
+        Typ nemovitosti: parametr "Typ nemovitosti" z detailu, pak titulek, nakonec typ výpisu.
+
+        Parametr má přednost – výpis "Ostatní" míchá chaty, garáže a vinné sklepy a titulek
+        "Prodej ubytovacího zařízení" obsahuje "byt".
+        """
+        param_lower = type_param.lower()
+        for keyword, property_type in _TYPE_PARAM_KEYWORDS:
+            if keyword in param_lower:
+                return property_type
+        for pattern, property_type in _TITLE_TYPE_PATTERNS:
+            if pattern.search(title_lower):
+                return property_type
+        return hint
+
+    @staticmethod
+    def _municipality_from_address(location_text: str) -> Optional[str]:
+        """
+        Obec z adresy detailu: "ulice Dlouhá, Hrabětice" → Hrabětice, "Višňové, okres Znojmo"
+        → Višňové, "Strachotice – část obce Micmanice" → Strachotice.
+        """
+        parts = [p.strip() for p in location_text.split(",") if p.strip()]
+        parts = [p for p in parts if not p.lower().startswith("okres ")]
+        if not parts:
+            return None
+        municipality = re.split(r"\s+[–-]\s+", parts[-1])[0].strip()
+        if not municipality or municipality.lower().startswith("ulice "):
+            return None
+        return municipality[:100]
+
+    async def _deactivate_listing(self, external_id: str) -> None:
+        """Prodaná nabídka: deaktivovat v DB (neukládá se)."""
+        db = get_db_manager()
+        await db.deactivate_listing(self.SOURCE_CODE, external_id)
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         """

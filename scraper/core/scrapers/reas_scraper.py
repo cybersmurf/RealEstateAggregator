@@ -8,11 +8,15 @@ Site characteristics:
 - Fotky: imagesWithMetadata[].original (Google Cloud Storage)
 - external_id: MongoDB _id pole
 
-Paginace (DŮLEŽITÉ):
-- HTML stránky s ?page=N jsou CDN-cachovány → vždy vrátí stejných 10 inzerátů!
-- Fix: pro full_rescan používáme /_next/data/{buildId}/... API endpoint který
-  CDN neblokuje a vrací skutečně stránkovaná data.
-- Pro incremental: scrape page 1 přes dvě různé kategorie (recommended + newest).
+Výpisy (od 6. 10. 2026):
+- Jeden výpis na okres a typ: /prodej/{domy|byty|stavebni-pozemky}/okres-{slug}.
+  Dřív se bral celý Jihomoravský kraj a okres se odhadoval – výpis okresu ho dává jistě.
+- Stránkuje se parametrem `listPage` (ne `page` – ten web ignoruje a vrací pořád první
+  stránku, což se dřív mylně přičítalo CDN cache). `sort=newest` drží pořadí stabilní.
+- Neznámý segment nebo okres web tiše nahradí celostátním výpisem všech typů (count ~7000).
+  Proto se u každé stránky kontroluje `adsListParams.locality.districtSlug`.
+- `/_next/data/…json` se nepoužívá: s cestou výpisu vrací celostátní výpis a stránku ignoruje.
+- Cenový strop v URL není – cenu řeší `search_filters` v settings.yaml.
 
 Anonymizované inzeráty:
 - Inzeráty s isAnonymized=true mají skrytou adresu, cenu a fotky (images:[]).
@@ -23,7 +27,8 @@ import asyncio
 import logging
 import math
 import re
-from typing import Any, Dict, List, Optional, Tuple
+import unicodedata
+from typing import Any, Dict, List, Optional, Set, Tuple
 import json as json_module
 
 import httpx
@@ -37,27 +42,20 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.reas.cz"
 
-# (url_cesta, offer_type, segment_key, locality_hint)
-# locality_hint se připojí k location_text aby prošel geo filtrem (subobce např. Oblekovice neobsahují 'znojmo')
-#   → "jihomoravsk" je v target_districts, takže "Jihomoravský kraj" filtrem projde
-#
-# POZOR: Kategorie pozemky/komerci s lokálním filtrem vracejí count=5124 (= celá ČR).
-# Lokální filtr pro tyto segmenty na reas.cz nefunguje → byly odebrány.
-# HTML ?page=N je CDN-cachováno → dvě kategorie s různým sort=recommended/newest
-# zajistí ~18–20 unikátních listingů na incremental run místo 10.
-# Pro full_rescan se používá /_next/data/ API endpoint (viz _scrape_category).
-CATEGORIES: List[Tuple[str, str, str, str]] = [
-    ("prodej/domy/jihomoravsky-kraj/cena-do-10-milionu", "Sale", "domy", "Jihomoravský kraj"),
-    ("prodej/domy/jihomoravsky-kraj/cena-do-10-milionu?sort=newest", "Sale", "domy", "Jihomoravský kraj"),
+# (segment URL, slug okresu v URL, okres pro DB)
+# Brno-město jen byty – domy a pozemky ve městě nejsou v cílovém rozsahu (viz settings.yaml).
+# Segment pozemků je `stavebni-pozemky`; `pozemky` web nezná a vrátí celostátní výpis.
+LISTS: List[Tuple[str, str, str]] = [
+    ("domy", "znojmo", "Znojmo"),
+    ("domy", "brno-venkov", "Brno-venkov"),
+    ("byty", "znojmo", "Znojmo"),
+    ("byty", "brno-venkov", "Brno-venkov"),
+    ("byty", "brno-mesto", "Brno-město"),
+    ("stavebni-pozemky", "znojmo", "Znojmo"),
+    ("stavebni-pozemky", "brno-venkov", "Brno-venkov"),
 ]
 
-# Geografický bounding box pro Jihomoravský kraj (Znojmo district + okolí)
-# Slouží k post-filtru výsledků _next/data API (bez CDN geo filtru)
-JMK_BBOX = {"lat_min": 48.45, "lat_max": 49.65, "lng_min": 15.40, "lng_max": 17.70}
-# Bounding box pro Znojmo okres (přísnější filtr pro full_rescan)
-ZNOJMO_BBOX = {"lat_min": 48.55, "lat_max": 49.05, "lng_min": 15.55, "lng_max": 16.70}
-
-# Mapování type/subType z reas.cz → naše DB hodnoty
+# Mapování type z reas.cz → naše DB hodnoty
 PROPERTY_TYPE_MAP: Dict[str, str] = {
     "flat": "Apartment",
     "house": "House",
@@ -68,11 +66,20 @@ PROPERTY_TYPE_MAP: Dict[str, str] = {
     "other": "Other",
 }
 
-# Segment URL → typ nemovitosti (fallback, když `type` inzerátu neznáme)
+# subType je přesnější než type: dům i chata mají type "building"
+SUBTYPE_PROPERTY_TYPES: Dict[str, str] = {
+    "family_house": "House",
+    "hut": "Cottage",
+    "flat": "Apartment",
+    "building_plot": "Land",
+}
+
+# Segment URL → typ nemovitosti (fallback, když `type`/`subType` inzerátu neznáme)
 SEGMENT_PROPERTY_TYPES: Dict[str, str] = {
     "byty": "Apartment",
     "domy": "House",
     "pozemky": "Land",
+    "stavebni-pozemky": "Land",
     "komerci": "Commercial",
 }
 
@@ -81,6 +88,7 @@ SEGMENT_NAMES: Dict[str, str] = {
     "byty": "bytu",
     "domy": "domu",
     "pozemky": "pozemku",
+    "stavebni-pozemky": "stavebního pozemku",
     "komerci": "komerční nemovitosti",
     "ostatni": "nemovitosti",
 }
@@ -96,6 +104,22 @@ DEFAULT_HEADERS = {
 }
 
 PAGE_LIMIT = 10  # reas.cz vrací 10 inzerátů na stránku
+INCREMENTAL_PAGES = 2  # inkrementální běh: 20 nejnovějších z každého výpisu
+# Pojistka pro případ, že stránka nenese adsListParams: výpis okresu má desítky inzerátů,
+# celostátní náhradní výpis tisíce.
+MAX_EXPECTED_LIST_COUNT = 500
+
+_NEXT_DATA_RE = re.compile(
+    r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+    re.DOTALL,
+)
+
+
+def _slugify(value: str) -> str:
+    """"Hluboké Mašůvky" → "hluboke-masuvky" (stejný tvar jako municipalitySlug webu)."""
+    decomposed = unicodedata.normalize("NFD", value.lower())
+    plain = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+    return re.sub(r"[^a-z0-9]+", "-", plain).strip("-")
 
 
 class ReasScraper:
@@ -103,23 +127,34 @@ class ReasScraper:
 
     SOURCE_CODE = "REAS"
 
-    def __init__(self, fetch_details: bool = True, detail_concurrency: int = 5):
+    def __init__(
+        self,
+        fetch_details: bool = True,
+        detail_concurrency: int = 5,
+        lists: Optional[List[Tuple[str, str, str]]] = None,
+    ):
         """
         Args:
             fetch_details: Fetchovat detail stránky pro popis. True = plná data.
             detail_concurrency: Počet paralelních detail požadavků.
+            lists: Výpisy (segment, slug okresu, okres). Default LISTS.
         """
         self.fetch_details = fetch_details
         self.detail_concurrency = detail_concurrency
+        self.lists = lists or LISTS
+        # False = některý výpis se nepodařilo projít celý (chyba stránky, cizí výpis)
+        self.lists_complete = True
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
-        """Vstupní bod pro runner."""
+        """Vstupní bod pro runner. Vrací počet inzerátů, které se podařilo zpracovat."""
         return await self.scrape(full_rescan=full_rescan)
 
     async def scrape(self, full_rescan: bool = False) -> int:
-        logger.info("Starting Reas.cz scraper (full_rescan=%s)", full_rescan)
+        logger.info("Starting Reas.cz scraper (full_rescan=%s, lists=%s)", full_rescan, len(self.lists))
         total = 0
+        self.lists_complete = True
+        seen_ids: Set[str] = set()
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
@@ -128,248 +163,149 @@ class ReasScraper:
                 headers=DEFAULT_HEADERS,
             ) as client:
                 self._http_client = client
-
-                # Pro full_rescan: načti buildId pro _next/data API (bypasses CDN)
-                build_id: Optional[str] = None
-                if full_rescan:
-                    try:
-                        build_id = await self._get_build_id()
-                        logger.info("Reas.cz buildId: %s", build_id)
-                    except Exception as exc:
-                        logger.warning("Reas.cz could not get buildId: %s", exc)
-
-                for category_path, offer_type, segment_key, locality_hint in CATEGORIES:
-                    try:
-                        count = await self._scrape_category(
-                            category_path, offer_type, segment_key, locality_hint,
-                            full_rescan, metrics, build_id=build_id,
+                try:
+                    for segment, district_slug, district in self.lists:
+                        count = await self._scrape_list(
+                            segment, district_slug, district, full_rescan, seen_ids, metrics,
                         )
                         total += count
-                        logger.info(
-                            "Reas.cz [%s] done – %s listings", category_path, count
-                        )
+                        logger.info("Reas.cz [%s/%s] done – %s listings", segment, district_slug, count)
                         await asyncio.sleep(1.0)
-                    except Exception as exc:
-                        logger.error(
-                            "Reas.cz [%s] failed: %s", category_path, exc
+
+                    # Neúplný výpis: runner po plném běhu deaktivuje vše, co jsme „neviděli".
+                    # Aktivní inzeráty proto necháme viděné a o stažení rozhodne až úplný běh.
+                    if full_rescan and not self.lists_complete:
+                        kept = await self._keep_active_seen()
+                        logger.warning(
+                            "Reas.cz lists incomplete – %s active listings kept as seen, nothing will be deactivated",
+                            kept,
                         )
-                        metrics.increment_failed()
+                finally:
+                    self._http_client = None
 
-                self._http_client = None
-
-        logger.info("Reas.cz scraper finished. Total scraped: %s", total)
+        logger.info("Reas.cz scraper finished. Total scraped: %s (lists complete: %s)", total, self.lists_complete)
         return total
 
-    async def _scrape_category(
+    async def _scrape_list(
         self,
-        category_path: str,
-        offer_type: str,
-        segment_key: str,
-        locality_hint: str,
+        segment: str,
+        district_slug: str,
+        district: str,
         full_rescan: bool,
+        seen_ids: Set[str],
         metrics: Any,
-        build_id: Optional[str] = None,
     ) -> int:
-        """Projde všechny stránky dané kategorie a uloží inzeráty.
-        
-        full_rescan+build_id: používá _next/data API endpoint který obchází CDN cache
-        a vrací skutečně stránkovaná data (narozdíl od HTML ?page=N který je cached).
+        """Projde stránky jednoho výpisu (typ × okres) a uloží inzeráty.
+
+        Chyba stránky výpis ukončí a označí běh jako neúplný – co se stihlo uložit, zůstává
+        a započítá se. Nikdy se nepokračuje „naslepo" dalším zdrojem dat.
         """
-        segment = segment_key  # byty / domy / pozemky …
-
-        # Zjisti počet stránek z první stránky (HTML SSR – vždy vrací page 1)
-        first_page_data = await self._fetch_listing_page(category_path, 1)
-        if not first_page_data:
-            logger.warning("Reas.cz [%s]: no data on page 1", category_path)
-            return 0
-
-        total_count = first_page_data.get("count", 0)
-        total_pages = max(1, math.ceil(total_count / PAGE_LIMIT))
-        logger.info(
-            "Reas.cz [%s]: total=%s listings on %s pages",
-            category_path, total_count, total_pages,
-        )
-
-        # Bezpečnostní guard: pokud count > 500, lokalitní filtr zřejmě nefunguje
-        # a URL vrací celonárodní data. Přeskočit kategorii.
-        MAX_EXPECTED_CATEGORY_COUNT = 500
-        if total_count > MAX_EXPECTED_CATEGORY_COUNT:
-            logger.error(
-                "Reas.cz [%s]: count=%s > %s – lokalitní filtr nefunguje! "
-                "Kategorie přeskočena aby nedošlo ke stahování celonárodních dat.",
-                category_path, total_count, MAX_EXPECTED_CATEGORY_COUNT,
-            )
-            return 0
-
-        # Pokud ne full_rescan, scrape pouze page 1 (CDN-cached, ale dvě různé kategorie
-        # recommended+newest dávají ~18-20 unikátních listingů celkem).
-        # Pro full_rescan: pokud máme buildId, použij _next/data API (skutečná paginace).
-        use_api_pagination = full_rescan and build_id is not None
-        max_pages = total_pages if full_rescan else 1
-
+        label = f"{segment}/okres-{district_slug}"
         scraped = 0
-        seen_ids: set = set()  # dedup across pages (API může vracet duplicity)
-        for page_num in range(1, max_pages + 1):
-            if page_num == 1 and not use_api_pagination:
-                page_data = first_page_data
-            elif use_api_pagination:
-                # _next/data API obchází CDN – vrací skutečně různé listingy
-                page_data = await self._fetch_listing_page_api(category_path, page_num, build_id)  # type: ignore
-                if not page_data:
-                    logger.debug("Reas.cz API [%s] page %s: no data", category_path, page_num)
-                    break
-                await asyncio.sleep(0.3)
-            else:
-                page_data = await self._fetch_listing_page(category_path, page_num)
-                await asyncio.sleep(0.5)
+        page = 1
+        total_pages = 1
 
-            if not page_data:
-                continue
+        while page <= total_pages:
+            url = self.list_url(segment, district_slug, page)
+            try:
+                with timer(f"Fetch Reas list {label} page {page}"):
+                    html = await self._fetch_html(url)
+                count, ads_raw = self.parse_list_page(html, district_slug)
+            except Exception as exc:  # noqa: BLE001 – síť, HTTP chyba i cizí výpis končí stejně
+                logger.error("Reas.cz [%s] page %s failed, list stopped: %s", label, page, exc)
+                metrics.increment_failed()
+                self.lists_complete = False
+                break
 
-            ads_raw = page_data.get("data", [])
-            # Filtruj anonymizované inzeráty (isAnonymized=true: žádná adresa, cena, fotky)
-            # a dedup přes seen_ids (API může opakovat listingy).
-            # Pro API mode: aplikuj GPS bounding box (API nemá geo filtr z URL).
-            ads = []
-            for a in ads_raw:
-                aid = a.get("_id")
-                if not aid or aid in seen_ids:
+            if page == 1:
+                pages_available = max(1, math.ceil(count / PAGE_LIMIT))
+                total_pages = pages_available if full_rescan else min(pages_available, INCREMENTAL_PAGES)
+                logger.info(
+                    "Reas.cz [%s]: total=%s listings on %s pages, crawling %s",
+                    label, count, pages_available, total_pages,
+                )
+
+            if not ads_raw:
+                # Prázdná stránka před koncem výpisu = web vrátil méně, než sám ohlásil
+                if count > 0:
+                    logger.error("Reas.cz [%s] page %s of %s is empty, list stopped", label, page, total_pages)
+                    self.lists_complete = False
+                break
+
+            # Anonymizované inzeráty (bez adresy, ceny a fotek) přeskakujeme; seen_ids hlídá
+            # opakování, když se během procházení výpis posune o inzerát.
+            ads: List[Dict[str, Any]] = []
+            for ad in ads_raw:
+                ad_id = ad.get("_id")
+                if not ad_id or ad_id in seen_ids:
                     continue
-                if a.get("isAnonymized") or a.get("isAnonymous"):
-                    logger.debug("Reas.cz skipping anonymized listing %s", aid)
+                if ad.get("isAnonymized") or ad.get("isAnonymous"):
+                    logger.debug("Reas.cz skipping anonymized listing %s", ad_id)
                     continue
-                # GPS bounding box filter pro API mode (JMK oblast)
-                if use_api_pagination:
-                    coords = (a.get("point") or {}).get("coordinates")
-                    if coords and len(coords) >= 2:
-                        try:
-                            lng, lat = float(coords[0]), float(coords[1])
-                            bbox = JMK_BBOX
-                            if not (bbox["lat_min"] <= lat <= bbox["lat_max"] and
-                                    bbox["lng_min"] <= lng <= bbox["lng_max"]):
-                                continue  # mimo JMK → přeskočit
-                        except (ValueError, TypeError):
-                            pass  # bez GPS: přidáme a necháme geo filtr rozhodnout
-                seen_ids.add(aid)
-                ads.append(a)
+                seen_ids.add(ad_id)
+                ads.append(ad)
 
-            if self.fetch_details:
-                # Fetch detailů paralelně (po dávkách)
-                sem = asyncio.Semaphore(self.detail_concurrency)
-                tasks = [
-                    self._process_ad_with_detail(ad, offer_type, segment, locality_hint, sem, metrics)
-                    for ad in ads
-                ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for r in results:
-                    if isinstance(r, Exception):
-                        logger.error("Reas.cz detail fetch error: %s", r)
-                    elif r:
-                        scraped += 1
-            else:
-                for ad in ads:
-                    try:
-                        listing = self._build_listing(ad, offer_type, segment, description=None, locality_hint=locality_hint)
-                        await self._save_listing(listing)
-                        scraped += 1
-                        metrics.increment_scraped()
-                    except Exception as exc:
-                        logger.error("Reas.cz ad %s error: %s", ad.get("_id"), exc)
-                        metrics.increment_failed()
+            sem = asyncio.Semaphore(self.detail_concurrency)
+            results = await asyncio.gather(
+                *(self._process_ad(ad, segment, district, sem, metrics) for ad in ads),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error("Reas.cz ad processing error: %s", result)
+                elif result:
+                    scraped += 1
+
+            page += 1
+            if page <= total_pages:
+                await asyncio.sleep(1.0)
 
         return scraped
 
-    async def _process_ad_with_detail(
+    async def _process_ad(
         self,
         ad: Dict[str, Any],
-        offer_type: str,
         segment: str,
-        locality_hint: str,
+        district: str,
         sem: asyncio.Semaphore,
         metrics: Any,
     ) -> bool:
-        """Fetchne detail stránky, sestaví listing a uloží."""
+        """Stáhne detail (popis, obec), sestaví listing a uloží ho."""
         async with sem:
+            detail: Optional[Dict[str, Any]] = None
             detail_url = ad.get("link", "")
-            description = None
-            if detail_url:
+            if self.fetch_details and detail_url:
                 try:
                     html = await self._fetch_html(detail_url)
-                    description = self._parse_description(html)
+                    detail = self._parse_detail(html)
                     await asyncio.sleep(0.3)
-                except Exception as exc:
-                    logger.debug("Reas.cz detail %s: %s", detail_url, exc)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Reas.cz detail %s failed: %s", detail_url, exc)
 
             try:
-                listing = self._build_listing(ad, offer_type, segment, description, locality_hint=locality_hint)
-                await self._save_listing(listing)
+                listing = self._build_listing(ad, segment, district, detail)
+                if self.fetch_details and detail is None:
+                    # Bez detailu není popis a upsert by jím přepsal ten uložený. Známý inzerát
+                    # proto jen označíme jako viděný; nový se uloží v příštím běhu.
+                    await self._touch_listing(listing)
+                else:
+                    await self._save_listing(listing)
                 metrics.increment_scraped()
                 return True
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.error("Reas.cz save %s error: %s", ad.get("_id"), exc)
                 metrics.increment_failed()
                 return False
 
     # ─── HTTP helpers ────────────────────────────────────────────────────────
 
-    @http_retry
-    async def _fetch_listing_page(
-        self, category_path: str, page: int
-    ) -> Optional[Dict[str, Any]]:
-        """Stáhne HTML stránku kategorie a extrahuje adsListResult z __NEXT_DATA__.
-        
-        POZNÁMKA: HTML stránky jsou CDN-cachovány – ?page=N vrátí vždy stránku 1.
-        Pro skutečnou paginaci použij _fetch_listing_page_api (full_rescan).
-        """
-        if self._http_client is None:
-            raise RuntimeError("HTTP client not initialized")
-
-        url = f"{BASE_URL}/{category_path}"
-        if "?" in category_path:
-            url += f"&page={page}"
-        else:
-            url += f"?page={page}"
-        resp = await self._http_client.get(url)
-        resp.raise_for_status()
-
-        return self._extract_ads_list(resp.text)
-
-    async def _fetch_listing_page_api(
-        self, category_path: str, page: int, build_id: str
-    ) -> Optional[Dict[str, Any]]:
-        """Stáhne data přes Next.js _next/data API endpoint (obchází CDN cache).
-        
-        Tento endpoint paginuje správně a vrací různé listingy pro každou stránku.
-        Geo filtry z URL (jihomoravsky-kraj) však nemusí platit – GPS bounding box
-        se aplikuje v _scrape_category při filtraci ads.
-        """
-        if self._http_client is None:
-            raise RuntimeError("HTTP client not initialized")
-
-        # Odvoz slug path bez query params
-        path_no_query = category_path.split("?")[0]  # prodej/domy/jihomoravsky-kraj/...
-        slugs = [s for s in path_no_query.split("/") if s]
-        slug_params = "&".join(f"slug%5B%5D={s}" for s in slugs)
-        url = f"{BASE_URL}/_next/data/{build_id}/{path_no_query}.json?{slug_params}&page={page}"
-        try:
-            resp = await self._http_client.get(url)
-            if resp.status_code == 200:
-                data = resp.json()
-                return data.get("pageProps", {}).get("adsListResult")
-            elif resp.status_code == 404:
-                # Build ID expired – API nedostupné
-                return None
-        except Exception as exc:
-            logger.debug("Reas.cz _next/data page %s error: %s", page, exc)
-        return None
-
-    async def _get_build_id(self) -> Optional[str]:
-        """Načte aktuální Next.js buildId z hlavní stránky reas.cz."""
-        if self._http_client is None:
-            return None
-        resp = await self._http_client.get(BASE_URL)
-        m = re.search(r'"buildId":"([^"]+)"', resp.text)
-        return m.group(1) if m else None
+    @staticmethod
+    def list_url(segment: str, district_slug: str, page: int = 1) -> str:
+        """URL stránky výpisu. Stránkuje `listPage`; parametr `page` web ignoruje."""
+        url = f"{BASE_URL}/prodej/{segment}/okres-{district_slug}?sort=newest"
+        if page > 1:
+            url += f"&listPage={page}"
+        return url
 
     @http_retry
     async def _fetch_html(self, url: str) -> str:
@@ -382,31 +318,57 @@ class ReasScraper:
     # ─── Parsování ───────────────────────────────────────────────────────────
 
     @staticmethod
-    def _extract_ads_list(html: str) -> Optional[Dict[str, Any]]:
-        """Extrahuj adsListResult ze __NEXT_DATA__ JSON."""
-        match = re.search(
-            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-            html,
-            re.DOTALL,
-        )
+    def _extract_page_props(html: str) -> Optional[Dict[str, Any]]:
+        """pageProps ze __NEXT_DATA__ JSON (None, když skript chybí nebo není JSON)."""
+        match = _NEXT_DATA_RE.search(html)
         if not match:
             return None
         try:
-            nd = json_module.loads(match.group(1))
-            return nd["props"]["pageProps"]["adsListResult"]
-        except (KeyError, json_module.JSONDecodeError) as exc:
+            page_props = json_module.loads(match.group(1))["props"]["pageProps"]
+        except (KeyError, TypeError, json_module.JSONDecodeError) as exc:
             logger.debug("Reas.cz __NEXT_DATA__ parse error: %s", exc)
             return None
+        return page_props if isinstance(page_props, dict) else None
+
+    @classmethod
+    def _extract_ads_list(cls, html: str) -> Optional[Dict[str, Any]]:
+        """Extrahuj adsListResult ze __NEXT_DATA__ JSON."""
+        page_props = cls._extract_page_props(html)
+        if page_props is None:
+            return None
+        return page_props.get("adsListResult")
+
+    @classmethod
+    def parse_list_page(cls, html: str, district_slug: str) -> Tuple[int, List[Dict[str, Any]]]:
+        """
+        Stránka výpisu → (celkový počet inzerátů výpisu, inzeráty této stránky).
+
+        Raises:
+            ValueError: stránka nenese data výpisu, nebo web místo okresu vrátil jiný
+                (celostátní) výpis – takové inzeráty se nesmí uložit pod naším okresem.
+        """
+        page_props = cls._extract_page_props(html)
+        result = (page_props or {}).get("adsListResult")
+        if not isinstance(result, dict):
+            raise ValueError("adsListResult not found in __NEXT_DATA__")
+
+        count = int(result.get("count") or 0)
+        params = (page_props or {}).get("adsListParams")
+        if isinstance(params, dict):
+            got = (params.get("locality") or {}).get("districtSlug")
+            if got != district_slug:
+                raise ValueError(f"list is not for okres '{district_slug}' (districtSlug={got!r}, count={count})")
+        elif count > MAX_EXPECTED_LIST_COUNT:
+            raise ValueError(f"count={count} > {MAX_EXPECTED_LIST_COUNT} – locality filter does not seem to apply")
+
+        ads = result.get("data") or []
+        return count, [ad for ad in ads if isinstance(ad, dict)]
 
     @staticmethod
     def _parse_description(html: str) -> Optional[str]:
         """Extrahuj popis inzerátu z detail stránky."""
         # Zkus __NEXT_DATA__ nejprve
-        match = re.search(
-            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-            html,
-            re.DOTALL,
-        )
+        match = _NEXT_DATA_RE.search(html)
         if match:
             try:
                 nd = json_module.loads(match.group(1))
@@ -432,84 +394,114 @@ class ReasScraper:
                     return text[:4000]
         return None
 
+    @classmethod
+    def _parse_detail(cls, html: str) -> Dict[str, Any]:
+        """Detail inzerátu → popis a název obce (adEstateDetail.localityInfo má diakritiku)."""
+        detail: Dict[str, Any] = {"description": cls._parse_description(html)}
+        page_props = cls._extract_page_props(html) or {}
+        estate = page_props.get("adEstateDetail")
+        if isinstance(estate, dict):
+            locality = estate.get("localityInfo")
+            if isinstance(locality, dict) and locality.get("municipality"):
+                detail["municipality"] = str(locality["municipality"]).strip()
+        return detail
+
+    @staticmethod
+    def _municipality_from_ad(ad: Dict[str, Any]) -> Optional[str]:
+        """
+        Název obce z adresy výpisu. Adresa má tvary "Dyje 68, Dyje", "Vrbovec, okres Znojmo",
+        "Nová Přímětická, Znojmo - Přímětice"; která část je obec, určí shoda s municipalitySlug.
+        """
+        slug = ad.get("municipalitySlug") or ""
+        if not slug:
+            return None
+        for text in (ad.get("formattedLocation"), ad.get("formattedAddress")):
+            for part in reversed((text or "").split(",")):
+                part = part.strip()
+                # "Znojmo - Přímětice" → obec je před pomlčkou; "Dyje 68" → bez čísla popisného
+                for candidate in (part, part.split(" - ")[0], re.sub(r"\s+[\d/]+\w?$", "", part)):
+                    candidate = candidate.strip()
+                    if candidate and _slugify(candidate) == slug:
+                        return candidate
+        # Bez shody aspoň název ze slugu (bez diakritiky) – na párování obcí stačí
+        return slug.replace("-", " ").title()
+
     # ─── Sestavení listingu ───────────────────────────────────────────────────
 
     def _build_listing(
         self,
         ad: Dict[str, Any],
-        offer_type: str,
         segment: str,
-        description: Optional[str],
-        locality_hint: str = "",
+        district: str,
+        detail: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Sestaví normalizovaný dict inzerátu z SSR dat.
-        
-        locality_hint: volitelný suffix přidaný k location_text (např. 'Znojemský okres')
-            pro zajištění průchodu geografickým filtrem v database.py.
-            Sub-obce jako 'Oblekovice' neobsahují 'znojmo' a filtrem by neprošly.
+        """Sestaví normalizovaný dict inzerátu z SSR dat výpisu (+ popis a obec z detailu).
+
+        district: okres výpisu, ze kterého inzerát pochází ("Znojmo" / "Brno-venkov" /
+            "Brno-město"). Adresa okres většinou nenese ("Hrušovanská, Hrabětice"), takže
+            bez něj by inzerát neprošel geografickým filtrem v database.py.
         """
+        detail = detail or {}
         external_id: str = ad["_id"]
-        link: str = ad.get("link", f"{BASE_URL}/inzerat/{external_id}")
+        link: str = ad.get("link") or f"{BASE_URL}/inzerat/{external_id}"
 
         # Typ nemovitosti
-        # Pole `type`/`subType` u části inzerátů typ nenese (63 domů skončilo jako „Ostatní"
-        # a detekce duplicit je nepárovala) – když mapa nepozná hodnotu, vezmi typ z URL segmentu.
-        reas_type = ad.get("type") or ad.get("subType") or "other"
-        property_type = PROPERTY_TYPE_MAP.get(reas_type.lower()) or SEGMENT_PROPERTY_TYPES.get(segment, "Other")
+        # `type` u domů je "building" (ne "house") – 63 domů kdysi skončilo jako „Ostatní"
+        # a detekce duplicit je nepárovala. Proto nejdřív subType, pak type, nakonec segment URL.
+        sub_type = str(ad.get("subType") or "").lower()
+        reas_type = str(ad.get("type") or "").lower()
+        property_type = (
+            SUBTYPE_PROPERTY_TYPES.get(sub_type)
+            or PROPERTY_TYPE_MAP.get(reas_type)
+            or SEGMENT_PROPERTY_TYPES.get(segment, "Other")
+        )
+
+        # Plochy: u pozemku je jediná plocha jeho výměra, u domu užitná + pozemek
+        utility_area = self._to_float(ad.get("utilityArea"))
+        land_area = self._to_float(ad.get("landArea"))
+        display_area = self._to_float(ad.get("displayArea"))
+        if property_type == "Land":
+            area_built_up: Optional[float] = None
+            area_land = land_area or display_area
+        else:
+            area_built_up = utility_area or display_area
+            area_land = land_area
 
         # Titulek – sestavíme z dostupných polí
-        disposition = ad.get("disposition") or ""
-        area = ad.get("displayArea") or ad.get("floorArea")
-        location_short = ad.get("formattedAddress") or ad.get("formattedLocation") or ""
-        segment_name = SEGMENT_NAMES.get(segment, "nemovitosti")
-        offer_word = "Pronájem" if offer_type == "Rent" else "Prodej"
-
-        title_parts = [offer_word, segment_name]
-        if disposition:
-            title_parts.append(disposition)
-        if area:
-            title_parts.append(f"{area} m²")
+        location_short = ad.get("formattedLocation") or ad.get("formattedAddress") or ""
+        title_area = area_land if property_type == "Land" else area_built_up
+        title_parts = ["Prodej", SEGMENT_NAMES.get(segment, "nemovitosti")]
+        if title_area:
+            # 117.0 → "117", 62.5 → "62.5" (formát :g by velké výměry zapsal exponentem)
+            area_text = str(int(title_area)) if title_area == int(title_area) else str(title_area)
+            title_parts.append(f"{area_text} m²")
         if location_short:
             title_parts.append(f"– {location_short}")
         title = " ".join(title_parts)[:200]
 
-        # Cena
-        price: Optional[float] = None
-        raw_price = ad.get("price") or ad.get("originalPrice")
-        if raw_price is not None:
-            try:
-                price = float(raw_price)
-            except (ValueError, TypeError):
-                pass
+        # Cena: jen `price` (aktuální). `originalPrice` je cena před slevou – jako záloha
+        # by k inzerátu bez ceny dostala starou cenu.
+        price = self._to_float(ad.get("price"))
+        if price is not None and price <= 0:
+            price = None
 
-        # Plocha
-        area_value: Optional[float] = None
-        if area is not None:
-            try:
-                area_value = float(area)
-            except (ValueError, TypeError):
-                pass
-
-        # Lokace – přidej locality_hint pokud subobec neobsahuje klíčové slovo
+        municipality = detail.get("municipality") or self._municipality_from_ad(ad)
         location_text = (
             ad.get("formattedLocation")
             or ad.get("formattedAddress")
-            or ad.get("municipalitySlug", "").replace("-", " ").title()
+            or municipality
+            or ""
         )
-        if locality_hint and locality_hint.lower() not in (location_text or "").lower():
-            location_text = f"{location_text}, {locality_hint}" if location_text else locality_hint
 
         # GPS souřadnice [lng, lat] → latitude, longitude
         latitude: Optional[float] = None
         longitude: Optional[float] = None
-        point = ad.get("point") or {}
-        coords = point.get("coordinates")
+        coords = (ad.get("point") or {}).get("coordinates")
         if coords and len(coords) >= 2:
-            try:
-                longitude = float(coords[0])
-                latitude = float(coords[1])
-            except (ValueError, TypeError):
-                pass
+            longitude = self._to_float(coords[0])
+            latitude = self._to_float(coords[1])
+            if latitude is None or longitude is None:
+                latitude = longitude = None
 
         # Fotky – max 50, preferred: original, fallback: preview
         photos: List[str] = []
@@ -526,21 +518,44 @@ class ReasScraper:
             "external_id": external_id,
             "url": link,
             "title": title,
-            "offer_type": offer_type,
+            "offer_type": "Sale",
             "property_type": property_type,
             "price": price,
-            "area_built_up": area_value,
-            "area_land": None,
+            "area_built_up": area_built_up,
+            "area_land": area_land,
             "location_text": location_text,
+            "municipality": municipality,
+            "district": district,
             "latitude": latitude,
             "longitude": longitude,
-            "description": description,
+            # upsert_listing popis ořezává – None by tam spadlo
+            "description": detail.get("description") or "",
             "photos": photos,
             "is_active": True,
         }
+
+    @staticmethod
+    def _to_float(value: Any) -> Optional[float]:
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
 
     # ─── Uložení do DB ────────────────────────────────────────────────────────
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         db_manager = get_db_manager()
         await db_manager.upsert_listing(listing)
+
+    async def _touch_listing(self, listing: Dict[str, Any]) -> None:
+        """Známý inzerát označí jako viděný, aniž by přepsal uložená data (popis)."""
+        await get_db_manager().touch_listings(
+            self.SOURCE_CODE,
+            [(listing["external_id"], listing.get("municipality"), listing.get("district"))],
+        )
+
+    async def _keep_active_seen(self) -> int:
+        """Všechny aktivní inzeráty zdroje označí jako viděné (běh s neúplným výpisem)."""
+        return await get_db_manager().mark_active_seen(self.SOURCE_CODE)
