@@ -152,7 +152,12 @@
                             <MudLink Href="@($"/listings/{_listing.PhotosFromListingId}")" Class="ml-1">Otevřít záznam</MudLink>
                         </MudAlert>
                     }
-                    <MudCarousel TData="object" Style="height:400px;" ShowArrows="true" ShowBullets="true" EnableSwipeGesture="true" AutoCycle="false">
+                    @* Tečky jen u malých galerií: řada 20+ teček se nevešla na šířku a vytlačila pravou šipku
+                       mimo karusel. U větších galerií je místo nich počitadlo. *@
+                    <MudCarousel TData="object" Style="height:400px;" ShowArrows="true"
+                                 ShowBullets="@(_listing.Photos.Count <= MaxCarouselBullets)"
+                                 EnableSwipeGesture="true" AutoCycle="false"
+                                 @bind-SelectedIndex="_carouselIndex">
                         @foreach (var photo in _listing.Photos.OrderBy(p => p.Order))
                         {
                             var photoSrc = PhotosBase.Resolve(photo.StoredUrl, photo.OriginalUrl, Navigation.BaseUri);
@@ -168,6 +173,12 @@
                             </MudCarouselItem>
                         }
                     </MudCarousel>
+                    @if (_listing.Photos.Count > MaxCarouselBullets)
+                    {
+                        <MudText Typo="Typo.caption" Align="Align.Center" Class="mt-1" Style="display:block;">
+                            @(_carouselIndex + 1) / @_listing.Photos.Count
+                        </MudText>
+                    }
                 </SectionCard>
             }
             else
@@ -1604,6 +1615,9 @@
     // Computed – nelze @{var=} uvnitř @if v Razor, proto computed properties v @code
     private int PhotoClassifiedCount      => _listing?.Photos.Count(p => p.IsClassified) ?? 0;
     private int PhotoDamageCount          => _listing?.Photos.Count(p => p.DamageDetected) ?? 0;
+    private const int MaxCarouselBullets = 12;
+    private int _carouselIndex;
+
     private int PhotoRenderCount          => _listing?.Photos.Count(p => (p.PhotoLabels ?? "").Contains("\"visualization\"")) ?? 0;
     private int PhotoFeedbackWrongCount   => _photoFeedbacks.Values.Count(f => f == "wrong");
 
@@ -2327,6 +2341,7 @@
         try
         {
             _listing = await Http.GetFromJsonAsync<ListingDetailDto>($"api/listings/{Id}");
+            _carouselIndex = 0;
             if (_listing != null)
             {
                 _userState = _listing.UserState ?? new();

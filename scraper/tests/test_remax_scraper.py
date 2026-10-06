@@ -249,3 +249,31 @@ class TestRemaxBeh:
         list_requests = [url for url in scraper.requested if "/reality/detail/" not in url]
         assert len(list_requests) == 2
         assert all(url.endswith("?stranka=1") for url in list_requests)
+
+
+class TestRemaxFotky:
+    """6. 10. 2026: ukládaly se náhledy 350 px a portréty makléřů; ve skupině duplicit pak detail
+    ukázal místo fotek ze Sreality miniatury z RE/MAX."""
+
+    def test_nahled_se_prevede_na_plnou_velikost(self):
+        from core.scrapers.remax_scraper import RemaxScraper
+        assert RemaxScraper.full_size_photo_url(
+            "https://mlsf.remax-czech.cz/data//zs/441090/3392950_th350.jpg"
+        ) == "https://mlsf.remax-czech.cz/data//zs/441090/3392950.jpg"
+        assert RemaxScraper.full_size_photo_url(
+            "https://mlsf.remax-czech.cz/data//zs/441090/3392950.jpg"
+        ) == "https://mlsf.remax-czech.cz/data//zs/441090/3392950.jpg"
+
+    def test_portret_maklere_a_cizi_obrazky_nejsou_fotky_nemovitosti(self):
+        from core.scrapers.remax_scraper import RemaxScraper
+        assert RemaxScraper.full_size_photo_url(
+            "https://mlsf.remax-czech.cz/data//uzivatele/12864/1576857_1059524_photo_detail_w.jpg") is None
+        assert RemaxScraper.full_size_photo_url("https://www.remax-czech.cz/images/logo.svg") is None
+
+    def test_fotky_podobnych_nemovitosti_se_neberou(self):
+        from core.scrapers.remax_scraper import RemaxScraper
+        own = [f"https://mlsf.remax-czech.cz/data//zs/441090/33929{i}.jpg" for i in range(50, 55)]
+        similar = ["https://mlsf.remax-czech.cz/data//zs/447088/3501001.jpg",
+                   "https://mlsf.remax-czech.cz/data//zs/442992/3477002.jpg"]
+        assert RemaxScraper.own_listing_photos(own[:2] + similar + own[2:]) == own
+        assert RemaxScraper.own_listing_photos([]) == []

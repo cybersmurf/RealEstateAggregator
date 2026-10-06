@@ -545,12 +545,12 @@ class RemaxScraper:
 
         # ── Photos ────────────────────────────────────────────────────────────
         photo_urls = []
-        for img in soup.find_all('img'):
-            src = img.get('src', '')
-            if 'mlsf.remax-czech.cz' in src or ('/data/' in src and 'remax' in src):
-                photo_url = urljoin(self.BASE_URL, src)
-                if photo_url not in photo_urls:
-                    photo_urls.append(photo_url)
+        for img in soup.find_all("img"):
+            src = img.get("data-src") or img.get("src") or ""
+            photo_url = self.full_size_photo_url(urljoin(self.BASE_URL, src)) if src else None
+            if photo_url and photo_url not in photo_urls:
+                photo_urls.append(photo_url)
+        photo_urls = self.own_listing_photos(photo_urls)
         result["photos"] = photo_urls[:50]
 
         # ── Property type ─────────────────────────────────────────────────────
@@ -607,6 +607,37 @@ class RemaxScraper:
         """Prodaná nabídka: deaktivovat v DB (neukládá se)."""
         db = get_db_manager()
         await db.deactivate_listing(self.SOURCE_CODE, external_id)
+
+    _RE_PHOTO_THUMB = re.compile(r"_th\d+(?=\.\w+$)")
+
+    @classmethod
+    def full_size_photo_url(cls, url: str) -> Optional[str]:
+        """
+        Fotka nemovitosti v plné velikosti, nebo None, když to fotka nemovitosti není.
+
+        Stránka nese náhledy „…/zs/441090/3392950_th350.jpg" (350 px); plná fotka je tatáž adresa
+        bez „_th350". Obrázky z „/uzivatele/" jsou portréty makléřů. Do 6. 10. 2026 se ukládaly
+        náhledy i portréty – a když měl RE/MAX ve skupině duplicit nejvíc fotek, detail ukázal je.
+        """
+        if "mlsf.remax-czech.cz" not in url or "/uzivatele/" in url:
+            return None
+        if "/zs/" not in url:
+            return None
+        return cls._RE_PHOTO_THUMB.sub("", url)
+
+    _RE_PHOTO_FOLDER = re.compile(r"/zs/(\d+)/")
+
+    @classmethod
+    def own_listing_photos(cls, urls: List[str]) -> List[str]:
+        """
+        Jen fotky ze složky tohoto inzerátu. Stránka nese i náhledy „podobných nemovitostí"
+        (jiná složka /zs/{id}/, po jedné až dvou fotkách) – vlastní složka je ta nejčastější.
+        """
+        folders = [m.group(1) for m in (cls._RE_PHOTO_FOLDER.search(u) for u in urls) if m]
+        if not folders:
+            return []
+        own = max(set(folders), key=folders.count)
+        return [u for u in urls if f"/zs/{own}/" in u]
 
     async def _save_listing(self, listing: Dict[str, Any]) -> None:
         """

@@ -329,8 +329,8 @@ MOCK_REMAX_DETAIL_HTML = """
     <div class="pictogram__item" data-toggle="tooltip" title="Počet pokojů">5+1 <i class="icon-rooms"></i></div>
     <div class="pictogram__item" data-toggle="tooltip" title="Užitná plocha">161 m<sup>2</sup></div>
   </div>
-  <img src="https://mlsf.remax-czech.cz/media/photo_001.jpg" alt="foto 1">
-  <img src="https://mlsf.remax-czech.cz/media/photo_002.jpg" alt="foto 2">
+  <img src="https://mlsf.remax-czech.cz/data//zs/441090/3392950_th350.jpg" alt="foto 1">
+  <img src="https://mlsf.remax-czech.cz/data//zs/441090/3392960_th350.jpg" alt="foto 2">
   <img src="https://cdn.external.cz/irrelevant.jpg" alt="ext">
 </body></html>
 """
