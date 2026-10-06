@@ -27,13 +27,37 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://reality.bazos.cz"
 PHOTO_BASE = "https://www.bazos.cz"
 
-# Parametry hledání (Znojmo, 25 km, max 8.5M Kč)
-_SEARCH_PARAMS = "hledat=&hlokalita=66902&humkreis=25&cenaod=&cenado=8500000&order="
-_SEARCH_URL_P1 = (
-    f"{BASE_URL}/?hledat=&rubriky=reality&hlokalita=66902"
-    "&humkreis=25&cenaod=&cenado=8500000&Submit=Hledat"
-)
-_SEARCH_URL_PAGED = f"{BASE_URL}/{{offset}}/?{_SEARCH_PARAMS}"
+# Hledání: (kategorie v adrese, PSČ středu, okruh v km). Bez cenového stropu – ceny řeší
+# search_filters v settings.yaml. Do 6. 10. 2026 běželo jediné hledání „Znojmo + 25 km do 8,5 mil.":
+# chyběl celý okres Brno-venkov, okraje okresu Znojmo (Moravskokrumlovsko, Vranovsko) i dražší domy.
+# Okolí Brna se bere po kategoriích – všechno najednou by byly tisíce brněnských bytů.
+SEARCHES: List[Tuple[str, str, int]] = [
+    ("", "66902", 35),
+    ("prodam/dum/", "60200", 30),
+    ("prodam/chata/", "60200", 30),
+    ("prodam/pozemek/", "60200", 30),
+    ("prodam/zahrada/", "60200", 30),
+    ("prodam/byt/", "60200", 30),
+    ("pronajmu/dum/", "60200", 30),
+    ("pronajmu/byt/", "60200", 30),
+]
+
+# Okres, jak ho Bazoš píše ve výpisu („Brno venkov 691 23") → náš název. Co tu není (Brno, Vyškov,
+# Třebíč…), se z výpisu nebere – okruh hledání zasahuje i do sousedních okresů.
+LIST_DISTRICTS: Dict[str, str] = {
+    "znojmo": "Znojmo",
+    "brno venkov": "Brno-venkov",
+    "brno-venkov": "Brno-venkov",
+}
+
+
+def search_url(category: str, postcode: str, radius: int, page: int) -> str:
+    """Adresa stránky výpisu (page od 1); další stránky mají v cestě posun po 20."""
+    params = f"hledat=&hlokalita={postcode}&humkreis={radius}&cenaod=&cenado=&order="
+    if page <= 1:
+        return f"{BASE_URL}/{category}?hledat=&rubriky=reality&hlokalita={postcode}&humkreis={radius}&cenaod=&cenado=&Submit=Hledat"
+    return f"{BASE_URL}/{category}{(page - 1) * 20}/?{params}"
+
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -100,14 +124,20 @@ _CADASTRE_RE = re.compile(
 )
 
 class BazosScraper:
-    """Scraper pro reality.bazos.cz (Znojmo, 25 km okruh, max 8.5M Kč)."""
+    """Scraper pro reality.bazos.cz (okresy Znojmo a Brno-venkov, viz SEARCHES)."""
 
     SOURCE_CODE = "BAZOS"
-    _MAX_PAGES_INCREMENTAL = 3    # ~60 nejnovějších inzerátů
-    _MAX_PAGES_FULL = 30          # max ~600 inzerátů (aktuálně ~431 výsledků)
+    _MAX_PAGES_INCREMENTAL = 2    # ~40 nejnovějších inzerátů každého hledání
+    _MAX_PAGES_FULL = 250         # pojistka; výpis končí sám (méně než 20 položek / 404)
+    # Limit úlohy v runneru je 45 min; běh proto končí sám, jakmile vyčerpá rozpočet (viz iDNES).
+    TIME_BUDGET_SECONDS = 36 * 60
 
-    def __init__(self) -> None:
+    def __init__(self, searches: Optional[List[Tuple[str, str, int]]] = None) -> None:
+        self.searches = searches or SEARCHES
         self.scraped_count = 0
+        self.skipped_other_district = 0
+        # False = některou stránku výpisu se nepodařilo načíst; co jsme neviděli, nemusí být stažené
+        self.lists_complete = True
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
@@ -115,7 +145,13 @@ class BazosScraper:
         return await self.scrape(max_pages=max_pages)
 
     async def scrape(self, max_pages: int = 3) -> int:
-        logger.info("Starting Bazos.cz scraper (max_pages=%s)", max_pages)
+        """
+        Dvě fáze: napřed výpisy všech hledání (okres a cena jsou už v položce výpisu), potom
+        detaily – jen u inzerátů z našich okresů, které ještě neznáme nebo jim Bazoš změnil cenu.
+        Známým se jen obnoví „naposledy viděno".
+        """
+        logger.info("Starting Bazos.cz scraper (max_pages=%s, searches=%s)", max_pages, len(self.searches))
+        started = time.monotonic()
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
@@ -124,74 +160,103 @@ class BazosScraper:
                 headers=DEFAULT_HEADERS,
             ) as client:
                 self._http_client = client
+                try:
+                    db = get_db_manager()
+                    known = await db.get_known_prices(self.SOURCE_CODE)
 
-                page = 1
-                total_scraped = 0
-                seen_ids: set[str] = set()
+                    items: List[Dict[str, Any]] = []
+                    seen_ids: set[str] = set()
+                    for category, postcode, radius in self.searches:
+                        for item in await self._collect_search(category, postcode, radius, max_pages, metrics):
+                            if item["external_id"] not in seen_ids:
+                                seen_ids.add(item["external_id"])
+                                items.append(item)
 
-                while page <= max_pages:
-                    url = _SEARCH_URL_P1 if page == 1 else _SEARCH_URL_PAGED.format(offset=(page - 1) * 20)
+                    touched = await db.touch_listings(
+                        self.SOURCE_CODE,
+                        [(i["external_id"], None, i["district"]) for i in items if i["external_id"] in known],
+                    )
+                    if not self.lists_complete:
+                        kept = await db.mark_active_seen(self.SOURCE_CODE)
+                        logger.warning("Bazos lists incomplete – %s active listings kept as seen", kept)
 
-                    try:
-                        with timer(f"Bazos list page {page}", logging.DEBUG):
-                            start = time.perf_counter()
-                            html = await self._fetch(url)
-                            metrics.record_fetch(time.perf_counter() - start)
+                    todo = self.select_for_detail(items, known)
+                    logger.info(
+                        "Bazos lists: %s listings in target districts, %s known refreshed, %s need detail, "
+                        "%s skipped as other district",
+                        len(items), touched, len(todo), self.skipped_other_district,
+                    )
 
-                        items, has_next = self._parse_list_page(html)
-                        if not items:
-                            logger.info("Bazos: no items on page %s, stopping", page)
+                    saved = 0
+                    for idx, item in enumerate(todo):
+                        if time.monotonic() - started >= self.TIME_BUDGET_SECONDS:
+                            logger.info("Bazos time budget used up after %s details – %s left for the next run",
+                                        idx, len(todo) - idx)
                             break
+                        try:
+                            with timer(f"Bazos detail {item['external_id']}", logging.DEBUG):
+                                start = time.perf_counter()
+                                detail_html = await self._fetch(item["detail_url"])
+                                metrics.record_fetch(time.perf_counter() - start)
 
-                        new_items = [i for i in items if i["external_id"] not in seen_ids]
-                        for it in new_items:
-                            seen_ids.add(it["external_id"])
-
-                        logger.info(
-                            "Bazos page %s: %s new items (total found so far: %s)",
-                            page, len(new_items), len(seen_ids),
-                        )
-
-                        for item in new_items:
-                            try:
-                                with timer(f"Bazos detail {item['external_id']}", logging.DEBUG):
-                                    start = time.perf_counter()
-                                    detail_html = await self._fetch(item["detail_url"])
-                                    metrics.record_fetch(time.perf_counter() - start)
-
-                                listing = self._parse_detail_page(detail_html, item)
-                                if listing is None:
-                                    # Poptávkový inzerát (hledám…) – přeskočit
-                                    logger.debug("Bazos: skipping demand ad %s", item["external_id"])
-                                    metrics.increment_failed()
-                                    continue
-
-                                await self._save_listing(listing)
-                                total_scraped += 1
-                                metrics.increment_scraped()
-                                await asyncio.sleep(0.5)
-
-                            except Exception as exc:
-                                logger.error(
-                                    "Bazos: error processing detail %s: %s",
-                                    item.get("detail_url"), exc,
-                                )
+                            listing = self._parse_detail_page(detail_html, item)
+                            if listing is None:
+                                # Poptávkový inzerát (hledám…) – přeskočit
+                                logger.debug("Bazos: skipping demand ad %s", item["external_id"])
                                 metrics.increment_failed()
+                                continue
 
-                        if not has_next:
-                            logger.info("Bazos: last page reached at page %s", page)
-                            break
+                            if item.get("district"):
+                                listing["district"] = item["district"]
+                            await self._save_listing(listing)
+                            saved += 1
+                            metrics.increment_scraped()
+                        except Exception as exc:
+                            logger.error("Bazos: error processing detail %s: %s", item.get("detail_url"), exc)
+                            metrics.increment_failed()
+                        await asyncio.sleep(0.5)
 
-                        page += 1
-                        await asyncio.sleep(1.0)  # zdvořilé crawlování
+                    self.scraped_count = touched + saved
+                except Exception as exc:
+                    logger.error("Bazos scraper failed: %r", exc)
+                    metrics.increment_failed()
 
-                    except Exception as exc:
-                        logger.error("Bazos: error fetching list page %s (%s): %s", page, url, exc)
-                        break
+        self._http_client = None
+        logger.info("Bazos.cz scraper finished. Scraped %s listings", self.scraped_count)
+        return self.scraped_count
 
-        self.scraped_count = total_scraped
-        logger.info("Bazos.cz scraper finished. Scraped %s listings", total_scraped)
-        return total_scraped
+    async def _collect_search(self, category: str, postcode: str, radius: int,
+                              max_pages: int, metrics: Any) -> List[Dict[str, Any]]:
+        """Položky jednoho hledání ze všech stránek; jen inzeráty z našich okresů."""
+        collected: List[Dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            url = search_url(category, postcode, radius, page)
+            try:
+                with timer(f"Bazos list {category or 'vse'} page {page}", logging.DEBUG):
+                    start = time.perf_counter()
+                    html = await self._fetch(url)
+                    metrics.record_fetch(time.perf_counter() - start)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    break  # za poslední stránkou
+                logger.error("Bazos: list page %s failed: %r", url, exc)
+                self.lists_complete = False
+                break
+            except Exception as exc:
+                logger.error("Bazos: list page %s failed: %r", url, exc)
+                self.lists_complete = False
+                break
+
+            page_items, other_district, raw_count = self.parse_list_page(html)
+            self.skipped_other_district += other_district
+            collected.extend(page_items)
+            if raw_count < 20:
+                break
+            await asyncio.sleep(1.0)  # zdvořilé crawlování
+
+        logger.info("Bazos search %s%s+%skm: %s listings in target districts",
+                    category, postcode, radius, len(collected))
+        return collected
 
     @http_retry
     async def _fetch(self, url: str) -> str:
@@ -203,68 +268,65 @@ class BazosScraper:
 
     # ── List page ──────────────────────────────────────────────────────────────
 
-    def _parse_list_page(self, html: str) -> Tuple[List[Dict[str, Any]], bool]:
-        """
-        Zparsuje stránku seznamu inzerátů.
+    _RE_LISTING_HREF = re.compile(r"/inzerat/(\d+)/")
+    _RE_LIST_PRICE = re.compile(r"(\d[\d\s\xa0]{2,})\s*Kč")
 
-        Returns:
-            (items, has_next_page)
+    @classmethod
+    def parse_list_page(cls, html: str) -> Tuple[List[Dict[str, Any]], int, int]:
+        """
+        Stránka výpisu → (položky z našich okresů, počet položek z jiných okresů, počet všech položek).
+
+        Položka: external_id, detail_url, title, price (číslo nebo None – „Dohodou", „V textu"),
+        district (náš název okresu). Okres je ve výpisu u každého inzerátu („Brno venkov 691 23").
         """
         soup = BeautifulSoup(html, "html.parser")
-        results: List[Dict[str, Any]] = []
-        seen_ids: set[str] = set()
+        items: List[Dict[str, Any]] = []
+        other_district = 0
+        raw_count = 0
 
-        _LISTING_RE = re.compile(r"/inzerat/(\d+)/")
+        for node in soup.select("div.inzeraty"):
+            link = node.select_one(".nadpis a[href]") or node.select_one(".inzeratynadpis a[href]")
+            href = str(link.get("href", "")) if link else ""
+            match = cls._RE_LISTING_HREF.search(href)
+            if not match:
+                continue
+            raw_count += 1
 
-        for a in soup.find_all("a", href=True):
-            href = str(a.get("href", ""))
-            m = _LISTING_RE.search(href)
-            if not m:
+            lok = node.select_one(".inzeratylok")
+            lok_text = " ".join(lok.get_text(" ", strip=True).split()) if lok else ""
+            district_text = re.sub(r"\d{3}\s?\d{2}\s*$", "", lok_text).strip().lower()
+            district = LIST_DISTRICTS.get(district_text)
+            if district is None:
+                other_district += 1
                 continue
 
-            # Přeskočit fotogalerní odkazy (obsahují <img>) – hledáme textový odkaz
-            if a.find("img"):
-                continue
-
-            external_id = m.group(1)
-            if external_id in seen_ids:
-                continue
-            seen_ids.add(external_id)
-
-            # Celé URL detailu (bez query parametrů)
             raw_path = href.split("?")[0]
-            if raw_path.startswith("http"):
-                detail_url = raw_path
-            else:
-                detail_url = BASE_URL + raw_path
-
-            # Titulek z textu odkazu (nebo rodičovského nadpisu)
-            title = a.get_text(" ", strip=True)
-            if not title:
-                parent = a.find_parent(["h2", "h3", "div"])
-                if parent:
-                    title = parent.get_text(" ", strip=True)
-
-            # Cena z okolního kontextu
-            price_text = ""
-            container = a.find_parent()
-            if container:
-                ctx = container.get_text(" ", strip=True)
-                pm = re.search(r"([\d][\d\s\xa0]{3,})\s*Kč", ctx)
-                if pm:
-                    price_text = pm.group(0).strip()
-
-            results.append({
-                "external_id": external_id,
-                "detail_url": detail_url,
-                "title": title[:200],
-                "price_text": price_text,
+            title_el = node.select_one(".nadpis a")
+            price_el = node.select_one(".inzeratycena")
+            price_match = cls._RE_LIST_PRICE.search(price_el.get_text(" ", strip=True)) if price_el else None
+            items.append({
+                "external_id": match.group(1),
+                "detail_url": raw_path if raw_path.startswith("http") else BASE_URL + raw_path,
+                "title": (title_el.get_text(" ", strip=True) if title_el else "")[:200],
+                "price": float(re.sub(r"[\s\xa0]", "", price_match.group(1))) if price_match else None,
+                "district": district,
             })
 
-        # Detekce další stránky: odkaz s offset /NN/?hledat=
-        has_next = bool(soup.find("a", href=re.compile(r"/\d+/\?hledat=")))
+        return items, other_district, raw_count
 
-        return results, has_next
+    @staticmethod
+    def select_for_detail(items: List[Dict[str, Any]], known: Dict[str, Optional[float]]) -> List[Dict[str, Any]]:
+        """Detail potřebují známé inzeráty se změněnou cenou (napřed) a nové; ostatní ne."""
+        changed: List[Dict[str, Any]] = []
+        new: List[Dict[str, Any]] = []
+        for item in items:
+            if item["external_id"] not in known:
+                new.append(item)
+                continue
+            old_price, list_price = known[item["external_id"]], item["price"]
+            if list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5):
+                changed.append(item)
+        return changed + new
 
     # ── Detail page ────────────────────────────────────────────────────────────
 

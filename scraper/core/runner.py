@@ -162,15 +162,17 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             # (všechny kategorie) vrátil 700+ výsledků a incremental (5 str. × 60 = 300)
             # by domy na stránkách 6+ vynechal.
             category_main_cbs: list = sreality_config.get("category_main_cbs") or [None]
-            # Typ nabídky: 1=Prodej, 2=Pronájem, 3=Dražba. Pronájem má smysl u bytů (1) a domů (2),
-            # dražby u domů a pozemků – jinak by se pro každý okres spouštěly prázdné dotazy.
+            # Typ nabídky: 1=Prodej, 2=Pronájem, 3=Dražba. Pronájem pozemků a „ostatního" se nebere
+            # (filtry je stejně nepouštějí), dražby jen u bytů, domů a pozemků – jinak by se pro každý
+            # okres spouštěly prázdné dotazy. Do 6. 10. 2026 chyběl pronájem komerčních prostor
+            # a dražby bytů, přestože je search_filters povolují.
             category_type_cbs: list = sreality_config.get("category_type_cbs") or [1]
 
             def _type_applies(cat_main, cat_type) -> bool:
                 if cat_type == 2:
-                    return cat_main in (1, 2, None)
+                    return cat_main in (1, 2, 4, None)
                 if cat_type == 3:
-                    return cat_main in (2, 3, None)
+                    return cat_main in (1, 2, 3, None)
                 return True
 
             if district_ids:

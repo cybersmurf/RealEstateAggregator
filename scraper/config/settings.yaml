@@ -16,6 +16,11 @@ scraping:
   delay_between_requests: 1.0  # seconds
   max_retries: 3
   user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+  # POZOR: tahle volba se v kódu nikde nečte. Skutečný stav (rozhodnutí vlastníka 6. 10. 2026):
+  # nové zdroje přidáváme jen tehdy, když jejich robots.txt procházení dovoluje (Sbazar, Edrazby
+  # a Český internet proto nebereme). Výjimkou jsou Sreality (robots.txt zakazuje robotům celý web)
+  # a Bazoš (zakazuje parametry hledání) – jsou to dva největší zdroje, oficiální cesta k datům
+  # neexistuje, a scrapují se dál.
   respect_robots_txt: true
 
 # Sources configuration
@@ -202,7 +207,7 @@ scrapers:
       - 2   # Domy (Houses)
       - 3   # Pozemky (Land)
       - 4   # Komerční (Commercial)
-    # Typ nabídky: 1=Prodej, 2=Pronájem (jen byty a domy), 3=Dražba (jen domy a pozemky)
+    # Typ nabídky: 1=Prodej, 2=Pronájem (byty, domy, komerční), 3=Dražba (byty, domy, pozemky)
     category_type_cbs:
       - 1
       - 2
