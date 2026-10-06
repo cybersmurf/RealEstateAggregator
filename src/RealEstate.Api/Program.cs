@@ -318,6 +318,7 @@ app.MapSpatialEndpoints();
 app.MapCadastreEndpoints();
 app.MapPhotoEndpoints();
 app.MapInspectionComparisonEndpoints();
+app.MapWorkspaceEndpoints();
 app.MapOllamaEndpoints();
 app.MapLocalAnalysisEndpoints();
 app.MapJobEndpoints();

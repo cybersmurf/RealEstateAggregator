@@ -130,6 +130,80 @@
                 </MudGrid>
             </SectionCard>
 
+            @* ── Společný prostor (jen správce) ──────────────────────── *@
+            @if (_profile.IsAdmin && _profile.WorkspaceRole is null)
+            {
+                <SectionCard Title="Společný prostor" Icon="@Icons.Material.Filled.Groups"
+                             Subtitle="kdo s vámi sdílí stavy, poznámky, fotky z prohlídek a analýzy">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                        Člen se přihlašuje vlastním účtem (stačí e-mail přidat – může se zaregistrovat až potom).
+                        „Jen číst" vidí vaše záznamy, ale nic nemění; „číst i psát" mění stavy a poznámky stejně jako vy.
+                        Nástroje správce ani kontakty na makléře člen nevidí. Změna se projeví po jeho novém přihlášení.
+                    </MudText>
+                    @if (_members.Count > 0)
+                    {
+                        <MudSimpleTable Dense="true" Class="mb-3">
+                            <thead><tr><th>E-mail</th><th>Právo</th><th>Účet</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var member in _members)
+                                {
+                                    <tr>
+                                        <td>@member.Email</td>
+                                        <td>@(member.Role == "writer" ? "číst i psát" : "jen číst")</td>
+                                        <td>
+                                            @if (!member.Registered)
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">čeká na registraci</MudChip>
+                                            }
+                                            else if (member.LastLoginAt is { } lastLogin)
+                                            {
+                                                <MudText Typo="Typo.caption">naposledy @lastLogin.ToLocalTime().ToString("d. M. yyyy", Cz)</MudText>
+                                            }
+                                            else
+                                            {
+                                                <MudText Typo="Typo.caption">zaregistrován</MudText>
+                                            }
+                                        </td>
+                                        <td style="text-align:right;">
+                                            <MudIconButton Icon="@Icons.Material.Filled.PersonRemove" Size="Size.Small" Color="Color.Error"
+                                                           OnClick="@(() => RemoveMemberAsync(member))" aria-label="Odebrat člena" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6">
+                            <MudTextField T="string" @bind-Value="_newMemberEmail" Label="E-mail člena" Variant="Variant.Outlined"
+                                          Margin="Margin.Dense" InputType="InputType.Email" />
+                        </MudItem>
+                        <MudItem xs="7" sm="3">
+                            <MudSelect T="string" @bind-Value="_newMemberRole" Label="Právo" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                <MudSelectItem T="string" Value="@("reader")">jen číst</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("writer")">číst i psát</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="5" sm="3" Class="d-flex align-center">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddMemberAsync"
+                                       Disabled="@(_savingMember || string.IsNullOrWhiteSpace(_newMemberEmail))">
+                                Přidat
+                            </MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </SectionCard>
+            }
+            else if (_profile.WorkspaceRole is not null)
+            {
+                <SectionCard Title="Společný prostor" Icon="@Icons.Material.Filled.Groups">
+                    <MudText Typo="Typo.body2">
+                        Jste členem společného prostoru s právem
+                        <b>@(_profile.WorkspaceRole == "writer" ? "číst i psát" : "jen číst")</b>:
+                        stavy a poznámky u inzerátů, fotky z prohlídek a analýzy sdílíte s jeho vlastníkem.
+                    </MudText>
+                </SectionCard>
+            }
+
             @* ── API klíče (Profi / admin) ───────────────────────────── *@
             @if (CanManageKeys)
             {
@@ -257,6 +331,8 @@
         await LoadProfileAsync();
         if (CanManageKeys)
             await LoadKeysAsync();
+        if (_profile is { IsAdmin: true, WorkspaceRole: null })
+            await LoadMembersAsync();
     }
 
     private async Task LoadProfileAsync()
@@ -377,6 +453,79 @@
         finally
         {
             _changingPassword = false;
+        }
+    }
+
+    // ── Společný prostor ─────────────────────────────────────────────────────
+    private sealed record WorkspaceMemberInfo(Guid Id, string Email, string Role, bool Registered, DateTime? LastLoginAt, DateTime CreatedAt);
+
+    private List<WorkspaceMemberInfo> _members = [];
+    private string _newMemberEmail = "";
+    private string _newMemberRole = "reader";
+    private bool _savingMember;
+
+    private async Task LoadMembersAsync()
+    {
+        try
+        {
+            _members = await Http.GetFromJsonAsync<List<WorkspaceMemberInfo>>("api/workspace/members", _cts.Token) ?? [];
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _members = [];
+            Snackbar.Add($"Členy společného prostoru se nepodařilo načíst: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task AddMemberAsync()
+    {
+        _savingMember = true;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync("api/workspace/members",
+                new { email = _newMemberEmail.Trim(), role = _newMemberRole }, _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Člen přidán do společného prostoru.", Severity.Success);
+                _newMemberEmail = "";
+                await LoadMembersAsync();
+            }
+            else
+            {
+                Snackbar.Add(await ProblemDetailAsync(response) ?? "Člena se nepodařilo přidat.", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Člena se nepodařilo přidat: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _savingMember = false;
+        }
+    }
+
+    private async Task RemoveMemberAsync(WorkspaceMemberInfo member)
+    {
+        try
+        {
+            using var response = await Http.DeleteAsync($"api/workspace/members/{member.Id}", _cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                Snackbar.Add($"{member.Email} už do společného prostoru nepatří.", Severity.Success);
+                await LoadMembersAsync();
+            }
+            else
+            {
+                Snackbar.Add(await ProblemDetailAsync(response) ?? "Člena se nepodařilo odebrat.", Severity.Error);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Člena se nepodařilo odebrat: {ex.Message}", Severity.Error);
         }
     }
 

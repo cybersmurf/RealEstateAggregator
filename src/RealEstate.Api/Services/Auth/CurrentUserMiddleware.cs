@@ -25,6 +25,7 @@ public sealed class CurrentUserMiddleware(RequestDelegate next, string masterApi
                 if (user is not null)
                 {
                     currentUser.Apply(user, "bearer");
+                    currentUser.ApplyWorkspace(await WorkspaceAccess.ResolveAsync(db, user, context.RequestAborted));
                     await next(context);
                     return;
                 }
@@ -106,6 +107,7 @@ public sealed class CurrentUserMiddleware(RequestDelegate next, string masterApi
                 context.Response.Headers["X-RateLimit-Remaining"] = Math.Max(0, apiKey.DailyQuota - apiKey.UsedToday).ToString();
 
                 currentUser.Apply(apiKey.User, "api-key");
+                currentUser.ApplyWorkspace(await WorkspaceAccess.ResolveAsync(db, apiKey.User, context.RequestAborted));
                 await next(context);
                 return;
             }

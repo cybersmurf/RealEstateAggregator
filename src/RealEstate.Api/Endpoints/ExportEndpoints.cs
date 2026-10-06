@@ -46,7 +46,9 @@ public static class ExportEndpoints
             .DisableAntiforgery();
 
         // Vrátí seznam lokálně uložených fotek z prohlídky (pro MCP/AI analýzu)
-        group.MapGet("/{id:guid}/inspection-photos", GetInspectionPhotos)
+        // Čtení fotek z prohlídky smí i člen společného prostoru – proto mimo skupinu jen pro správce
+        app.MapGroup("/api/listings").RequireInspectionRecords()
+            .MapGet("/{id:guid}/inspection-photos", GetInspectionPhotos)
             .WithName("GetInspectionPhotos")
             .WithTags("Export");
 
@@ -423,34 +425,73 @@ public static class ExportEndpoints
         Guid id,
         [FromServices] RealEstateDbContext db,
         [FromServices] IStorageService storageService,
+        [FromServices] IPhotoClassificationService photoPaths,
         CancellationToken ct)
     {
         // Fotky z prohlídky patří domu: vrátíme je i u kopie, která se objevila až po prohlídce
         // (záznam visí na původním, mezitím staženém inzerátu ze stejné skupiny duplicit).
         var memberIds = await InspectionGroupMemberIdsAsync(db, id, ct);
         var photos = await db.UserListingPhotos
+            .AsNoTracking()
             .Where(p => memberIds.Contains(p.ListingId))
-            .OrderBy(p => p.UploadedAt)
+            .OrderBy(p => p.TakenAt).ThenBy(p => p.OriginalFileName)
             .ToListAsync(ct);
+
+        // Náhledy se vyrábějí při prvním čtení a zůstávají na disku vedle originálů (inspection/thumbs/)
+        var thumbs = new System.Collections.Concurrent.ConcurrentDictionary<Guid, bool>();
+        await Parallel.ForEachAsync(photos, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct },
+            async (photo, token) => thumbs[photo.Id] = await EnsureInspectionThumbnailAsync(photoPaths, photo.StoredUrl, token));
 
         var dtos = new List<UserListingPhotoDto>();
         foreach (var photo in photos)
         {
-            var publicUrl = await storageService.GetFileUrlAsync(photo.StoredUrl, ct);
-            
+            var publicUrl = await storageService.GetFileUrlAsync(photo.StoredUrl, ct) ?? photo.StoredUrl;
+
             dtos.Add(new UserListingPhotoDto(
                 photo.Id,
-                publicUrl ?? photo.StoredUrl,
+                publicUrl,
                 photo.OriginalFileName,
                 photo.FileSizeBytes,
                 photo.TakenAt,
                 photo.UploadedAt,
                 photo.Notes,
-                photo.AiDescription
+                photo.AiDescription,
+                thumbs.GetValueOrDefault(photo.Id) ? InspectionThumbnailUrl(publicUrl) : null,
+                photo.PhotoCategory
             ));
         }
 
         return Results.Ok(dtos);
+    }
+
+    /// <summary>„…/inspection/012_IMG_7015.JPG" → „…/inspection/thumbs/012_IMG_7015.jpg".</summary>
+    public static string InspectionThumbnailUrl(string photoUrl)
+    {
+        var slash = photoUrl.LastIndexOf('/');
+        var name = Path.GetFileNameWithoutExtension(photoUrl[(slash + 1)..]);
+        return $"{photoUrl[..slash]}/thumbs/{name}.jpg";
+    }
+
+    private static async Task<bool> EnsureInspectionThumbnailAsync(
+        IPhotoClassificationService photoPaths, string storedUrl, CancellationToken ct)
+    {
+        try
+        {
+            var original = photoPaths.ResolveInspectionPhotoPath(storedUrl);
+            var thumb = Path.Combine(Path.GetDirectoryName(original)!, "thumbs",
+                Path.GetFileNameWithoutExtension(original) + ".jpg");
+            if (File.Exists(thumb)) return true;
+            if (!File.Exists(original)) return false;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(thumb)!);
+            var small = RealEstate.Api.Services.Vision.ImageDownscaler.ToJpeg(await File.ReadAllBytesAsync(original, ct), maxSide: 480);
+            await File.WriteAllBytesAsync(thumb, small, ct);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static async Task<IResult> SaveInspectionPhotoAiDescription(

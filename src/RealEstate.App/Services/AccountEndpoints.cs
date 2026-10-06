@@ -113,7 +113,10 @@ public static class AccountEndpoints
             new(ApiAuthHandler.PlanClaim, u.Plan),
             new(ApiAuthHandler.AdminClaim, u.IsAdmin ? "true" : "false"),
             new(ApiAuthHandler.TokenClaim, auth.Token),
+            new(ApiAuthHandler.InspectionRecordsClaim, u.SeesInspectionRecords ? "true" : "false"),
         };
+        if (!string.IsNullOrEmpty(u.WorkspaceRole))
+            claims.Add(new Claim(ApiAuthHandler.WorkspaceRoleClaim, u.WorkspaceRole));
         return new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
     }
 

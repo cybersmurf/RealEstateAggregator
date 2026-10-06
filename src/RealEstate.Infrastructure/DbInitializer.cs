@@ -485,6 +485,16 @@ public static class DbInitializer
         CREATE UNIQUE INDEX IF NOT EXISTS ux_listing_photo_comparisons_listing_category
             ON re_realestate.listing_photo_comparisons(listing_id, category);
 
+        -- 5c. Společný prostor: účty, které sdílejí stavy, poznámky, fotky z prohlídek a analýzy vlastníka
+        CREATE TABLE IF NOT EXISTS re_realestate.workspace_members (
+            id          UUID PRIMARY KEY,
+            owner_id    UUID NOT NULL REFERENCES re_realestate.users(id) ON DELETE CASCADE,
+            email       VARCHAR(320) NOT NULL,
+            role        VARCHAR(20) NOT NULL DEFAULT 'reader',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_workspace_members_email ON re_realestate.workspace_members(email);
+
         -- 6. Index pro tržní statistiky (medián Kč/m² dle obce a dispozice)
         CREATE INDEX IF NOT EXISTS ix_listings_market_stats
             ON re_realestate.listings(municipality, property_type, offer_type, disposition)

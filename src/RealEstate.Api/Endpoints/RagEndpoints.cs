@@ -17,7 +17,10 @@ public static class RagEndpoints
             .WithTags("RAG / Analyses");
 
         // ── GET: seznam analýz inzerátu ────────────────────────────────────────
+        // Analýzy jsou soukromé záznamy vlastníka (hodnocení, zápisy z prohlídek, snímek původního
+        // popisu) – do 6. 10. 2026 je endpoint vracel komukoli bez přihlášení.
         group.MapGet("/analyses", GetAnalyses)
+            .RequireInspectionRecords()
             .WithName("GetListingAnalyses")
             .WithSummary("Vrátí všechny uložené analýzy pro inzerát");
 
@@ -32,13 +35,13 @@ public static class RagEndpoints
             .WithSummary("Smaže analýzu");
 
         // ── POST: RAG dotaz nad konkrétním inzerátem ──────────────────────────
-        group.MapPost("/ask", AskListing).RequireAuth()
+        group.MapPost("/ask", AskListing).RequireInspectionRecords()
             .WithName("AskListing")
             .WithSummary("RAG dotaz nad analýzami konkrétního inzerátu")
             .RequireRateLimiting("rag-ask");
 
         // ── POST: RAG dotaz přes všechny inzeráty ──────────────────────────────
-        app.MapPost("/api/rag/ask", AskGeneral).RequireAuth()
+        app.MapPost("/api/rag/ask", AskGeneral).RequireInspectionRecords()
             .WithTags("RAG / Analyses")
             .WithName("AskGeneral")
             .WithSummary("RAG dotaz přes všechny uložené analýzy")

@@ -19,7 +19,11 @@ public sealed record UserProfileDto(
     bool IsAdmin,
     string? TelegramChatId,
     bool HasStripeSubscription,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    /// <summary>Role ve společném prostoru jiného účtu ("reader" / "writer"), null = vlastní prostor.</summary>
+    string? WorkspaceRole = null,
+    /// <summary>Vidí fotky z prohlídek, analýzy a porovnání (správce nebo člen prostoru správce).</summary>
+    bool SeesInspectionRecords = false);
 
 public sealed record UpdateProfileRequestDto(string? DisplayName, string? TelegramChatId);
 

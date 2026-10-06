@@ -53,7 +53,7 @@ public sealed class AuthService(
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Registered user {Email}", email);
-        return (Issue(user), null);
+        return (await IssueAsync(user, ct), null);
     }
 
     public async Task<(AuthResponseDto? Result, string? Error)> LoginAsync(LoginRequestDto request, CancellationToken ct)
@@ -69,7 +69,7 @@ public sealed class AuthService(
 
         user.LastLoginAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
-        return (Issue(user), null);
+        return (await IssueAsync(user, ct), null);
     }
 
     public async Task<(AuthResponseDto? Result, string? Error)> LoginExternalAsync(string rawEmail, string? displayName, CancellationToken ct)
@@ -103,13 +103,13 @@ public sealed class AuthService(
             user.DisplayName = displayName.Trim();
         user.LastLoginAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
-        return (Issue(user), null);
+        return (await IssueAsync(user, ct), null);
     }
 
     public async Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct)
     {
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
-        return user is null ? null : MapProfile(user);
+        return user is null ? null : await ProfileAsync(user, ct);
     }
 
     public async Task<UserProfileDto?> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken ct)
@@ -121,7 +121,7 @@ public sealed class AuthService(
         user.DisplayName = string.IsNullOrWhiteSpace(request.DisplayName) ? null : request.DisplayName.Trim();
         user.TelegramChatId = string.IsNullOrWhiteSpace(request.TelegramChatId) ? null : request.TelegramChatId.Trim();
         await db.SaveChangesAsync(ct);
-        return MapProfile(user);
+        return await ProfileAsync(user, ct);
     }
 
     public async Task<string?> ChangePasswordAsync(Guid userId, ChangePasswordRequestDto request, CancellationToken ct)
@@ -179,10 +179,21 @@ public sealed class AuthService(
         return true;
     }
 
-    private AuthResponseDto Issue(User user)
+    private async Task<AuthResponseDto> IssueAsync(User user, CancellationToken ct)
     {
         var (token, expires) = tokens.Issue(user.Id);
-        return new AuthResponseDto(token, expires, MapProfile(user));
+        return new AuthResponseDto(token, expires, await ProfileAsync(user, ct));
+    }
+
+    /// <summary>Profil včetně role ve společném prostoru – podle ní App ukáže sdílené záznamy.</summary>
+    private async Task<UserProfileDto> ProfileAsync(User user, CancellationToken ct)
+    {
+        var workspace = await WorkspaceAccess.ResolveAsync(db, user, ct);
+        return MapProfile(user) with
+        {
+            WorkspaceRole = workspace?.Role,
+            SeesInspectionRecords = user.IsAdmin || workspace is { OwnerIsAdmin: true },
+        };
     }
 
     public static UserProfileDto MapProfile(User u) => new(

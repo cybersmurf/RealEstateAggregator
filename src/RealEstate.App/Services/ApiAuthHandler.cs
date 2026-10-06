@@ -19,6 +19,11 @@ public sealed class ApiAuthHandler(AuthenticationStateProvider authState, string
     public const string TokenClaim = "api_token";
     public const string AdminClaim = "is_admin";
     public const string PlanClaim = "plan";
+    /// <summary>Role ve společném prostoru jiného účtu ("reader" / "writer"); chybí = vlastní prostor.</summary>
+    public const string WorkspaceRoleClaim = "workspace_role";
+    /// <summary>"true" = vidí fotky z prohlídek, analýzy a porovnání (správce nebo člen jeho prostoru).</summary>
+    public const string InspectionRecordsClaim = "inspection_records";
+    public const string InspectionRecordsPolicy = "InspectionRecords";
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {

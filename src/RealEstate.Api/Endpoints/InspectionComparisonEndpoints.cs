@@ -18,7 +18,9 @@ public static class InspectionComparisonEndpoints
             .WithName("CompareInspectionPhotos")
             .WithSummary("Porovná fotky z inzerátu s fotkami z prohlídky a uloží nálezy + zprávu do analýz.");
 
-        group.MapGet("/listings/{id:guid}/inspection-comparison", Get)
+        // Čtení hotového porovnání smí i člen společného prostoru
+        app.MapGroup("/api").WithTags("Inspection comparison").RequireInspectionRecords()
+            .MapGet("/listings/{id:guid}/inspection-comparison", Get)
             .WithName("GetInspectionComparison")
             .Produces<List<PhotoComparisonDto>>(200);
 

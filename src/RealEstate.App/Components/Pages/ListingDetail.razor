@@ -915,6 +915,38 @@
                     </MudAlert>
                 </NotAuthorized>
                 <Authorized>
+                @if (authCtx.User.HasClaim(ApiAuthHandler.WorkspaceRoleClaim, "reader"))
+                {
+                    @* Člen společného prostoru s právem jen číst: vidí stav a poznámky vlastníka *@
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudChip T="string" Color="@UserStatusColor(_userState.Status)" Variant="Variant.Filled">
+                                @UserStatusLabel(_userState.Status)
+                            </MudChip>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Sdílený prostor – stav a poznámky jen ke čtení
+                            </MudText>
+                        </MudStack>
+                        @if (!string.IsNullOrWhiteSpace(_userState.Notes))
+                        {
+                            <MudPaper Outlined="true" Class="pa-3">
+                                <MudText Typo="Typo.body2" Style="white-space:pre-wrap;">@_userState.Notes</MudText>
+                            </MudPaper>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">Bez poznámek.</MudText>
+                        }
+                        @if (_userState.LastUpdated.HasValue)
+                        {
+                            <MudText Typo="Typo.caption">
+                                Naposledy upraveno: @_userState.LastUpdated.Value.ToString("dd.MM.yyyy HH:mm")
+                            </MudText>
+                        }
+                    </MudStack>
+                }
+                else
+                {
                 <MudStack Spacing="2">
                     <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary">
                         <MudButton OnClick="@(() => UpdateUserStatus("New"))" 
@@ -957,9 +989,40 @@
                         </MudText>
                     }
                 </MudStack>
+                }
                 </Authorized>
                 </AuthorizeView>
             </SectionCard>
+
+            <!-- Fotky z prohlídky (správce a členové společného prostoru) -->
+            <AuthorizeView Policy="@ApiAuthHandler.InspectionRecordsPolicy" Context="inspectionCtx">
+                @if (_inspectionPhotos.Count > 0)
+                {
+                    <SectionCard Title="@($"Fotky z prohlídky ({_inspectionPhotos.Count})")"
+                                 Icon="@Icons.Material.Filled.CameraAlt" IconColor="Color.Tertiary">
+                        <MudGrid Spacing="1">
+                            @foreach (var photo in _inspectionPhotos.Skip((_inspectionPage - 1) * InspectionPageSize).Take(InspectionPageSize))
+                            {
+                                var full = PhotosBase.Resolve(photo.Url, null, Navigation.BaseUri);
+                                var thumb = photo.ThumbnailUrl is null ? full : PhotosBase.Resolve(photo.ThumbnailUrl, null, Navigation.BaseUri);
+                                <MudItem xs="6" sm="4" md="3">
+                                    <a href="@full" target="_blank" rel="noopener" title="@(photo.AiDescription ?? photo.OriginalFileName)">
+                                        <img src="@thumb" alt="@(photo.AiDescription ?? "Fotka z prohlídky")" loading="lazy"
+                                             style="width:100%; height:150px; object-fit:cover; border-radius:6px; display:block;" />
+                                    </a>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                        @if (_inspectionPhotos.Count > InspectionPageSize)
+                        {
+                            <MudStack Row="true" Justify="Justify.Center" Class="mt-3">
+                                <MudPagination Count="@((_inspectionPhotos.Count + InspectionPageSize - 1) / InspectionPageSize)"
+                                               @bind-Selected="_inspectionPage" Size="Size.Small" />
+                            </MudStack>
+                        }
+                    </SectionCard>
+                }
+            </AuthorizeView>
 
             <!-- Actions – nástroje vlastníka (Drive, lokální AI analýza); ostatní vidí jen návrat -->
             <AuthorizeView Policy="Admin" Context="adminCtx">
@@ -1618,6 +1681,35 @@
     private const int MaxCarouselBullets = 12;
     private int _carouselIndex;
 
+    // Fotky z prohlídky – sdílené ve společném prostoru (API vrací 403 těm, kdo je vidět nesmí)
+    private const int InspectionPageSize = 12;
+    private List<RealEstate.Api.Contracts.UserPhotos.UserListingPhotoDto> _inspectionPhotos = [];
+    private int _inspectionPage = 1;
+
+    private async Task LoadInspectionPhotosAsync()
+    {
+        _inspectionPhotos = [];
+        _inspectionPage = 1;
+        try
+        {
+            using var response = await Http.GetAsync($"api/listings/{Id}/inspection-photos", _cts.Token);
+            if (response.IsSuccessStatusCode)
+                _inspectionPhotos = await response.Content
+                    .ReadFromJsonAsync<List<RealEstate.Api.Contracts.UserPhotos.UserListingPhotoDto>>(_cts.Token) ?? [];
+        }
+        catch { /* fotky z prohlídky jsou volitelné */ }
+    }
+
+    private static string UserStatusLabel(string? status) => status switch
+    {
+        "Liked" => "Zajímavé", "Disliked" => "Nezajímavé", "ToVisit" => "K návštěvě", "Visited" => "Navštíveno", _ => "Bez stavu",
+    };
+
+    private static Color UserStatusColor(string? status) => status switch
+    {
+        "Liked" => Color.Success, "Disliked" => Color.Error, "ToVisit" => Color.Warning, "Visited" => Color.Info, _ => Color.Default,
+    };
+
     private int PhotoRenderCount          => _listing?.Photos.Count(p => (p.PhotoLabels ?? "").Contains("\"visualization\"")) ?? 0;
     private int PhotoFeedbackWrongCount   => _photoFeedbacks.Values.Count(f => f == "wrong");
 
@@ -1907,6 +1999,8 @@
         await LoadDriveAnalysisFilesAsync();
         await LoadBrokerPhotosAsync();
         await LoadRagAnalysesAsync();
+        // Neblokuje načtení stránky: první čtení vyrábí náhledy stovek fotek a trvá desítky vteřin
+        _ = LoadInspectionPhotosAsync().ContinueWith(_ => InvokeAsync(StateHasChanged), TaskScheduler.Default);
         await LoadCadastreDataAsync();
         await LoadPriceHistoryAsync();
         await ResumeBackgroundJobsAsync();

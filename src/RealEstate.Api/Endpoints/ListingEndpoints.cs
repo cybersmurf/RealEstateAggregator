@@ -100,12 +100,19 @@ public static class ListingEndpoints
         return TypedResults.Ok(listing);
     }
 
-    private static async Task<Results<Ok<ListingUserStateDto>, NotFound>> UpdateListingUserState(
+    private static async Task<Results<Ok<ListingUserStateDto>, NotFound, ProblemHttpResult>> UpdateListingUserState(
         Guid id,
         [FromBody] ListingUserStateUpdateDto request,
         [FromServices] IListingService listingService,
+        [FromServices] RealEstate.Api.Services.Auth.ICurrentUser currentUser,
         CancellationToken cancellationToken)
     {
+        // Člen společného prostoru s rolí „jen číst" vidí stavy a poznámky vlastníka, ale nemění je
+        if (!currentUser.CanWriteWorkspace)
+            return TypedResults.Problem(title: "Forbidden",
+                detail: "Ve společném prostoru máte jen právo číst – stavy a poznámky mění jeho vlastník.",
+                statusCode: StatusCodes.Status403Forbidden);
+
         var state = await listingService.UpdateUserStateAsync(id, request, cancellationToken);
         if (state is null)
             return TypedResults.NotFound();

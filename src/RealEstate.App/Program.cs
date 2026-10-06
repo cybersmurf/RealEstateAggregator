@@ -105,7 +105,11 @@ if (!string.IsNullOrWhiteSpace(oidcClientId))
     });
 }
 builder.Services.AddAuthorizationBuilder()
-    .AddPolicy("Admin", policy => policy.RequireClaim(ApiAuthHandler.AdminClaim, "true"));
+    .AddPolicy("Admin", policy => policy.RequireClaim(ApiAuthHandler.AdminClaim, "true"))
+    // Fotky z prohlídek, analýzy a porovnání: správce nebo člen jeho společného prostoru
+    .AddPolicy(ApiAuthHandler.InspectionRecordsPolicy, policy => policy.RequireAssertion(ctx =>
+        ctx.User.HasClaim(ApiAuthHandler.AdminClaim, "true")
+        || ctx.User.HasClaim(ApiAuthHandler.InspectionRecordsClaim, "true")));
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();
 

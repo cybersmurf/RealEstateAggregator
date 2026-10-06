@@ -35,6 +35,24 @@ public static class AuthorizationFilters
         return builder;
     }
 
+    /// <summary>
+    /// Čtení záznamů vlastníka aplikace (fotky z prohlídek, analýzy, porovnání): správce nebo člen
+    /// jeho společného prostoru.
+    /// </summary>
+    public static TBuilder RequireInspectionRecords<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    {
+        builder.AddEndpointFilter(async (ctx, next) =>
+        {
+            var user = ctx.HttpContext.RequestServices.GetRequiredService<ICurrentUser>();
+            if (!user.IsAuthenticated)
+                return Unauthorized("Pro tuto akci je nutné přihlášení.");
+            if (!user.CanSeeInspectionRecords)
+                return Forbidden("Tyto záznamy vidí jen správce a členové jeho společného prostoru.");
+            return await next(ctx);
+        });
+        return builder;
+    }
+
     /// <param name="plan"><see cref="UserPlans.Hledac"/> nebo <see cref="UserPlans.Profi"/>.</param>
     public static TBuilder RequirePlan<TBuilder>(this TBuilder builder, string plan) where TBuilder : IEndpointConventionBuilder
     {

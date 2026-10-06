@@ -22,3 +22,14 @@ public class InspectionUploadTests
     public void NextIndex_IsBeyondRecordsAndFiles(int records, string fileName, int expected)
         => Assert.Equal(expected, ExportEndpoints.NextInspectionIndex(records, [fileName]));
 }
+
+public class InspectionThumbnailTests
+{
+    [Theory]
+    [InlineData("https://realestate.sudata.eu/uploads/listings/abc/inspection/012_IMG_7015.JPG",
+                "https://realestate.sudata.eu/uploads/listings/abc/inspection/thumbs/012_IMG_7015.jpg")]
+    [InlineData("http://localhost:5001/uploads/listings/abc/inspection/000_prohlidka_01_IMG_6651.jpeg",
+                "http://localhost:5001/uploads/listings/abc/inspection/thumbs/000_prohlidka_01_IMG_6651.jpg")]
+    public void ThumbnailUrl_LivesInThumbsFolderNextToOriginal(string photoUrl, string expected)
+        => Assert.Equal(expected, ExportEndpoints.InspectionThumbnailUrl(photoUrl));
+}

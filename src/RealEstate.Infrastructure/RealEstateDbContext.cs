@@ -31,6 +31,7 @@ public sealed class RealEstateDbContext : DbContext
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<ListingPhotoComparison> ListingPhotoComparisons => Set<ListingPhotoComparison>();
+    public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -576,6 +577,19 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
             entity.Property(e => e.ForwardedAt).HasColumnName("forwarded_at").HasColumnType("timestamptz");
             entity.HasIndex(e => e.CreatedAt).HasDatabaseName("ix_leads_created");
+        });
+
+        modelBuilder.Entity<WorkspaceMember>(entity =>
+        {
+            entity.ToTable("workspace_members", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.Email).HasColumnName("email").HasMaxLength(320).IsRequired();
+            entity.Property(e => e.Role).HasColumnName("role").HasMaxLength(20).IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
+            entity.HasOne(e => e.Owner).WithMany().HasForeignKey(e => e.OwnerId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.Email).IsUnique().HasDatabaseName("ux_workspace_members_email");
         });
 
         modelBuilder.Entity<ListingPhotoComparison>(entity =>

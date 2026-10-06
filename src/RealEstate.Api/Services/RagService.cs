@@ -208,16 +208,19 @@ public sealed class RagService(
 
     public async Task<List<ListingAnalysisDto>> GetAnalysesAsync(Guid listingId, CancellationToken ct)
     {
-        // Pokud je listing duplikát, vracíme analýzy primárního inzerátu (cross-source aliasing).
-        var effectiveId = await db.Listings
+        // Analýzy patří domu, ne jedné kopii inzerátu: vracíme je za celou skupinu duplicit.
+        // Dřív jen od primáru – po připojení staženého inzerátu k živé kopii (Horní Leska) tak
+        // zmizely analýzy uložené u původního záznamu.
+        var rootId = await db.Listings
             .AsNoTracking()
             .Where(l => l.Id == listingId)
             .Select(l => l.DuplicateOfListingId ?? l.Id)
             .FirstOrDefaultAsync(ct);
-        if (effectiveId == Guid.Empty) effectiveId = listingId;
+        if (rootId == Guid.Empty) rootId = listingId;
 
         var analyses = await db.ListingAnalyses
-            .Where(a => a.ListingId == effectiveId)
+            .Where(a => a.ListingId == listingId || a.ListingId == rootId
+                        || a.Listing.DuplicateOfListingId == rootId)
             .OrderByDescending(a => a.CreatedAt)
             .ToListAsync(ct);
         return analyses.Select(ToDto).ToList();
