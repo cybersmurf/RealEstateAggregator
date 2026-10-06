@@ -339,6 +339,15 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
 
             logger.info(f"Job {job_id}: All scrapers completed. Total listings: {total_scraped}")
 
+            # Okres u inzerátů, kterým ho zdroj nedal (Reas, Prodejme.to, iDNES) – z GPS, jinak z obce.
+            # Před detekcí duplikátů: ta okresy porovnává a hledání podle okresu je jinak nenajde.
+            try:
+                from_gps, from_names = await db_manager.fill_missing_districts()
+                if from_gps or from_names:
+                    logger.info(f"Job {job_id}: District filled – {from_gps} z GPS, {from_names} z názvu obce")
+            except Exception as exc:  # noqa: BLE001 – doplnění je best-effort, job už uspěl
+                logger.warning(f"Job {job_id}: District fill failed: {exc}")
+
             # Přepočítej cross-source duplikáty (stejný dům na SREALITY + BAZOS + …).
             # Detekci vlastní .NET API; selhání nesmí shodit scrape job.
             await _trigger_duplicate_detection(job_id)

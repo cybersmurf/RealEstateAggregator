@@ -655,6 +655,74 @@ class DatabaseManager:
                 seen_since,
             )
 
+    async def fill_missing_districts(self) -> Tuple[int, int]:
+        """
+        Doplní listings.district tam, kde ho zdroj nedal (Reas, Prodejme.to, část iDNES).
+
+        1) Z GPS: bod inzerátu leží v polygonu okresu (tabulka re_realestate.districts,
+           scripts/migrate_districts.sql). Proti Sreality sedí v 4 494 z 4 496 případů.
+        2) Bez GPS: z názvu obce přes slovník obec → okres ze Sreality (jen jednoznačné obce).
+
+        Returns: (doplněno z GPS, doplněno z názvu obce)
+        """
+        from .district_lookup import district_from_place_names, normalize_place
+
+        async with self.acquire() as conn:
+            from_gps = 0
+            if await conn.fetchval("SELECT to_regclass('re_realestate.districts') IS NOT NULL"):
+                status = await conn.execute(
+                    """
+                    UPDATE re_realestate.listings l
+                    SET district = d.name
+                    FROM re_realestate.districts d
+                    WHERE (l.district IS NULL OR l.district = '')
+                      AND l.location_point IS NOT NULL
+                      AND ST_Covers(d.geom, l.location_point)
+                    """
+                )
+                from_gps = int(status.split()[-1])
+
+            missing = await conn.fetch(
+                """
+                SELECT id, location_text, municipality
+                FROM re_realestate.listings
+                WHERE is_active AND (district IS NULL OR district = '')
+                """
+            )
+            if not missing:
+                return from_gps, 0
+
+            # Slovník obec → okres: jen Sreality (okres dává portál sám) a jen obce v jediném okrese
+            rows = await conn.fetch(
+                """
+                SELECT municipality, min(district) AS district
+                FROM re_realestate.listings
+                WHERE source_code = 'SREALITY'
+                  AND municipality IS NOT NULL AND municipality <> ''
+                  AND district IS NOT NULL AND district <> ''
+                GROUP BY municipality
+                HAVING count(DISTINCT district) = 1 AND count(*) >= 2
+                """
+            )
+            known: Dict[str, Optional[str]] = {}
+            for row in rows:
+                key = normalize_place(row["municipality"])
+                # Stejný název po odstranění diakritiky ve dvou okresech = nejednoznačné
+                known[key] = row["district"] if known.get(key, row["district"]) == row["district"] else None
+            unique = {k: v for k, v in known.items() if v}
+
+            updates = []
+            for row in missing:
+                district = district_from_place_names(row["location_text"], row["municipality"], unique)
+                if district:
+                    updates.append((district, row["id"]))
+            if updates:
+                await conn.executemany(
+                    "UPDATE re_realestate.listings SET district = $1 WHERE id = $2 AND (district IS NULL OR district = '')",
+                    updates,
+                )
+            return from_gps, len(updates)
+
     async def deactivate_unseen_listings(self, source_code: str, seen_since: datetime) -> int:
         """
         Deaktivuje inzeráty ze zdroje source_code, které nebyly viděny od seen_since.
