@@ -47,6 +47,7 @@ class IdnesRealityScraper:
     DISTRICT_SEARCH: Dict[str, str] = {
         "Znojmo": "okres-znojmo",
         "Brno-venkov": "brno-venkov",
+        "Břeclav": "okres-breclav",   # 7. 10. 2026 – jen obce z partial_districts, zbytek zahodí filtr
     }
     MAX_LIST_PAGES = 200            # pojistka; 26 položek na stránku
     INCREMENTAL_LIST_PAGES = 3      # inkrementální běh: jen první stránky každého okresu

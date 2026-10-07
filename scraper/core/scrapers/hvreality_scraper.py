@@ -24,7 +24,7 @@ BASE_URL = "https://hvreality.cz"
 
 REST_POST_TYPES = ("prodej-nemovitosti", "pronajem-nemovitosti")
 # Jen okresy, které pustí geografický filtr (settings.yaml target_districts) – zbytek ČR nestahujeme
-TARGET_DISTRICT_SLUGS = {"znojmo", "brno-venkov", "brno-mesto"}
+TARGET_DISTRICT_SLUGS = {"znojmo", "brno-venkov", "brno-mesto", "breclav"}  # Břeclav jen obce z partial_districts
 INCREMENTAL_LIMIT = 40
 
 # Slug okresu v URL → název (jen ty, které se liší od prostého Title Case)
@@ -34,7 +34,7 @@ HV_DISTRICT_SLUGS = {
     "havlickuv-brod": "Havlíčkův Brod", "jindrichuv-hradec": "Jindřichův Hradec", "vyskov": "Vyškov",
     "hodonin": "Hodonín", "blansko": "Blansko", "prostejov": "Prostějov", "olomouc": "Olomouc",
 }
-TARGET_COUNTIES = {"znojmo", "brno-venkov", "brno-město"}
+TARGET_COUNTIES = {"znojmo", "brno-venkov", "brno-město", "břeclav"}
 
 # Pole REST odpovědi. „type" musí zůstat: bez něj plugin All in One SEO vypíše před JSON PHP varování.
 # acf.* má jen typ prodej-nemovitosti (u pronájmů je acf prázdné) – stav nabídky „V NABÍDCE" /

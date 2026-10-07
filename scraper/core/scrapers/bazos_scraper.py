@@ -40,6 +40,12 @@ SEARCHES: List[Tuple[str, str, int]] = [
     ("prodam/byt/", "60200", 30),
     ("pronajmu/dum/", "60200", 30),
     ("pronajmu/byt/", "60200", 30),
+    # Pálava a Novomlýnské nádrže (7. 10. 2026): střed Mikulov, 20 km. Z okresu Břeclav pustí
+    # filtr jen obce z partial_districts.
+    ("prodam/dum/", "69201", 20),
+    ("prodam/chata/", "69201", 20),
+    ("prodam/pozemek/", "69201", 20),
+    ("prodam/zahrada/", "69201", 20),
 ]
 
 # Okres, jak ho Bazoš píše ve výpisu („Brno venkov 691 23") → náš název. Co tu není (Brno, Vyškov,
@@ -48,6 +54,7 @@ LIST_DISTRICTS: Dict[str, str] = {
     "znojmo": "Znojmo",
     "brno venkov": "Brno-venkov",
     "brno-venkov": "Brno-venkov",
+    "břeclav": "Břeclav",
 }
 
 

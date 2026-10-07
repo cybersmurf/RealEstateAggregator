@@ -42,6 +42,7 @@ DEFAULT_DISTRICTS: Dict[str, str] = {
     "Znojmo": "R441326",
     "Brno-venkov": "R442084",
     "Brno-město": "R442273",
+    "Břeclav": "R442309",   # 7. 10. 2026 – jen obce z partial_districts, zbytek zahodí filtr
 }
 
 # Co scrapovat: (estateType v API, typ nemovitosti, typ nabídky)

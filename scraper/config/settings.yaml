@@ -96,7 +96,33 @@ search_filters:
     - "Miroslav"      # Obec v koridoru (Znojmo/BRV hranice)
     - "Mušov"         # Obec u Pohořelic (Brno-venkov)
     - "Dolní Kounice" # Obec v koridoru (Brno-venkov)
-    - "Velké Němčice" # Obec u Pohořelic (Brno-venkov)
+
+  # Částečné okresy (od 7. 10. 2026): z okresu bereme jen vyjmenované obce, zbytek okresu
+  # filtr zahodí (i když by prošel přes „jihomoravsk"). Petrův seznam obcí kolem Pálavy
+  # a Novomlýnských nádrží – ostatní obce z jeho seznamu leží v okresech Brno-venkov
+  # a Znojmo, které bereme celé. Shoda je na celé slovo (Pavlov ≠ Velké Pavlovice),
+  # s diakritikou i bez ní (slugy v URL). Jevišovka v seznamu není.
+  partial_districts:
+    Břeclav:
+      - "Bavory"
+      - "Brod nad Dyjí"
+      - "Březí"
+      - "Dobré Pole"
+      - "Dolní Dunajovice"
+      - "Dolní Věstonice"
+      - "Drnholec"
+      - "Horní Věstonice"
+      - "Klentnice"
+      - "Milovice"
+      - "Novosedly"
+      - "Nový Přerov"
+      - "Pavlov"
+      - "Perná"
+      - "Popice"
+      - "Pouzdřany"
+      - "Strachotín"
+      - "Uherčice"
+      - "Velké Němčice"
 
   # Filtery pro domy (Houses)
   houses:
@@ -187,6 +213,19 @@ scrapers:
       - url: "https://www.mmreality.cz/nemovitosti/prodej/byty/brno-venkov/"
         offer_type: "Prodej"
         property_type: "Byt"
+
+      # Okres Břeclav (7. 10. 2026) – filtr pustí jen obce z partial_districts
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/domy/breclav/"
+        offer_type: "Prodej"
+        property_type: "Dům"
+
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/pozemky/breclav/"
+        offer_type: "Prodej"
+        property_type: "Pozemek"
+
+      - url: "https://www.mmreality.cz/nemovitosti/prodej/byty/breclav/"
+        offer_type: "Prodej"
+        property_type: "Byt"
   
   # SREALITY scraper configuration
   sreality:
@@ -197,6 +236,7 @@ scrapers:
       - 77   # Znojmo (ID=77)
       - 73   # Brno-venkov (ID=73) – Pohořelice, Vlasatice, Mušov, Miroslav, Žabčice, Dolní Kounice, …
       - 72   # Brno-město (ID=72) – byty a pronájmy pro výnos z nájmu a medián dispozic (ověřeno sondou 25. 9. 2026)
+      - 74   # Břeclav (ID=74) – jen obce z partial_districts (Pálava, Novomlýnské nádrže), zbytek zahodí filtr (7. 10. 2026)
     # locality_district_id: 77  # legacy – nahrazeno listem výše
     # Scrape separately per category_main_cb to avoid pagination overflow in incremental mode.
     # Without this, a single query for all types returns 700+ results and incremental

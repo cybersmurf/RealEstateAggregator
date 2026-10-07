@@ -75,7 +75,7 @@ class TestMmRealityKonfigurace:
 
     def test_kazdy_vypis_v_settings_i_ve_vychozim_seznamu_ma_okres(self):
         for config in _settings_configs() + DEFAULT_SEARCH_CONFIGS:
-            assert MmRealityScraper.district_from_config(config) in ("Znojmo", "Brno-venkov", "Brno-město"), config["url"]
+            assert MmRealityScraper.district_from_config(config) in ("Znojmo", "Brno-venkov", "Brno-město", "Břeclav"), config["url"]
 
 
 class TestMmRealityVypis:

@@ -39,6 +39,11 @@ DEFAULT_LISTS: List[Tuple[str, str, str]] = [
     ("/prodej_domy/Okres_Brno-venkov/", "Dům", "Prodej"),
     ("/prodej_byty/Okres_Brno-venkov/", "Byt", "Prodej"),
     ("/prodej_pozemky/Okres_Brno-venkov/", "Pozemek", "Prodej"),
+    # Břeclav (7. 10. 2026) – jen obce z partial_districts, zbytek zahodí filtr. Slug je
+    # s diakritikou: „Okres_Breclav" web přesměruje na ulici Okružní v Břeclavi.
+    ("/prodej_domy/Okres_Břeclav/", "Dům", "Prodej"),
+    ("/prodej_byty/Okres_Břeclav/", "Byt", "Prodej"),
+    ("/prodej_pozemky/Okres_Břeclav/", "Pozemek", "Prodej"),
 ]
 
 # Původní zdroj inzerátu, který už máme vlastním scraperem → přeskočit

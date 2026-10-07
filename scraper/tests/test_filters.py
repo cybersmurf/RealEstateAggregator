@@ -149,6 +149,49 @@ class TestGeoFilter:
 
 
 # ---------------------------------------------------------------------------
+# Částečné okresy (partial_districts) – 7. 10. 2026: z Břeclavska jen obce kolem Pálavy
+# ---------------------------------------------------------------------------
+
+PARTIAL = {"partial_districts": {"Břeclav": ["Pavlov", "Dolní Věstonice", "Pouzdřany", "Drnholec"]}}
+
+
+class TestPartialDistricts:
+    def test_vyjmenovana_obec_projde_i_kdyz_okres_neni_v_target_districts(self):
+        fm = make_fm({"search_filters": {**PARTIAL, "target_districts": ["Znojmo", "jihomoravsk"]}})
+        ok, _ = fm.should_include_listing(valid_listing(location_text="Zadní, Pouzdřany", district="Břeclav"))
+        assert ok is True
+
+    def test_jina_obec_okresu_se_zahodi_i_pres_jihomoravsk(self):
+        fm = make_fm({"search_filters": {**PARTIAL, "target_districts": ["Znojmo", "jihomoravsk"]}})
+        ok, reason = fm.should_include_listing(
+            valid_listing(location_text="Hustopeče, Jihomoravský kraj", district="Břeclav"))
+        assert ok is False
+        assert "partial district" in reason
+
+    def test_shoda_na_cele_slovo_pavlov_neni_velke_pavlovice(self):
+        fm = make_fm({"search_filters": PARTIAL})
+        ok, _ = fm.should_include_listing(valid_listing(location_text="Velké Pavlovice, okres Břeclav"))
+        assert ok is False
+        ok, _ = fm.should_include_listing(valid_listing(location_text="Pavlov, okres Břeclav"))
+        assert ok is True
+
+    def test_slug_bez_diakritiky_z_url_projde(self):
+        fm = make_fm({"search_filters": PARTIAL})
+        ok, _ = fm.should_include_listing(valid_listing(location_text="dolni-vestonice", district="Břeclav"))
+        assert ok is True
+
+    def test_ulice_breclavska_ve_znojme_neni_okres_breclav(self):
+        fm = make_fm({"search_filters": PARTIAL})
+        ok, _ = fm.should_include_listing(valid_listing(location_text="Břeclavská, Znojmo", district="Znojmo"))
+        assert ok is True
+
+    def test_okres_jen_v_poli_district_staci_k_zahozeni(self):
+        fm = make_fm({"search_filters": PARTIAL})
+        ok, _ = fm.should_include_listing(valid_listing(location_text="Lanžhot", district="Břeclav"))
+        assert ok is False
+
+
+# ---------------------------------------------------------------------------
 # Cenový filtr – Houses
 # ---------------------------------------------------------------------------
 

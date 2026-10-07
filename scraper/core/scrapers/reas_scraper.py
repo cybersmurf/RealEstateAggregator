@@ -53,6 +53,10 @@ LISTS: List[Tuple[str, str, str]] = [
     ("byty", "brno-mesto", "Brno-město"),
     ("stavebni-pozemky", "znojmo", "Znojmo"),
     ("stavebni-pozemky", "brno-venkov", "Brno-venkov"),
+    # Břeclav (7. 10. 2026): výpis celého okresu, filtr pustí jen obce z partial_districts
+    ("domy", "breclav", "Břeclav"),
+    ("byty", "breclav", "Břeclav"),
+    ("stavebni-pozemky", "breclav", "Břeclav"),
 ]
 
 # Mapování type z reas.cz → naše DB hodnoty

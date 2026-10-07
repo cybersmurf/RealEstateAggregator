@@ -31,8 +31,8 @@ class TestRealityCechyKonfigurace:
         assert RealityCechyScraper.SOURCE_CODE == "REALITYCECHY"
 
     def test_vychozi_seznamy_pokryvaji_tri_okresy_a_tri_typy(self):
-        assert len(DEFAULT_LISTS) == 9
-        assert {d for _, _, _, d, _ in DEFAULT_LISTS} == {"Znojmo", "Brno-venkov", "Brno-město"}
+        assert len(DEFAULT_LISTS) == 12
+        assert {d for _, _, _, d, _ in DEFAULT_LISTS} == {"Znojmo", "Brno-venkov", "Brno-město", "Břeclav"}
         assert {p for _, p, _, _, _ in DEFAULT_LISTS} == {"Dům", "Byt", "Pozemek"}
         assert all(o == "Prodej" for _, _, o, _, _ in DEFAULT_LISTS)
 

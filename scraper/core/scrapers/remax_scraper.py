@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 # Výpis podle filtru (typy bez vlastní adresy ve tvaru /reality/<typ>/prodej/…): okres je
-# regions[116][<id>] – 116 = Jihomoravský kraj, 3713 = Znojmo, 3703 = Brno-venkov;
+# regions[116][<id>] – 116 = Jihomoravský kraj, 3713 = Znojmo, 3703 = Brno-venkov, 3704 = Břeclav
+# (ČSÚ kódy okresů);
 # types[92] = „Ostatní" (chaty a chalupy, garáže, vinné sklepy, zemědělské objekty),
 # types[91] = komerční. Stejné karty i stránkování (&stranka=N) jako výpisy podle adresy.
 _FILTER_URL = (
@@ -143,6 +144,31 @@ class RemaxScraper:
             "offer_type": "Prodej",
             "property_type": "Komerční",
             "district": "Brno-venkov",
+        },
+        # Břeclav (7. 10. 2026) – jen obce z partial_districts, zbytek zahodí filtr
+        {
+            "url": "https://www.remax-czech.cz/reality/domy-a-vily/prodej/jihomoravsky-kraj/breclav/",
+            "offer_type": "Prodej",
+            "property_type": "Dům",
+            "district": "Břeclav",
+        },
+        {
+            "url": "https://www.remax-czech.cz/reality/pozemky/prodej/jihomoravsky-kraj/breclav/",
+            "offer_type": "Prodej",
+            "property_type": "Pozemek",
+            "district": "Břeclav",
+        },
+        {
+            "url": "https://www.remax-czech.cz/reality/byty/prodej/jihomoravsky-kraj/breclav/",
+            "offer_type": "Prodej",
+            "property_type": "Byt",
+            "district": "Břeclav",
+        },
+        {
+            "url": _FILTER_URL.format(type_id=92, district_id=3704),
+            "offer_type": "Prodej",
+            "property_type": "Ostatní",
+            "district": "Břeclav",
         },
     ]
     

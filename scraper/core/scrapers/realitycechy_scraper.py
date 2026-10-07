@@ -45,6 +45,7 @@ DISTRICT_IDS: Dict[str, int] = {
     "Znojmo": 20023713,
     "Brno-venkov": 20023703,
     "Brno-město": 20023702,
+    "Břeclav": 20023704,   # 7. 10. 2026 – jen obce z partial_districts, zbytek zahodí filtr
 }
 
 # (cesta výpisu, typ nemovitosti, typ nabídky)

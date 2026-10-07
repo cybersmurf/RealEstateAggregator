@@ -69,6 +69,7 @@ SLUG_FALSE_FRIENDS: Tuple[str, ...] = (
     "ceska-lipa", "ceska-trebova", "ceska-kamenice", "ceska-skalice", "ceska-ves",
     "lomnice-nad-popelkou", "lomnice-nad-luznici", "brezany-ii", "petrovice-u-karvine",
     "ricky-v-orlickych-horach", "tvarozna-lhota", "hradek-nad-nisou",
+    "velke-pavlovice", "pavlovice", "pavlovice-u-prerova", "pavlovice-u-kojetina",  # × Pavlov (Břeclav)
 )
 
 # Konce slugů, které určitě nechceme (garáže, mobilheimy) – ušetří detail

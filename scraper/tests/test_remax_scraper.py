@@ -53,9 +53,16 @@ class TestRemaxVypisy:
             url = config["url"]
             if config["district"] == "Znojmo":
                 assert "/znojmo/" in url or "%5B3713%5D" in url
+            elif config["district"] == "Břeclav":
+                assert "/breclav/" in url or "%5B3704%5D" in url
             else:
                 assert config["district"] == "Brno-venkov"
                 assert "/brno-venkov/" in url or "%5B3703%5D" in url
+
+    def test_breclav_ma_domy_pozemky_byty_a_ostatni(self):
+        """7. 10. 2026: Pálava a Novomlýnské nádrže – komerční z Břeclavska nechceme."""
+        types = [c["property_type"] for c in RemaxScraper.SEARCH_CONFIGS if c["district"] == "Břeclav"]
+        assert sorted(types) == ["Byt", "Dům", "Ostatní", "Pozemek"]
 
     def test_vypisy_pokryvaji_i_ostatni_a_komercni_v_obou_okresech(self):
         for district in ("Znojmo", "Brno-venkov"):

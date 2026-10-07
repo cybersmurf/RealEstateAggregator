@@ -3,9 +3,12 @@ Listing filters based on configuration and quality criteria.
 Provides validation and filtering for listings before database insertion.
 """
 import logging
+import re
 from typing import Dict, Any, Optional, List
 import yaml
 from pathlib import Path
+
+from .district_lookup import normalize_place
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +123,19 @@ class FilterManager:
         "Prodej": "Sale", "Pronájem": "Rent", "Dražba": "Auction",
     }
 
+    @staticmethod
+    def _place_mentioned(name: str, text: str) -> bool:
+        """
+        Je název obce/okresu v textu jako celé slovo? „Pavlov" nesmí chytit „Velké Pavlovice",
+        „Břeclav" nesmí chytit ulici „Břeclavská". Text je malými písmeny; porovnává se název
+        s diakritikou i bez ní a jeho slug (pouzdrany, dolni-vestonice) kvůli adresám z URL.
+        """
+        if not name or not text:
+            return False
+        plain = normalize_place(name)
+        variants = {name.lower(), plain, plain.replace(" ", "-")}
+        return any(re.search(rf"(?<!\w){re.escape(v)}(?!\w)", text) for v in variants if v)
+
     def _check_search_filters(self, listing_data: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """Kontroluje search filtry (geografické, cenové)."""
         sf = self.search_filters
@@ -139,9 +155,24 @@ class FilterManager:
             listing_data.get("region", ""),
         ])).lower()
         
+        # Částečné okresy: z okresu bereme jen vyjmenované obce (settings.yaml
+        # `partial_districts`, od 7. 10. 2026 Břeclav – Pálava a Novomlýnské nádrže).
+        # Obec z takového seznamu projde rovnou; cokoli jiného z toho okresu se zahodí,
+        # i když by jinak prošlo přes „jihomoravsk" nebo přes název obce v target_districts.
+        partial_districts = sf.get("partial_districts") or {}
+        partial_hit = any(
+            self._place_mentioned(municipality, combined_location)
+            for municipalities in partial_districts.values()
+            for municipality in (municipalities or [])
+        )
+        if not partial_hit:
+            for district_name in partial_districts:
+                if self._place_mentioned(district_name, combined_location):
+                    return (False, f"Municipality not in partial district {district_name}: {listing_data.get('location_text', '')}")
+
         # Kontroluj okres
         target_districts = sf.get("target_districts", [])
-        if target_districts:
+        if target_districts and not partial_hit:
             district_match = any(
                 district.lower() in combined_location
                 for district in target_districts

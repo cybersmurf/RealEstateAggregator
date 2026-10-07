@@ -32,15 +32,15 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
 }
 
-# Znojmo + Brno-venkov – pokrývá všechny typy nemovitostí a transakce
+# Znojmo + Brno-venkov + Břeclav (7. 10. 2026, jen obce z partial_districts) – všechny typy a transakce
 SEARCH_CONFIGS = [
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["HOUSE"],      "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["HOUSE"],      "listingType": "RENT"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["FLAT"],       "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["FLAT"],       "listingType": "RENT"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["LAND"],       "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["COMMERCIAL"], "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov"], "propertyType": ["GARAGE"],     "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["HOUSE"],      "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["HOUSE"],      "listingType": "RENT"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["FLAT"],       "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["FLAT"],       "listingType": "RENT"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["LAND"],       "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["COMMERCIAL"], "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["GARAGE"],     "listingType": "SALE"},
 ]
 
 OFFER_TYPE_MAP = {

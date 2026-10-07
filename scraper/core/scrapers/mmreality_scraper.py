@@ -68,6 +68,7 @@ DISTRICT_SLUGS: Dict[str, str] = {
     "znojmo": "Znojmo",
     "brno-venkov": "Brno-venkov",
     "brno-mesto": "Brno-město",
+    "breclav": "Břeclav",
 }
 
 DEFAULT_HEADERS = {

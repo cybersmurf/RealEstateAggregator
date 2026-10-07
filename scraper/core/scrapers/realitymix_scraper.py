@@ -54,6 +54,10 @@ DEFAULT_LISTS: List[Tuple[str, str, str, str]] = [
     ("/reality/byty/prodej/jihomoravsky/brno-venkov", "Byt", "Prodej", "Brno-venkov"),
     ("/reality/pozemky/prodej/jihomoravsky/brno-venkov", "Pozemek", "Prodej", "Brno-venkov"),
     ("/reality/byty/prodej/jihomoravsky/brno-mesto", "Byt", "Prodej", "Brno-město"),
+    # Břeclav (7. 10. 2026) – jen obce z partial_districts, zbytek zahodí filtr
+    ("/reality/domy/prodej/jihomoravsky/breclav", "Dům", "Prodej", "Břeclav"),
+    ("/reality/byty/prodej/jihomoravsky/breclav", "Byt", "Prodej", "Břeclav"),
+    ("/reality/pozemky/prodej/jihomoravsky/breclav", "Pozemek", "Prodej", "Břeclav"),
 ]
 
 DEFAULT_HEADERS = {

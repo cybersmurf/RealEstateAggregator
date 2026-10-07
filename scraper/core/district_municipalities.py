@@ -1,5 +1,6 @@
 """
-Obce okresů Znojmo a Brno-venkov jako slugy (bez diakritiky, slova spojená pomlčkou).
+Obce okresů Znojmo a Brno-venkov (a vybrané obce okresu Břeclav) jako slugy (bez diakritiky,
+slova spojená pomlčkou).
 
 Stav k 6. 10. 2026 podle kategorií „Obce v okrese …" na cs.wikipedia.org. UlovDomov podle nich
 předvybírá adresy ze sitemapy, iDNES ověřuje položky výpisu, u kterých portál okres neuvádí.
@@ -45,10 +46,17 @@ unkovice ususi velatice veverska-bityska veverske-kninice vinicne-sumice vlasati
 vranov vranovice vratislavka vsechovice vysoke-popovice zabcice zakrany zalesna-zhor zastavka zatcany
 zbraslav zbysov zdarec zelesice zelezne zhor zidlochovice
 """
+# Okres Břeclav jen ČÁSTEČNĚ (7. 10. 2026): obce kolem Pálavy a Novomlýnských nádrží ze
+# settings.yaml `partial_districts` – zbytek okresu nestahujeme, takže tu schválně není.
+_BRECLAV_SLUGS = """
+bavory brod-nad-dyji brezi dobre-pole dolni-dunajovice dolni-vestonice drnholec horni-vestonice klentnice
+milovice novosedly novy-prerov pavlov perna popice pouzdrany strachotin uhercice velke-nemcice
+"""
 DISTRICT_MUNICIPALITY_SLUGS: Dict[str, FrozenSet[str]] = {
     "Znojmo": frozenset(_ZNOJMO_SLUGS.split()),
     "Brno-venkov": frozenset(_BRNO_VENKOV_SLUGS.split()),
     "Brno-město": frozenset({"brno"}),
+    "Břeclav": frozenset(_BRECLAV_SLUGS.split()),
 }
 
 

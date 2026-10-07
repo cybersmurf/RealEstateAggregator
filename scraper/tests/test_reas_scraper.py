@@ -41,9 +41,9 @@ def domy_znojmo() -> List[Dict[str, Any]]:
 
 class TestReasVypisy:
     def test_vypisy_pokryvaji_tri_okresy_a_brno_mesto_jen_byty(self):
-        assert {d for _, _, d in LISTS} == {"Znojmo", "Brno-venkov", "Brno-město"}
+        assert {d for _, _, d in LISTS} == {"Znojmo", "Brno-venkov", "Brno-město", "Břeclav"}
         assert [seg for seg, _, d in LISTS if d == "Brno-město"] == ["byty"]
-        for district in ("Znojmo", "Brno-venkov"):
+        for district in ("Znojmo", "Brno-venkov", "Břeclav"):
             assert {seg for seg, _, d in LISTS if d == district} == {"domy", "byty", "stavebni-pozemky"}
 
     def test_url_prvni_stranky_je_vypis_okresu_bez_cenoveho_stropu(self):
