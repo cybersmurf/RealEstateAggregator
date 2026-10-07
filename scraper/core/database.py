@@ -52,7 +52,7 @@ _RE_CONDITION_MAP = [
     (re.compile(r'po kompletn\xed rekonstrukci|po celkov\xe9 rekonstrukci|po rekonstrukci|kompletn\u011b zrekon', re.IGNORECASE), 'Po rekonstrukci'),
     (re.compile(r'p\u0159ed rekonstrukc\xed|k rekonstrukci|vy\u017eaduje rekonstrukci|pot\u0159ebuje rekonstrukci', re.IGNORECASE), 'P\u0159ed rekonstrukc\xed'),
     (re.compile(r'k demolici|velmi \u0161patn\xfd stav|havarijní', re.IGNORECASE), 'K demolici'),
-    (re.compile(r'zachoval\xfd stav|dobr\xfd stav|udr\u017eovan\xfd stav|v dobr\xe9m stavu', re.IGNORECASE), 'Dobr\xfd stav'),
+    (re.compile(r'zachoval\xfd stav|dobr\xfd stav|udr\u017eovan\xfd stav|v dobr\xe9m stavu', re.IGNORECASE), 'Dobr\xfd'),
 ]
 # Negace před klíčovým slovem stavu: "není novostavba", "nejde o rekonstrukci", "bez rekonstrukce"
 _RE_NEGATED_BEFORE = re.compile(r'(?:\bnení|\bnejde o|\bnikoli|\bne\b|\bbez)\s*(?:\w+\s+)?$', re.IGNORECASE)
@@ -112,6 +112,57 @@ def enrich_district(data: Dict[str, Any]) -> None:
             return
 
 
+# Kanonické hodnoty stavu nemovitosti. RealityMIX a Realcity posílají „velmi dobrý", „dobrý stav",
+# „ve výstavbě (hrubá stavba)"; filtr „Stav" v API porovnává hodnoty přesně, takže ~1 400 jejich
+# inzerátů ve výsledcích chybělo (audit 7. 10. 2026). Klíč = malá písmena bez okrajových mezer.
+_CONDITION_CANONICAL = {
+    "velmi dobrý": "Velmi dobrý", "velmi dobrý stav": "Velmi dobrý",
+    "dobrý": "Dobrý", "dobrý stav": "Dobrý",
+    "novostavba": "Novostavba",
+    "před rekonstrukcí": "Před rekonstrukcí",
+    "po rekonstrukci": "Po rekonstrukci",
+    "ve výstavbě": "Ve výstavbě", "ve výstavbě (hrubá stavba)": "Ve výstavbě",
+    "špatný": "Špatný", "špatný stav": "Špatný", "horší stav": "Špatný",
+    "projekt": "Projekt",
+    "k demolici": "K demolici", "určený k demolici": "K demolici",
+}
+
+
+def normalize_condition(value: Optional[str]) -> Optional[str]:
+    """Sjednotí zápis stavu nemovitosti napříč zdroji; neznámou hodnotu nechá (jen ořízne mezery)."""
+    if not value or not isinstance(value, str):
+        return value
+    stripped = " ".join(value.split())
+    return _CONDITION_CANONICAL.get(stripped.lower(), stripped)
+
+
+# Rámec Jihomoravského kraje s rezervou. Každý inzerát v DB je z okresů Znojmo, Brno a Břeclav,
+# takže GPS mimo tento rámec je chyba zdroje: RealityMIX geokóduje podle názvu obce a Kadov,
+# Kuřim nebo Březí posílal do jiných krajů, u Božic měl prohozenou šířku a délku (audit 7. 10. 2026).
+# Špatný bod kazí okres z polygonu, párování duplicit i mapu – lepší bez GPS než s cizí.
+_SCOPE_LAT = (48.5, 49.7)
+_SCOPE_LON = (15.2, 17.4)
+
+
+def sanitize_gps(data: Dict[str, Any]) -> None:
+    """Prohozené souřadnice otočí, souřadnice mimo rámec kraje zahodí."""
+    lat, lon = data.get("latitude"), data.get("longitude")
+    if lat is None or lon is None:
+        return
+    try:
+        lat, lon = float(lat), float(lon)
+    except (TypeError, ValueError):
+        data["latitude"] = data["longitude"] = None
+        return
+    if _SCOPE_LON[0] <= lat <= _SCOPE_LON[1] and _SCOPE_LAT[0] <= lon <= _SCOPE_LAT[1]:
+        lat, lon = lon, lat
+    if not (_SCOPE_LAT[0] <= lat <= _SCOPE_LAT[1] and _SCOPE_LON[0] <= lon <= _SCOPE_LON[1]):
+        logger.info(f"GPS mimo rámec kraje zahozena: {data.get('source_code')} {data.get('external_id')} ({lat}, {lon})")
+        data["latitude"] = data["longitude"] = None
+        return
+    data["latitude"], data["longitude"] = lat, lon
+
+
 def _enrich_listing_fields(data: Dict[str, Any]) -> None:
     """
     Doplní chybějící sémantická pole (disposition, rooms, condition, construction_type)
@@ -145,9 +196,12 @@ def _enrich_listing_fields(data: Dict[str, Any]) -> None:
                 data['construction_type'] = value
                 break
 
+    data['condition'] = normalize_condition(data.get('condition'))
+
     _enrich_areas(data)
     _enrich_auction_fields(data)
     enrich_district(data)
+    sanitize_gps(data)
 
 
 _AUCTION_OFFER_TYPES = {'Dražba', 'Auction'}
@@ -821,7 +875,7 @@ class DatabaseManager:
                     SELECT source_code, total_seen,
                            row_number() OVER (PARTITION BY source_code ORDER BY started_at DESC) AS rn
                     FROM re_realestate.scrape_runs
-                    WHERE status = 'Succeeded' AND full_rescan = $1
+                    WHERE status = 'Succeeded' AND full_rescan = $1 AND total_seen > 0
                 ) t WHERE rn <= $2
                 """,
                 full_rescan, limit,

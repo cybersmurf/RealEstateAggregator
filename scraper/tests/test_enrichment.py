@@ -32,11 +32,11 @@ def test_existing_fields_not_overwritten():
         "title": "Byt 3+1",
         "description": "Po rekonstrukci",
         "disposition": "5+1",
-        "condition": "Dobrý stav",
+        "condition": "Výborný",
     }
     _enrich_listing_fields(d)
     assert d["disposition"] == "5+1", "disposition should not be overwritten"
-    assert d["condition"] == "Dobrý stav", "condition should not be overwritten"
+    assert d["condition"] == "Výborný", "condition should not be overwritten"
 
 
 def test_pred_rekonstrukci():
@@ -113,3 +113,35 @@ def test_drevena_stavba_je_drevo():
         d = {"title": "Prodej chaty", "description": desc}
         _enrich_listing_fields(d)
         assert d.get("construction_type") == "Dřevo", f"{desc!r} → {d.get('construction_type')}"
+
+
+def test_stav_se_sjednoti_napric_zdroji():
+    # RealityMIX a Realcity (audit 7. 10. 2026): „velmi dobrý", „dobrý stav", „ve výstavbě (hrubá stavba)"
+    from core.database import normalize_condition
+    assert normalize_condition("velmi dobrý") == "Velmi dobrý"
+    assert normalize_condition(" velmi dobrý stav ") == "Velmi dobrý"
+    assert normalize_condition("dobrý stav") == "Dobrý"
+    assert normalize_condition("ve výstavbě (hrubá stavba)") == "Ve výstavbě"
+    assert normalize_condition("určený k demolici") == "K demolici"
+    assert normalize_condition("Nutná rekonstrukce") == "Nutná rekonstrukce"
+    assert normalize_condition(None) is None
+    d = {"title": "Prodej domu", "description": "Dům v Kuřimi.", "condition": "novostavba"}
+    _enrich_listing_fields(d)
+    assert d["condition"] == "Novostavba"
+
+
+def test_gps_mimo_kraj_se_zahodi_a_prohozena_otoci():
+    # RealityMIX (7. 10. 2026): Kadov u Blatné místo Kadova na Znojemsku, Božice s prohozenou šířkou a délkou
+    from core.database import sanitize_gps
+    d = {"source_code": "REALITYMIX", "latitude": 49.402772, "longitude": 13.774866}
+    sanitize_gps(d)
+    assert d["latitude"] is None and d["longitude"] is None
+    d = {"latitude": 16.288222, "longitude": 48.829566}
+    sanitize_gps(d)
+    assert (d["latitude"], d["longitude"]) == (48.829566, 16.288222)
+    d = {"latitude": "48.9048", "longitude": "15.5973"}      # Vratěnín – nejzápadnější obec okresu
+    sanitize_gps(d)
+    assert (d["latitude"], d["longitude"]) == (48.9048, 15.5973)
+    d = {"latitude": None, "longitude": 16.0}
+    sanitize_gps(d)
+    assert d["latitude"] is None

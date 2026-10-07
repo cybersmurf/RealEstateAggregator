@@ -168,22 +168,23 @@ public sealed class PhotoClassificationService(
             try
             {
                 // ── Načtení obrázku: přednostně lokální disk, fallback na original_url ──
+                // Soubor může chybět i se StoredUrl: 24 000 fotek u 1 800 inzerátů mělo záznam bez
+                // souboru (purge / přesun serveru) a klasifikace je jen přeskakovala (audit 7. 10. 2026).
                 byte[] imageBytes;
-                if (photo.StoredUrl != null)
+                var storedPath = photo.StoredUrl != null ? ResolveLocalPath(photo.StoredUrl) : null;
+                if (storedPath != null && File.Exists(storedPath))
                 {
-                    var localPath = ResolveLocalPath(photo.StoredUrl);
-                    if (!File.Exists(localPath))
-                    {
-                        logger.LogWarning(
-                            "Photo file not found on disk for listing {ListingId} order {Order}: {Path}",
-                            photo.ListingId, photo.Order, localPath);
-                        failed++;
-                        continue;
-                    }
-                    imageBytes = await File.ReadAllBytesAsync(localPath, ct);
+                    imageBytes = await File.ReadAllBytesAsync(storedPath, ct);
                 }
                 else if (photo.OriginalUrl != null)
                 {
+                    if (storedPath != null)
+                    {
+                        logger.LogInformation(
+                            "Photo file missing on disk for listing {ListingId} order {Order} ({Path}) – downloading original_url again",
+                            photo.ListingId, photo.Order, storedPath);
+                    }
+
                     // Fotka ještě není stažená lokálně → stáhneme ji a uložíme.
                     // Po úspěšném uložení nastavíme StoredUrl a příště se čte z disku.
                     using var dlClient = httpClientFactory.CreateClient();
@@ -239,6 +240,9 @@ public sealed class PhotoClassificationService(
                 }
                 else
                 {
+                    logger.LogWarning(
+                        "Photo file not found on disk and no original_url for listing {ListingId} order {Order}: {Path}",
+                        photo.ListingId, photo.Order, storedPath);
                     failed++;
                     continue;
                 }

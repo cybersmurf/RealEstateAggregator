@@ -117,6 +117,7 @@ async def bulk_geocode(db_manager, batch_size: int = 50) -> int:
             FROM re_realestate.listings
             WHERE is_active = true
               AND latitude IS NULL
+              AND (geocoded_at IS NULL OR geocoded_at < now() - interval '30 days')
             ORDER BY first_seen_at DESC
             LIMIT $1
             """,
@@ -152,6 +153,14 @@ async def bulk_geocode(db_manager, batch_size: int = 50) -> int:
                 )
             success_count += 1
             logger.debug(f"Geokódován inzerát {row['id']}: ({lat}, {lon})")
+        else:
+            # Neúspěch se poznamená, jinak by stejných N nenalezitelných adres (Bazoš bez obce)
+            # spotřebovalo každou dávku a nikdy by nedošlo na další inzeráty.
+            async with db_manager.acquire() as conn:
+                await conn.execute(
+                    "UPDATE re_realestate.listings SET geocoded_at = $1 WHERE id = $2",
+                    datetime.utcnow(), row["id"],
+                )
 
         # Nominatim rate limit: max 1 req/s
         await asyncio.sleep(_RATE_LIMIT_DELAY)

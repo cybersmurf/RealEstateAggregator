@@ -382,6 +382,18 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             except Exception as exc:  # noqa: BLE001 – doplnění je best-effort, job už uspěl
                 logger.warning(f"Job {job_id}: District fill failed: {exc}")
 
+            # GPS pro inzeráty bez souřadnic (iDNES, Realingo, REALmix, Bazoš, RE/MAX…): Nominatim,
+            # 1 dotaz/s, proto jen dávka za běh. Dřív se geokódovalo jen ručně přes /v1/geocode/bulk
+            # a 4 600 aktivních inzerátů bylo bez polohy (audit 7. 10. 2026). Před duplicitami – ty GPS porovnávají.
+            try:
+                from core.geocoding import bulk_geocode
+                geocode_batch = int(os.getenv("GEOCODE_BATCH_PER_RUN", "150"))
+                if geocode_batch > 0:
+                    geocoded = await bulk_geocode(db_manager, batch_size=geocode_batch)
+                    logger.info(f"Job {job_id}: Geocoded {geocoded} listings (batch {geocode_batch})")
+            except Exception as exc:  # noqa: BLE001 – geokódování je best-effort, job už uspěl
+                logger.warning(f"Job {job_id}: Geocoding failed: {exc}")
+
             # Přepočítej cross-source duplikáty (stejný dům na SREALITY + BAZOS + …).
             # Detekci vlastní .NET API; selhání nesmí shodit scrape job.
             await _trigger_duplicate_detection(job_id)

@@ -32,15 +32,18 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
 }
 
-# Znojmo + Brno-venkov + Břeclav (7. 10. 2026, jen obce z partial_districts) – všechny typy a transakce
+# Okresy se procházejí zvlášť, aby každý inzerát dostal okres z vyhledávání: Century 21 ho
+# v detailu neuvádí a obce okresu Břeclav mimo `partial_districts` (Hustopeče, Boleradice,
+# Klobouky…) jinak procházely filtrem jen na „Jihomoravský kraj" (audit 7. 10. 2026).
+_COUNTIES = ["Znojmo", "Brno-venkov", "Břeclav"]
+_SEARCHES = [
+    ("HOUSE", "SALE"), ("HOUSE", "RENT"), ("FLAT", "SALE"), ("FLAT", "RENT"),
+    ("LAND", "SALE"), ("COMMERCIAL", "SALE"), ("GARAGE", "SALE"),
+]
 SEARCH_CONFIGS = [
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["HOUSE"],      "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["HOUSE"],      "listingType": "RENT"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["FLAT"],       "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["FLAT"],       "listingType": "RENT"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["LAND"],       "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["COMMERCIAL"], "listingType": "SALE"},
-    {"regions": ["Jihomoravský"], "county": ["Znojmo", "Brno-venkov", "Břeclav"], "propertyType": ["GARAGE"],     "listingType": "SALE"},
+    {"regions": ["Jihomoravský"], "county": [county], "propertyType": [prop], "listingType": listing}
+    for county in _COUNTIES
+    for prop, listing in _SEARCHES
 ]
 
 OFFER_TYPE_MAP = {
@@ -108,13 +111,18 @@ class Century21Scraper:
     async def scrape(self, max_pages_per_config: int = 5) -> int:
         """Iteruje přes všechny search konfigurace a stránky."""
         all_detail_urls: set = set()
+        district_by_url: Dict[str, str] = {}
 
         async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=30) as client:
             # Fáze 1: sběr všech URL inzerátů
             for cfg in self.search_configs:
                 urls = await self._collect_urls_for_config(client, cfg, max_pages_per_config)
-                logger.info(f"[{self.SOURCE_CODE}] Config {cfg.get('propertyType','?')}/{cfg.get('listingType','?')}: {len(urls)} URLs")
+                logger.info(f"[{self.SOURCE_CODE}] Config {cfg.get('county','?')}/{cfg.get('propertyType','?')}/{cfg.get('listingType','?')}: {len(urls)} URLs")
                 all_detail_urls.update(urls)
+                counties = cfg.get("county") or []
+                if len(counties) == 1:
+                    for u in urls:
+                        district_by_url.setdefault(u, counties[0])
 
             logger.info(f"[{self.SOURCE_CODE}] Total unique listings: {len(all_detail_urls)}")
 
@@ -127,7 +135,8 @@ class Century21Scraper:
                     inferred_offer = "Sale" if "/prodej-" in url else "Rent" if "/pronajem-" in url else "Sale"
                     inferred_prop = self._property_type_from_url(url)
 
-                    item = await self._parse_detail(client, url, inferred_offer, inferred_prop)
+                    item = await self._parse_detail(client, url, inferred_offer, inferred_prop,
+                                                    district=district_by_url.get(url))
                     if item:
                         await db.upsert_listing(item)
                         count += 1
@@ -241,8 +250,9 @@ class Century21Scraper:
         url: str,
         inferred_offer_type: str = "Sale",
         inferred_property_type: str = "House",
+        district: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Stáhne a naparsuje detail stránky inzerátu."""
+        """Stáhne a naparsuje detail stránky inzerátu. `district` = okres z vyhledávání, které URL vrátilo."""
         try:
             resp = await client.get(url)
             resp.raise_for_status()
@@ -330,7 +340,7 @@ class Century21Scraper:
         description = self._extract_description(soup)
 
         # Fotky
-        photos = self._extract_photos(soup)
+        photos = self._extract_photos(soup, resp.text)
 
         result = {
             "source_code": self.SOURCE_CODE,
@@ -347,6 +357,8 @@ class Century21Scraper:
             "location_text": location,
             "photos": photos,
         }
+        if district:
+            result["district"] = district
 
         # Přidej dispozici do titulku pokud tam chybí
         if disposition and disposition not in title:
@@ -439,31 +451,31 @@ class Century21Scraper:
 
         return ""
 
-    def _extract_photos(self, soup: BeautifulSoup) -> List[str]:
-        """Extrahuje URL fotek ze CDN igluu."""
+    _PHOTO_RE = re.compile(r"https?://[a-z0-9.-]*igluu\.cz/file/[0-9a-f-]{36}(?:\?[A-Za-z0-9=&_-]*)?", re.I)
+
+    def _extract_photos(self, soup: BeautifulSoup, html: str = "") -> List[str]:
+        """
+        URL fotek z CDN igluu. V `<img>` je jen úvodní snímek – zbytek galerie leží jako
+        escapovaný JSON v Next.js payloadu (`self.__next_f.push`), proto se projde i surové HTML
+        (do 7. 10. 2026 se ukládaly průměrně 2 fotky z ~30).
+        """
         photos: List[str] = []
         seen: set = set()
-        # Fotky jsou na igluu CDN: live-file-api.igluu.cz
-        for img in soup.select("img[src*='igluu.cz']"):
-            src = img.get("src", "").strip()
-            if not src or src in seen:
-                continue
-            # Přeskočit náhledy / thumbnails (cesta neobsahuje UUID formát)
-            if not re.search(r"file/[0-9a-f\-]{36}", src, re.I):
-                continue
-            seen.add(src)
-            photos.append(src)
-            if len(photos) >= 50:
-                break
 
-        # Fallback: hledej v href atributech (galerie)
-        if not photos:
-            for a in soup.select("a[href*='igluu.cz']"):
-                href = a.get("href", "").strip()
-                if href and href not in seen and re.search(r"file/[0-9a-f\-]{36}", href, re.I):
-                    seen.add(href)
-                    photos.append(href)
-                    if len(photos) >= 50:
-                        break
+        def add(url: str) -> bool:
+            url = url.strip().rstrip("\\")
+            if not url or url in seen or not re.search(r"file/[0-9a-f\-]{36}", url, re.I):
+                return True
+            seen.add(url)
+            photos.append(url)
+            return len(photos) < 50
+
+        for img in soup.select("img[src*='igluu.cz']"):
+            if not add(img.get("src", "")):
+                return photos
+
+        for m in self._PHOTO_RE.finditer(html or str(soup)):
+            if not add(m.group(0)):
+                break
 
         return photos
