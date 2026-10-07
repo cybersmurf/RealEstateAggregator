@@ -31,6 +31,8 @@ public static class FilterSummaryFormatter
 
         if (filter.Conditions is { Count: > 0 }) parts.Add(string.Join("/", filter.Conditions));
         if (filter.ConstructionTypes is { Count: > 0 }) parts.Add(string.Join("/", filter.ConstructionTypes));
+        if (filter.HousePositions is { Count: > 0 })
+            parts.Add(string.Join("/", filter.HousePositions.Select(HousePositionLabels.Label)));
         if (filter.SourceCodes is { Count: > 0 }) parts.Add($"zdroje: {string.Join(", ", filter.SourceCodes)}");
         if (!string.IsNullOrWhiteSpace(filter.SearchText)) parts.Add($"„{filter.SearchText.Trim()}“");
         if (filter.BboxLatMin is not null || filter.BboxLatMax is not null || filter.BboxLonMin is not null || filter.BboxLonMax is not null)

@@ -26,6 +26,9 @@ public sealed class ListingFilterDto
     /// <summary>Multi-select typ konstrukce: "Cihla", "Panel", "Dřevo", atd.</summary>
     public List<string>? ConstructionTypes { get; set; }
 
+    /// <summary>Multi-select poloha domu určená z fotek: detached / semi_detached / terraced / corner.</summary>
+    public List<string>? HousePositions { get; set; }
+
     public int? RoomsMin { get; set; }
     public int? RoomsMax { get; set; }
 

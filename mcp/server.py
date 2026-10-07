@@ -249,6 +249,21 @@ def _norm_status(s: str) -> str:
     return _STATUS_ALIASES.get(key, s)
 
 
+_HOUSE_POSITIONS = {
+    "detached": "detached", "samostatny": "detached", "samostatný": "detached",
+    "semi_detached": "semi_detached", "semi-detached": "semi_detached", "prisazeny": "semi_detached",
+    "přisazený": "semi_detached", "přisazený z jedné strany": "semi_detached", "dvojdum": "semi_detached", "dvojdům": "semi_detached",
+    "terraced": "terraced", "radovy": "terraced", "řadový": "terraced", "řadovka": "terraced",
+    "corner": "corner", "rohovy": "corner", "rohový": "corner",
+}
+
+
+def _norm_house_position(value: str) -> str:
+    """Česky i anglicky zadaná poloha domu → hodnota v DB (neznámé necháme, API vrátí prázdno)."""
+    key = value.strip().lower()
+    return _HOUSE_POSITIONS.get(key, key.replace("-", "_").replace(" ", "_"))
+
+
 def _as_list(v) -> list[str]:
     """Přijme list i čárkami oddělený string (modely často pošlou string)."""
     if v is None:
@@ -301,6 +316,8 @@ def _fmt_listing_v2(l: dict) -> str:
         meta.append(str(l["condition"]))
     if l.get("constructionType"):
         meta.append(str(l["constructionType"]))
+    if l.get("housePositionLabel"):
+        meta.append(str(l["housePositionLabel"]))
     status = l.get("userStatus") or "New"
     status_txt = "" if status == "New" else f"  |  ⭐ {status}"
     if l.get("hasNotes"):
@@ -350,6 +367,7 @@ async def search_listings(
     rooms_max: Optional[int] = None,
     conditions: Optional[list[str] | str] = None,
     construction_types: Optional[list[str] | str] = None,
+    house_positions: Optional[list[str] | str] = None,
     sources: Optional[list[str] | str] = None,
     user_status: Optional[str] = None,
     exclude_statuses: Optional[list[str] | str] = None,
@@ -391,6 +409,9 @@ async def search_listings(
         rooms_min / rooms_max: počet pokojů
         conditions: stav, např. ["Po rekonstrukci", "Velmi dobrý", "Novostavba"]
         construction_types: např. ["Cihla", "Smíšená"]
+        house_positions: poloha domu určená z fotek – "samostatný" (detached),
+               "přisazený" (semi_detached), "řadový" (terraced), "rohový" (corner);
+               dům bez určení (detect_house_position) filtr vyřadí
         sources: kódy zdrojů, např. ["SREALITY", "REMAX"]
     Můj stav:
         user_status: jen daný stav: New | Liked | Disliked | ToVisit | Visited
@@ -431,6 +452,8 @@ async def search_listings(
         payload["conditions"] = c
     if (ct := _as_list(construction_types)):
         payload["constructionTypes"] = ct
+    if (hp := [_norm_house_position(h) for h in _as_list(house_positions)]):
+        payload["housePositions"] = hp
     if (src := [s.upper() for s in _as_list(sources)]):
         payload["sourceCodes"] = src
     excluded = {_norm_status(s) for s in _as_list(exclude_statuses)}

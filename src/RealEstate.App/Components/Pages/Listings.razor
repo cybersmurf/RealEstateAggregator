@@ -91,6 +91,20 @@
                         <MudSelectItem T="string?" Value="@("Auction")">Dražba</MudSelectItem>
                     </MudSelect>
                 </MudItem>
+                <!-- Poloha domu (z fotek) -->
+                <MudItem xs="12" md="6">
+                    <MudSelect T="string" @bind-SelectedValues="_selectedHousePositions"
+                               MultiSelection="true"
+                               Label="Poloha domu"
+                               HelperText="Podle fotek – dům bez určení se nezobrazí"
+                               Variant="Variant.Outlined"
+                               Clearable="true">
+                        @foreach (var (value, label) in HousePositionLabels.Options)
+                        {
+                            <MudSelectItem T="string" Value="@value">@label</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
                 <!-- Dispozice -->
                 <MudItem xs="12">
                     <MudText Typo="Typo.caption" Class="mb-1">Dispozice</MudText>
@@ -587,6 +601,10 @@
 
     // Dispozice
     private IReadOnlyCollection<string>? _selectedDispositiones = new List<string>();
+    private IReadOnlyCollection<string>? _selectedHousePositions = new HashSet<string>();
+
+    private List<string>? SelectedHousePositionsOrNull
+        => _selectedHousePositions is { Count: > 0 } ? _selectedHousePositions.ToList() : null;
     private static readonly List<string> _availableDispositions = new()
     {
         "1+1", "1+kk", 
@@ -636,7 +654,8 @@
         int      TablePage,  // 1-indexed číslo stránky tabulky
         string?  SortBy,     // Sloupec třídění ("Price", "Title", atd.)
         bool     SortDescending, // Sestupné třídění
-        string?  UserStatus  // Filtr dle mého stavu ("Liked", "ToVisit", ...)
+        string?  UserStatus, // Filtr dle mého stavu ("Liked", "ToVisit", ...)
+        List<string>? HousePositions = null
     );
 
     [SupplyParameterFromQuery(Name = "source")]
@@ -686,6 +705,7 @@
                 };
                 _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
                 _selectedDispositiones = s.Disposition != null ? new[] { s.Disposition } : new List<string>();
+                _selectedHousePositions = new HashSet<string>(s.HousePositions ?? []);
                 _activeQuickFilter    = s.ActiveQuickFilter;
                 _cardView             = s.CardView;
                 _cardPage             = s.CardPage;
@@ -745,6 +765,7 @@
             PropertyType = _filter.PropertyType, OfferType = _filter.OfferType, Disposition = _filter.Disposition,
             Region = _filter.Region, District = _filter.District, Municipality = _filter.Municipality,
             Conditions = _filter.Conditions, ConstructionTypes = _filter.ConstructionTypes,
+            HousePositions = SelectedHousePositionsOrNull,
             RoomsMin = _filter.RoomsMin, RoomsMax = _filter.RoomsMax,
             SourceCodes = _selectedSourceCodes?.Count > 0 ? _selectedSourceCodes.ToList() : null,
         };
@@ -778,7 +799,8 @@
                 TablePage:         _filter.Page,  // 1-indexed aktuální stránka tabulky
                 SortBy:            _filter.SortBy,
                 SortDescending:    _filter.SortDescending,
-                UserStatus:        _filter.UserStatus
+                UserStatus:        _filter.UserStatus,
+                HousePositions:    SelectedHousePositionsOrNull
             );
             await LocalStorage.SetAsync(FilterStateKey, state);
         }
@@ -811,6 +833,7 @@
             _filter.Disposition = (_selectedDispositiones?.Count ?? 0) > 0
                 ? _selectedDispositiones!.First()
                 : null;
+            _filter.HousePositions = SelectedHousePositionsOrNull;
             
             // Třídění: vždy aktualizuj z UI state (jinak se směr nikdy nepřepne).
             // LocalStorage restore: _filter.SortBy je nastaven, ale state.SortLabel je prázdný
@@ -873,6 +896,7 @@
                 District = _filter.District,
                 Municipality = _filter.Municipality,
                 SourceCodes = (_selectedSourceCodes?.Count ?? 0) > 0 ? _selectedSourceCodes!.ToList() : null,
+                HousePositions = SelectedHousePositionsOrNull,
                 SortBy = _filter.SortBy,
                 SortDescending = _filter.SortDescending,
             };
@@ -975,6 +999,7 @@
         _filter = new ListingFilterDto { Page = 1, PageSize = 20 };
         _selectedSourceCodes = new List<string>(); // reset na prázdnou kolekci (ne null)
         _selectedDispositiones = new List<string>(); // reset na prázdnou kolekci
+        _selectedHousePositions = new HashSet<string>();
         _activeQuickFilter = null;
 
         if (_cardView)

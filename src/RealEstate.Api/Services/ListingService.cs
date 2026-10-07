@@ -602,6 +602,13 @@ SellerName = sellerName,
             predicate = predicate.And(x => x.ConstructionType != null && constructionTypes.Contains(x.ConstructionType));
         }
 
+        // Poloha domu vůči sousedům (z fotek; dům bez určení filtr vyřadí)
+        if (filter.HousePositions?.Count > 0)
+        {
+            var housePositions = filter.HousePositions;
+            predicate = predicate.And(x => x.HousePosition != null && housePositions.Contains(x.HousePosition));
+        }
+
         // Počet pokojů
         if (filter.RoomsMin.HasValue)
         {
@@ -743,6 +750,8 @@ SellerName = sellerName,
             Rooms = entity.Rooms,
             Condition = entity.Condition,
             ConstructionType = entity.ConstructionType,
+            HousePosition = entity.HousePosition,
+            HousePositionLabel = HousePositions.Label(entity.HousePosition),
             Price = entity.Price,
             PriceNote = entity.PriceNote,
             AreaBuiltUp = (double?)entity.AreaBuiltUp,
