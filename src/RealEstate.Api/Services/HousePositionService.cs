@@ -50,13 +50,16 @@ public sealed class HousePositionService(
     RealEstateDbContext db,
     IPhotoClassificationService vision,
     IDuplicateGroupService duplicateGroups,
+    Vision.ICuzkMapService maps,
     IHttpClientFactory httpClientFactory,
     ILogger<HousePositionService> logger) : IHousePositionService
 {
     public const int MaxPhotos = 6;
+    /// <summary>S katastrální mapou a ortofotem stačí z galerie pár fotek z ulice a ze dvora.</summary>
+    public const int MaxPhotosWithMaps = 4;
 
     private const string Prompt = """
-        These {N} images (numbered 1..{N}) come from ONE Czech real-estate listing of a family house: exterior, garden and aerial photos.
+        {INTRO}
 
         Decide how the HOUSE FOR SALE stands in relation to buildings on NEIGHBOURING plots.
 
@@ -73,7 +76,7 @@ public sealed class HousePositionService(
         Rules:
         - The property's own garage, barn, outbuildings and courtyard wings are part of the house for sale, not neighbours.
         - A village house with a gate and a closed courtyard is terraced only when neighbours really adjoin on both sides.
-        - Aerial images are the best evidence; in them the house for sale is usually centred or highlighted in colour.
+        - The cadastral map and the orthophoto are the best evidence: a building footprint that shares an edge with a footprint on a neighbouring parcel is attached. In listing photos the house for sale is usually centred or highlighted in colour.
         - If only the street facade is visible and you cannot see what is on either side, answer unknown. Never guess.
 
         "reason" - one or two sentences in Czech saying what is on each side of the house (for example: "Vlevo vjezd a odstup od souseda, vpravo hospodářské křídlo přiléhá k sousedově stodole.").
@@ -99,27 +102,41 @@ public sealed class HousePositionService(
             photos = await LoadClassifiedAsync(owner, ct);
         }
 
-        var selected = SelectPhotos(photos, MaxPhotos);
-        if (selected.Count == 0)
-            return new HousePositionResultDto(listingId, null, null, null, 0, "Galerie nemá venkovní ani letecké fotky, ze kterých by šla poloha domu určit.");
+        // Katastrální mapa a ortofoto ČÚZK kolem přesné GPS – jediný důkaz, který má každý dům
+        var rootId = listing.DuplicateOfListingId ?? listing.Id;
+        byte[]? cadastre = null, orthophoto = null;
+        if (await ResolvePreciseGpsAsync(listing.Id, rootId, ct) is { } gps)
+        {
+            cadastre = await maps.CadastralMapAsync(gps.Latitude, gps.Longitude, ct);
+            orthophoto = await maps.OrthophotoAsync(gps.Latitude, gps.Longitude, ct);
+        }
+        var hasMaps = cadastre is not null || orthophoto is not null;
+
+        var selected = SelectPhotos(photos, hasMaps ? MaxPhotosWithMaps : MaxPhotos);
+        if (selected.Count == 0 && !hasMaps)
+            return new HousePositionResultDto(listingId, null, null, null, 0, "Galerie nemá venkovní ani letecké fotky a inzerát nemá přesnou GPS pro mapu – polohu domu nejde určit.");
 
         using var http = httpClientFactory.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(30);
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; RealEstateAggregator/1.0)");
 
         var images = new List<byte[]>();
-        var hasAerial = false;
+        if (cadastre is not null) images.Add(cadastre);
+        if (orthophoto is not null) images.Add(orthophoto);
+        var hasAerial = orthophoto is not null;
+        var gallery = 0;
         foreach (var photo in selected)
         {
             var bytes = await LoadAsync(http, photo, ct);
             if (bytes is null) continue;
             images.Add(bytes);
+            gallery++;
             hasAerial |= IsAerial(photo);
         }
         if (images.Count == 0)
             return new HousePositionResultDto(listingId, null, null, null, 0, "Venkovní fotky se nepodařilo načíst (zdroj je už nenabízí).");
 
-        var raw = await vision.AskVisionAsync(images, Prompt.Replace("{N}", images.Count.ToString()), 300, ct);
+        var raw = await vision.AskVisionAsync(images, BuildPrompt(cadastre is not null, orthophoto is not null, gallery), 300, ct);
         var verdict = ParseVerdict(raw);
         if (verdict is not null)
             verdict = verdict with { Reason = WithEvidenceNote(verdict.Reason, hasAerial) };
@@ -127,7 +144,6 @@ public sealed class HousePositionService(
             return new HousePositionResultDto(listingId, null, null, null, images.Count, "Obrazový model nevrátil použitelnou odpověď – zkuste to později.");
 
         // Vlastnost domu: zapíše se ke všem kopiím téhož domu, ať uživatel otevře kteroukoli
-        var rootId = listing.DuplicateOfListingId ?? listing.Id;
         var now = DateTime.UtcNow;
         await db.Listings
             .Where(l => l.Id == rootId || l.DuplicateOfListingId == rootId)
@@ -140,6 +156,41 @@ public sealed class HousePositionService(
             listingId, verdict.Position, images.Count, verdict.Reason);
 
         return new HousePositionResultDto(listingId, verdict.Position, HousePositions.Label(verdict.Position), verdict.Reason, images.Count, null);
+    }
+
+    /// <summary>
+    /// Přesná GPS domu: vlastní, nebo od člena skupiny duplicit. Geokódovaný střed obce (Nominatim,
+    /// Bazoš, iDNES…) by zaměřovač posadil na náves – pak je lepší mapu vynechat.
+    /// </summary>
+    private async Task<(double Latitude, double Longitude)?> ResolvePreciseGpsAsync(Guid listingId, Guid rootId, CancellationToken ct)
+    {
+        var approx = DuplicateDetectionService.ApproxGpsSources;
+        var candidate = await db.Listings.AsNoTracking()
+            .Where(l => (l.Id == rootId || l.DuplicateOfListingId == rootId)
+                        && l.Latitude != null && l.Longitude != null
+                        && l.GeocodeSource != "nominatim" && !approx.Contains(l.SourceCode))
+            .OrderByDescending(l => l.Id == listingId)
+            .ThenByDescending(l => l.IsActive)
+            .Select(l => new { l.Latitude, l.Longitude })
+            .FirstOrDefaultAsync(ct);
+        return candidate is null ? null : (candidate.Latitude!.Value, candidate.Longitude!.Value);
+    }
+
+    /// <summary>Úvod dotazu podle toho, které důkazy máme: mapa, ortofoto, fotky z galerie (v tomhle pořadí).</summary>
+    public static string BuildPrompt(bool hasCadastre, bool hasOrthophoto, int galleryCount)
+    {
+        var total = (hasCadastre ? 1 : 0) + (hasOrthophoto ? 1 : 0) + galleryCount;
+        var parts = new List<string> { $"These {total} images (numbered 1..{total}) describe ONE Czech family house for sale." };
+        var n = 1;
+        if (hasCadastre)
+            parts.Add($"Image {n++} is the cadastral map (ČÚZK) of 200 × 200 m around the house: black lines are parcel boundaries, pink shapes are building footprints, numbers are parcel numbers, and the red crosshair marks the house for sale.");
+        if (hasOrthophoto)
+            parts.Add($"Image {n++} is the aerial orthophoto of the same 200 × 200 m area with the same red crosshair on the house for sale.");
+        if (galleryCount > 0)
+            parts.Add(galleryCount == 1
+                ? $"Image {n} is a photo from the listing (exterior, garden or aerial)."
+                : $"Images {n}..{n + galleryCount - 1} are photos from the listing (exterior, garden or aerial).");
+        return Prompt.Replace("{INTRO}", string.Join(" ", parts));
     }
 
     private Task<List<ListingPhoto>> LoadClassifiedAsync(Guid ownerListingId, CancellationToken ct)
@@ -177,7 +228,7 @@ public sealed class HousePositionService(
                || description.Contains("z ptačí", StringComparison.OrdinalIgnoreCase);
     }
 
-    public const string NoAerialNote = "Bez leteckého snímku – méně jisté.";
+    public const string NoAerialNote = "Bez leteckého snímku i mapy – méně jisté.";
 
     /// <summary>Z fotek z ulice a ze dvora model boky domu spíš odhaduje – zdůvodnění to musí říct.</summary>
     public static string WithEvidenceNote(string reason, bool hasAerial)

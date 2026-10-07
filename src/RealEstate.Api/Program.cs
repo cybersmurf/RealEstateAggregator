@@ -225,6 +225,8 @@ if (app.Environment.IsDevelopment())
                 // 🔥 Use EnsureCreatedAsync instead of MigrateAsync to avoid column naming conflicts
                 await dbContext.Database.EnsureCreatedAsync();
                 await DbInitializer.SeedAsync(dbContext, logger: scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
+                // Verzované SQL migrace ze scripts/ – nové soubory se spustí právě jednou (schema_migrations)
+                await SqlMigrationRunner.ApplyAsync(dbContext, scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
                 break;
             }
             catch (Exception ex) when (attempt < maxDbRetries)

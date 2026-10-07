@@ -34,6 +34,11 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
+  <!-- SQL migrace ze scripts/ – SqlMigrationRunner je při startu API spustí právě jednou -->
+  <ItemGroup>
+    <EmbeddedResource Include="../../scripts/migrate_*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <!-- Explicit Compile inclusions replacing the SDK default **/*.cs glob -->
   <ItemGroup>
     <Compile Include="*.cs" />

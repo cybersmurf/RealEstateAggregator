@@ -306,6 +306,7 @@ public static class ExportEndpoints
         [FromServices] IGoogleDriveExportService driveService,
         [FromServices] RealEstateDbContext db,
         [FromServices] IWebHostEnvironment env,
+        [FromServices] ILoggerFactory loggerFactory,
         HttpRequest req,
         CancellationToken ct)
     {
@@ -346,7 +347,16 @@ public static class ExportEndpoints
             await file.CopyToAsync(ms, ct);
             var safeName = Path.GetFileName(file.FileName);
             var ct2 = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
-            files.Add(($"prohlidka_{startIndex + i + 1:D2}_{safeName}", ms.ToArray(), ct2));
+            var data = ms.ToArray();
+            // HEIC z iPhonu → JPEG, jinak je fotka v galerii černá a pro obrazový model nepoužitelná
+            if (Services.Photos.HeifConverter.IsHeif(safeName)
+                && await Services.Photos.HeifConverter.ToJpegAsync(data, loggerFactory.CreateLogger("HeifConverter"), ct) is { } jpeg)
+            {
+                data = jpeg;
+                safeName = Path.ChangeExtension(safeName, ".jpg");
+                ct2 = "image/jpeg";
+            }
+            files.Add(($"prohlidka_{startIndex + i + 1:D2}_{safeName}", data, ct2));
         }
 
         try
@@ -372,7 +382,7 @@ public static class ExportEndpoints
                     StoredUrl = relUrl,
                     OriginalFileName = name,
                     FileSizeBytes = data.Length,
-                    TakenAt = now,
+                    TakenAt = Services.Photos.ExifReader.TakenAtUtc(data) ?? now,
                     UploadedAt = now
                 });
             }

@@ -788,6 +788,73 @@ class DatabaseManager:
             )
         return int(status.split()[-1])
 
+    _SCRAPE_RUNS_DDL = "ALTER TABLE re_realestate.scrape_runs ADD COLUMN IF NOT EXISTS full_rescan boolean NOT NULL DEFAULT false"
+
+    async def record_scrape_run(
+        self, source_code: str, started_at: datetime, finished_at: datetime, status: str,
+        total_seen: int, full_rescan: bool, error_message: Optional[str] = None,
+    ) -> None:
+        """Jeden řádek scrape_runs na zdroj a běh – historie, proti které se měří propad výsledků."""
+        source = await self.get_source_by_code(source_code)
+        if not source:
+            return
+        async with self.acquire() as conn:
+            await conn.execute(self._SCRAPE_RUNS_DDL)
+            await conn.execute(
+                """
+                INSERT INTO re_realestate.scrape_runs
+                    (id, source_id, source_code, started_at, finished_at, status, total_seen,
+                     total_new, total_updated, total_inactivated, error_message, full_rescan)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, 0, $8, $9)
+                """,
+                uuid4(), source["id"], source_code, started_at, finished_at, status[:50], int(total_seen),
+                (error_message or None) and error_message[:500], full_rescan,
+            )
+
+    async def recent_run_counts(self, full_rescan: bool, limit: int = 5) -> Dict[str, List[int]]:
+        """Počty z posledních úspěšných běhů téhož režimu podle zdroje (inkrementál a plný průchod se liší)."""
+        async with self.acquire() as conn:
+            await conn.execute(self._SCRAPE_RUNS_DDL)
+            rows = await conn.fetch(
+                """
+                SELECT source_code, total_seen FROM (
+                    SELECT source_code, total_seen,
+                           row_number() OVER (PARTITION BY source_code ORDER BY started_at DESC) AS rn
+                    FROM re_realestate.scrape_runs
+                    WHERE status = 'Succeeded' AND full_rescan = $1
+                ) t WHERE rn <= $2
+                """,
+                full_rescan, limit,
+            )
+        history: Dict[str, List[int]] = {}
+        for row in rows:
+            history.setdefault(row["source_code"], []).append(int(row["total_seen"]))
+        return history
+
+    async def count_data_anomalies(self, since: datetime) -> Dict[str, int]:
+        """
+        Podezřelé hodnoty u inzerátů nově uložených od `since` – heuristiky ploch a obcí z volného
+        textu selhávají potichu (76 m² → 762, kuchyň jako plocha domu, cena za m² jako cena).
+        Vrací jen pravidla s nenulovým počtem.
+        """
+        rules = {
+            "bez obce": "municipality IS NULL",
+            "dům přes 1 500 m²": "property_type = 'House' AND area_built_up > 1500",
+            "dům pod 3 000 Kč/m²": "property_type = 'House' AND offer_type = 'Sale' AND area_built_up > 20 AND price / area_built_up < 3000",
+            "dům přes 250 000 Kč/m²": "property_type = 'House' AND offer_type = 'Sale' AND area_built_up > 20 AND price / area_built_up > 250000",
+            "pozemek větší než 20 ha": "area_land > 200000",
+        }
+        anomalies: Dict[str, int] = {}
+        async with self.acquire() as conn:
+            for name, condition in rules.items():
+                count = await conn.fetchval(
+                    f"SELECT count(*) FROM re_realestate.listings WHERE is_active AND first_seen_at >= $1 AND {condition}",
+                    since,
+                )
+                if count:
+                    anomalies[name] = int(count)
+        return anomalies
+
     _SCRAPE_SKIPS_DDL = """
         CREATE TABLE IF NOT EXISTS re_realestate.scrape_skips (
             source_code      text NOT NULL,

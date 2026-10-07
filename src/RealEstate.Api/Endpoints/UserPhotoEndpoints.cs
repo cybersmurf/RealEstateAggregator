@@ -71,9 +71,21 @@ public static class UserPhotoEndpoints
 
             try
             {
-                // TODO: Convert HEIC to JPEG if needed (Phase 3)
-                var uploadStream = file.OpenReadStream();
+                // HEIC z iPhonu → JPEG (prohlížeč ani obrazový model HEIC neotevřou); EXIF datum pořízení
+                byte[] data;
+                using (var ms = new MemoryStream())
+                {
+                    await file.CopyToAsync(ms, ct);
+                    data = ms.ToArray();
+                }
                 var uploadFileName = file.FileName;
+                if (Services.Photos.HeifConverter.IsHeif(uploadFileName)
+                    && await Services.Photos.HeifConverter.ToJpegAsync(data, logger, ct) is { } jpeg)
+                {
+                    data = jpeg;
+                    uploadFileName = Path.ChangeExtension(uploadFileName, ".jpg");
+                }
+                using var uploadStream = new MemoryStream(data);
 
                 // Upload to storage
                 var folder = $"listings/{listingId}/my_photos";
@@ -83,8 +95,7 @@ public static class UserPhotoEndpoints
                     folder,
                     ct);
 
-                // TODO: Extract EXIF date if available (Phase 3)
-                var takenAt = DateTime.UtcNow;
+                var takenAt = Services.Photos.ExifReader.TakenAtUtc(data) ?? DateTime.UtcNow;
 
                 // Save to database
                 var photo = new UserListingPhoto
@@ -92,8 +103,8 @@ public static class UserPhotoEndpoints
                     Id = Guid.NewGuid(),
                     ListingId = listingId,
                     StoredUrl = storedUrl,
-                    OriginalFileName = file.FileName,
-                    FileSizeBytes = file.Length,
+                    OriginalFileName = uploadFileName,
+                    FileSizeBytes = data.Length,
                     TakenAt = takenAt,
                     UploadedAt = DateTime.UtcNow
                 };

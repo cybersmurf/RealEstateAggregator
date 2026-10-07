@@ -5,6 +5,8 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY src/ .
+# SQL migrace (scripts/migrate_*.sql) se vkládají do RealEstate.Infrastructure jako zdroje – cesta ../../scripts
+COPY scripts/ /scripts/
 RUN --mount=type=cache,target=/root/.nuget/packages \
     dotnet restore "RealEstate.Api/RealEstate.Api.csproj"
 RUN --mount=type=cache,target=/root/.nuget/packages \
@@ -20,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgssapi-krb5-2 \
     curl \
     pandoc \
+    libheif-examples \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/publish .

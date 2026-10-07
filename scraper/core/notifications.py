@@ -3,6 +3,7 @@ Slack notifikace pro scraping zdraví.
 Odesílá upozornění když scraper vrátí 0 výsledků nebo data jsou stará.
 """
 import logging
+import statistics
 import os
 from typing import Any
 
@@ -43,10 +44,33 @@ async def _send(payload: dict[str, Any]) -> bool:
         return False
 
 
+DROP_RATIO = 0.6          # pod 60 % obvyklého počtu = propad
+DROP_MIN_MEDIAN = 20      # u malých zdrojů kolísání nehlásíme
+
+
+def detect_drops(current: dict[str, int], history: dict[str, list[int]]) -> dict[str, tuple[int, int]]:
+    """
+    Zdroje, které vrátily výrazně míň než obvykle: {source: (teď, obvykle)}. „Obvykle" je medián
+    posledních úspěšných běhů téhož režimu; potřebujeme aspoň dva. Rozbitý parser většinou nevrátí
+    nulu ani výjimku, ale třeba 120 místo 2 900 (iDNES), a to by jinak nikdo neviděl.
+    """
+    drops: dict[str, tuple[int, int]] = {}
+    for source, count in current.items():
+        past = history.get(source) or []
+        if len(past) < 2:
+            continue
+        usual = statistics.median(past)
+        if usual >= DROP_MIN_MEDIAN and count < usual * DROP_RATIO:
+            drops[source] = (count, int(usual))
+    return drops
+
+
 async def notify_job_summary(
     job_id: str,
     results: dict[str, int | Exception],
     full_rescan: bool,
+    drops: dict[str, tuple[int, int]] | None = None,
+    anomalies: dict[str, int] | None = None,
 ) -> None:
     """
     Odešle Slack zprávu po dokončení scraping jobu.
@@ -55,6 +79,8 @@ async def notify_job_summary(
         job_id:      UUID jobu
         results:     slovník {source_code: count_or_exception}
         full_rescan: zda šlo o full rescan
+        drops:       zdroje s propadem výsledků proti minulým běhům (detect_drops)
+        anomalies:   podezřelé hodnoty u nových inzerátů {pravidlo: počet}
     """
     if not _webhook_url:
         return
@@ -62,8 +88,10 @@ async def notify_job_summary(
     failed = {k: v for k, v in results.items() if isinstance(v, Exception)}
     zero = {k for k, v in results.items() if v == 0 and not isinstance(v, Exception)}
     ok = {k: v for k, v in results.items() if isinstance(v, int) and v > 0}
+    drops = drops or {}
+    anomalies = anomalies or {}
 
-    if not failed and not zero:
+    if not failed and not zero and not drops and not anomalies:
         # Vše OK – neposílej nic (zbytečný noise)
         return
 
@@ -78,6 +106,12 @@ async def notify_job_summary(
     if failed:
         for src, exc in failed.items():
             lines.append(f"🔴 *{src}* selhal: `{type(exc).__name__}: {exc}`")
+    if drops:
+        lines.append("📉 *Propad výsledků* proti minulým běhům (možná změna webu): "
+                     + ", ".join(f"`{s}` {now} (obvykle {usual})" for s, (now, usual) in sorted(drops.items())))
+    if anomalies:
+        lines.append("🧪 *Podezřelá data u nových inzerátů*: "
+                     + ", ".join(f"{rule} {n}×" for rule, n in sorted(anomalies.items())))
 
     payload = {
         "text": "\n".join(lines),

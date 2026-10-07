@@ -348,6 +348,31 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
 
             logger.info(f"Job {job_id}: All scrapers completed. Total listings: {total_scraped}")
 
+            # Historie běhů podle zdroje: propad proti minulým běhům je jediný signál, že se web
+            # změnil a parser vrací zlomek (ne nulu, ne výjimku). Historie se čte před zápisem tohoto běhu.
+            drops: Dict[str, tuple] = {}
+            anomalies: Dict[str, int] = {}
+            try:
+                history = await db_manager.recent_run_counts(request.full_rescan)
+                current = {name: res for (name, _), res in zip(tasks, results) if isinstance(res, int)}
+                drops = notifications.detect_drops(current, history)
+                finished_at = datetime.utcnow()
+                for (source_name, _), result in zip(tasks, results):
+                    failed = isinstance(result, Exception)
+                    await db_manager.record_scrape_run(
+                        source_name, scrape_started_at, finished_at,
+                        "Failed" if failed else "Succeeded",
+                        0 if failed else int(result), request.full_rescan,
+                        f"{type(result).__name__}: {result}" if failed else None,
+                    )
+                anomalies = await db_manager.count_data_anomalies(scrape_started_at)
+                if drops:
+                    logger.warning(f"Job {job_id}: Result drop vs. previous runs: {drops}")
+                if anomalies:
+                    logger.warning(f"Job {job_id}: Suspicious values in new listings: {anomalies}")
+            except Exception as exc:  # noqa: BLE001 – hlídání je best-effort, job už uspěl
+                logger.warning(f"Job {job_id}: Run history / drift check failed: {exc}")
+
             # Okres u inzerátů, kterým ho zdroj nedal (Reas, Prodejme.to, iDNES) – z GPS, jinak z obce.
             # Před detekcí duplikátů: ta okresy porovnává a hledání podle okresu je jinak nenajde.
             try:
@@ -372,6 +397,8 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
                 job_id=str(job_id),
                 results=job_results,
                 full_rescan=request.full_rescan,
+                drops=drops,
+                anomalies=anomalies,
             )
 
             # Update status na Succeeded
