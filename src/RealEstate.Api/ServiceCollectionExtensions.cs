@@ -44,11 +44,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IStripeBillingService, StripeBillingService>();
         services.AddScoped<ILeadService, LeadService>();
 
-        // Sloučená karta duplicit, mazání stažených fotek, průběžné AI shrnutí
+        // Sloučená karta duplicit, mazání stažených fotek, průběžné AI obohacení (shrnutí, štítky, normalizace, cenový signál, embeddingy)
         services.AddScoped<IDuplicateGroupService, DuplicateGroupService>();
         services.AddSingleton<Services.Jobs.IBackgroundJobService, Services.Jobs.BackgroundJobService>();
         services.AddScoped<IPhotoPurgeService, PhotoPurgeService>();
-        services.AddHostedService<AiSummaryHostedService>();
+        services.AddHostedService<AiEnrichmentHostedService>();
         services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();
         services.AddScoped<ISourceService, SourceService>();
         services.AddScoped<IAnalysisService, AnalysisService>();

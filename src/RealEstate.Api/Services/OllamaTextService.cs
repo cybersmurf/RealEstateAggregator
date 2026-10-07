@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 using RealEstate.Domain.Entities;
 using RealEstate.Domain.Enums;
 using RealEstate.Infrastructure;
@@ -112,7 +113,12 @@ public sealed class OllamaTextService(
           "has_storage": false,
           "extension_possible": false
         }
-        Use null for unknown values. heating_type: gas|electric|solid_fuel|heat_pump|district|other.
+        Use null for unknown values. Report ONLY what the text states explicitly – never infer or guess:
+        a has_* value may be true only when the feature itself is mentioned; heating_type only when the
+        heat source is named; energy_class only when the listing names the class (PENB, energetická třída,
+        štítek) – a listing without such a statement has energy_class null, even if it looks like a G.
+        year_built only when the year is written in the text.
+        heating_type: gas|electric|solid_fuel|heat_pump|district|other.
         ownership: personal|cooperative|company|state.
         energy_class: A|B|C|D|E|F|G or null.
         is_single_floor: true if the house is entirely on one level (bungalov, přízemní, přízemí, bez schodů, parter, 1NP, 1. NP, přízemní dům, no stairs). Also true if the listing explicitly mentions that all rooms are on one floor. Use null if uncertain.
@@ -148,6 +154,10 @@ public sealed class OllamaTextService(
                 return false;
             }
 
+            json = NormalizationValidator.Clean(json, listing.Title, listing.Description, out var dropped);
+            if (dropped.Count > 0)
+                logger.LogDebug("Normalize: listing {Id} – bez opory v textu vynulováno {Fields}", listing.Id, string.Join(",", dropped));
+
             listing.AiNormalizedData = json;
             listing.AiNormalizedAt = DateTime.UtcNow;
             return true;
@@ -166,8 +176,10 @@ public sealed class OllamaTextService(
         - Neutral, factual tone. No marketing superlatives (no "krásný", "úžasný", "jedinečný", "nepřehlédnutelný"...).
         - No contact information: no phone numbers, no e-mails, no URLs, no agency or agent names, no listing IDs.
         - No invented facts. Use only what the listing states. If something is unknown, leave it out.
+        - Always name the place: the municipality given as "Obec" (and the city district / part, e.g.
+          "Brno-Židenice", when the listing states it). A summary without the municipality is incomplete.
         - Include when stated: property type, disposition (e.g. 3+kk), usable/land area, floor, condition,
-          construction type, location (municipality / area), notable features (garden, garage, cellar, terrace,
+          construction type, notable features (garden, garage, cellar, terrace,
           heating, energy class, transport, services nearby), and price-related notes only if they are in the text.
         - Do not address the reader, do not invite to a viewing, do not mention the seller.
 
@@ -179,14 +191,16 @@ public sealed class OllamaTextService(
     {
         batchSize = Math.Clamp(batchSize, 1, 50);
 
+        // SummaryAt == null u existujícího shrnutí = označeno k přegenerování (migrace 8. 10. 2026:
+        // 4 200 shrnutí nejmenovalo obec). Chybějící shrnutí mají přednost – veřejně místo nich není nic.
         var query = db.Listings
             .Where(l => l.IsActive && l.DuplicateOfListingId == null)
-            .Where(l => (force ? true : l.Summary == null) && l.Description != null && l.Description.Length > 80)
+            .Where(l => (force ? true : l.Summary == null || l.SummaryAt == null) && l.Description != null && l.Description.Length > 80)
             .Where(l => listingId == null || l.Id == listingId);
 
         var listings = await (orderDesc
-            ? query.OrderByDescending(l => l.FirstSeenAt)
-            : query.OrderBy(l => l.FirstSeenAt))
+            ? query.OrderBy(l => l.Summary != null).ThenByDescending(l => l.FirstSeenAt)
+            : query.OrderBy(l => l.Summary != null).ThenBy(l => l.FirstSeenAt))
             .Take(batchSize)
             .ToListAsync(ct);
 
@@ -195,6 +209,7 @@ public sealed class OllamaTextService(
             var userMsg =
                 $"Název: {listing.Title}\n" +
                 $"Typ: {listing.PropertyType} | Nabídka: {listing.OfferType}\n" +
+                $"Obec: {listing.Municipality ?? "neuvedena"}" + (listing.District is not null ? $" (okres {listing.District})" : "") + "\n" +
                 $"Lokalita: {listing.LocationText}\n" +
                 (listing.Disposition is not null ? $"Dispozice: {listing.Disposition}\n" : "") +
                 (listing.AreaBuiltUp is not null ? $"Užitná plocha: {listing.AreaBuiltUp:0} m²\n" : "") +
@@ -215,8 +230,45 @@ public sealed class OllamaTextService(
 
             listing.Summary = summary;
             listing.SummaryAt = DateTime.UtcNow;
+            // Embedding se počítá ze shrnutí – nové shrnutí = nový vektor
+            listing.DescriptionEmbedding = null;
             return true;
         }, "summary");
+    }
+
+    // ─── Embeddings (sémantické hledání) ──────────────────────────────────────
+
+    /// <summary>Text, ze kterého se počítá vektor: titulek, místo a shrnutí (bez něj popis).</summary>
+    public static string BuildEmbeddingText(Listing listing)
+    {
+        var place = string.Join(", ", new[] { listing.Municipality, listing.District }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        var body = listing.Summary ?? listing.Description ?? "";
+        if (body.Length > 3000) body = body[..3000];
+        return $"{listing.Title}\n{place}\n{body}";
+    }
+
+    public async Task<OllamaTextBatchResultDto> BulkEmbeddingsAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false)
+    {
+        batchSize = Math.Clamp(batchSize, 1, 200);
+        if (!embedding.IsConfigured)
+            return new OllamaTextBatchResultDto(0, 0, 0, 0, 0);
+
+        var listings = await db.Listings
+            .Where(l => l.IsActive && l.DuplicateOfListingId == null)
+            .Where(l => (force ? true : l.DescriptionEmbedding == null)
+                        && (l.Summary != null || (l.Description != null && l.Description.Length > 80)))
+            .Where(l => listingId == null || l.Id == listingId)
+            .OrderByDescending(l => l.FirstSeenAt)
+            .Take(batchSize)
+            .ToListAsync(ct);
+
+        return await ProcessBatchAsync(listings, ct, async (listing, c) =>
+        {
+            var floats = await embedding.GetEmbeddingAsync(BuildEmbeddingText(listing), c);
+            if (floats is null) return false;
+            listing.DescriptionEmbedding = new Vector(floats);
+            return true;
+        }, "embeddings");
     }
 
     // ─── Price Opinion ────────────────────────────────────────────────────────
@@ -534,8 +586,9 @@ public sealed class OllamaTextService(
         var fair    = await db.Listings.CountAsync(l => l.PriceSignal == "fair", ct);
         var high    = await db.Listings.CountAsync(l => l.PriceSignal == "high", ct);
         var summary = await db.Listings.CountAsync(l => l.Summary != null, ct);
+        var embedded = await db.Listings.CountAsync(l => l.DescriptionEmbedding != null, ct);
 
-        return new OllamaTextStatsDto(total, tags, norm, price, low, fair, high, summary);
+        return new OllamaTextStatsDto(total, tags, norm, price, low, fair, high, summary, embedded);
     }
 
     // ─── Shared batch runner ──────────────────────────────────────────────────
@@ -580,7 +633,8 @@ public sealed class OllamaTextService(
             "smart_tags"    => await db.Listings.CountAsync(l => l.SmartTags == null && l.Description != null && l.Description.Length > 50, ct),
             "normalize"     => await db.Listings.CountAsync(l => l.AiNormalizedData == null && l.Description != null && l.Description.Length > 100, ct),
             // Stejný filtr jako výběr kandidátů (aktivní, ne duplikát) – hosted service podle toho usíná
-            "summary"       => await db.Listings.CountAsync(l => l.IsActive && l.DuplicateOfListingId == null && l.Summary == null && l.Description != null && l.Description.Length > 80, ct),
+            "summary"       => await db.Listings.CountAsync(l => l.IsActive && l.DuplicateOfListingId == null && (l.Summary == null || l.SummaryAt == null) && l.Description != null && l.Description.Length > 80, ct),
+            "embeddings"    => await db.Listings.CountAsync(l => l.IsActive && l.DuplicateOfListingId == null && l.DescriptionEmbedding == null && (l.Summary != null || (l.Description != null && l.Description.Length > 80)), ct),
             // Stejný filtr jako výběr kandidátů – jinak by tu navždy viselo N nespočitatelných
             "price_opinion" => await WithPlausiblePricePerM2(db.Listings.Where(l => l.PriceSignal == null)).CountAsync(ct),
             _ => 0

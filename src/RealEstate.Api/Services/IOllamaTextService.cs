@@ -22,6 +22,12 @@ public interface IOllamaTextService
     Task<OllamaTextBatchResultDto> BulkPriceOpinionAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false, bool orderDesc = false);
 
     /// <summary>
+    /// Dávkově počítá embedding inzerátu (<c>listings.description_embedding</c>, 768 dim) z titulku,
+    /// obce a shrnutí (bez shrnutí z popisu) – podklad sémantického hledání. Nejnovější první.
+    /// </summary>
+    Task<OllamaTextBatchResultDto> BulkEmbeddingsAsync(int batchSize, CancellationToken ct, Guid? listingId = null, bool force = false);
+
+    /// <summary>
     /// Přepočítá cenový signál pro konkrétní inzerát s plným kontextem:
     /// zahrnuje poznámky z prohlídky a uložené analýzy. Resetuje předchozí signál.
     /// </summary>
@@ -64,4 +70,5 @@ public record OllamaTextStatsDto(
     int PriceSignalLow,
     int PriceSignalFair,
     int PriceSignalHigh,
-    int WithSummary = 0);
+    int WithSummary = 0,
+    int WithEmbedding = 0);

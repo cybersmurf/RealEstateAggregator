@@ -32,14 +32,64 @@ public class ListingService : IListingService
     private const int MaxExportPageSize = 5_000;
 
     private readonly Duplicates.IDuplicateGroupService _duplicateGroups;
+    private readonly IEmbeddingService? _embedding;
 
     public ListingService(IListingRepository repository, RealEstateDbContext dbContext, ICurrentUser currentUser,
-        Duplicates.IDuplicateGroupService? duplicateGroups = null)
+        Duplicates.IDuplicateGroupService? duplicateGroups = null, IEmbeddingService? embedding = null)
     {
         _repository = repository;
         _dbContext = dbContext;
         _currentUser = currentUser;
         _duplicateGroups = duplicateGroups ?? new Duplicates.DuplicateGroupService(dbContext);
+        _embedding = embedding;
+    }
+
+    /// <summary>Řádek z pgvector dotazu – id inzerátu a kosinová podobnost (EF SqlQuery mapuje podle názvů sloupců).</summary>
+    internal sealed class SemanticHitRow
+    {
+        public Guid Id { get; set; }
+        public double Similarity { get; set; }
+    }
+
+    public async Task<List<SemanticListingHitDto>?> SemanticSearchAsync(string query, int limit, CancellationToken cancellationToken)
+    {
+        if (_embedding is null || !_embedding.IsConfigured) return null;
+
+        var floats = await _embedding.GetEmbeddingAsync(query, cancellationToken);
+        if (floats is null) return null;
+
+        var vector = new Pgvector.Vector(floats);
+        limit = Math.Clamp(limit, 1, 50);
+
+        // Řazení přes pgvector (<=> = kosinová vzdálenost, IVFFlat index); entity pak načte repozitář
+        // se stejnými Include jako běžné hledání, aby karta vypadala stejně.
+        var hits = await _dbContext.Database
+            .SqlQuery<SemanticHitRow>($"""
+                SELECT id AS "Id", 1 - (description_embedding <=> {vector}) AS "Similarity"
+                FROM re_realestate.listings
+                WHERE is_active = true
+                  AND duplicate_of_listing_id IS NULL
+                  AND description_embedding IS NOT NULL
+                ORDER BY description_embedding <=> {vector}
+                LIMIT {limit}
+                """)
+            .ToListAsync(cancellationToken);
+
+        if (hits.Count == 0) return [];
+
+        var ids = hits.Select(h => h.Id).ToList();
+        var entities = await _repository.Query(UserId)
+            .Where(l => ids.Contains(l.Id))
+            .ToListAsync(cancellationToken);
+        var byId = entities.ToDictionary(e => e.Id);
+
+        var result = new List<SemanticListingHitDto>(hits.Count);
+        foreach (var hit in hits)
+        {
+            if (byId.TryGetValue(hit.Id, out var entity))
+                result.Add(new SemanticListingHitDto(Math.Round(hit.Similarity, 3), MapToSummaryDto(entity)));
+        }
+        return result;
     }
 
     public Task<PagedResultDto<ListingSummaryDto>> SearchAsync(

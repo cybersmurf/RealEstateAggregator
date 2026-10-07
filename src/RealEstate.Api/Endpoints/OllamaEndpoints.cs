@@ -31,6 +31,12 @@ public static class OllamaEndpoints
             .WithSummary("Generuje neutrální AI shrnutí popisu (3–5 vět česky), které se veřejně zobrazuje místo původního textu.")
             .Produces<OllamaTextBatchResultDto>(200);
 
+        // ── Embeddingy pro sémantické hledání ───────────────────────────────────
+        group.MapPost("/bulk-embeddings", BulkEmbeddings)
+            .WithName("BulkEmbeddings")
+            .WithSummary("Spočítá embedding inzerátů bez vektoru (titulek + obec + shrnutí) pro GET /api/listings/semantic.")
+            .Produces<OllamaTextBatchResultDto>(200);
+
         // ── Price opinion ───────────────────────────────────────────────────────
         group.MapPost("/bulk-price-opinion", BulkPriceOpinion)
             .WithName("BulkPriceOpinion")
@@ -111,6 +117,23 @@ public static class OllamaEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
 
         var result = await service.BulkSummaryAsync(batchSize, ct, listingId, force, orderDesc);
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> BulkEmbeddings(
+        [FromQuery] int batchSize = 50,
+        [FromQuery] Guid? listingId = null,
+        [FromQuery] bool force = false,
+        [FromServices] IOllamaTextService service = default!,
+        CancellationToken ct = default)
+    {
+        if (batchSize < 1 || batchSize > 200)
+            return Results.Problem(
+                title: "Neplatný batchSize",
+                detail: "batchSize musí být 1–200.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        var result = await service.BulkEmbeddingsAsync(batchSize, ct, listingId, force);
         return Results.Ok(result);
     }
 

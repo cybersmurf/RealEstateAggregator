@@ -131,6 +131,8 @@ Dostupné nástroje:
 - search_listings: Vyhledávání inzerátů – fulltext (AND) + any_keywords (OR), cena, plocha,
   pozemek, cena/m², obec/okres/GPS oblast, dispozice, stav domu, můj stav (i vyloučení),
   nové za N dní, řazení vč. ceny/m². Obec hledá i bez diakritiky.
+- semantic_search_listings: Hledání významem („klidný dům se zahradou u lesa pro rodinu") přes
+  embeddingy shrnutí – doplněk k search_listings, když klíčová slova nestačí
 - get_listing: Detailní informace o konkrétním inzerátu (text + metadata + fotky jako URL)
 - get_listing_photos: 📸 Fotky Z INZERÁTU jako obrázky viditelné v chatu
 - get_inspection_photos: 📷 Fotky Z PROHLÍDKY jako obrázky viditelné v chatu
@@ -582,6 +584,38 @@ async def search_listings(
     lines = [header, f"_Filtry: {json.dumps(applied, ensure_ascii=False, default=str)}_\n"]
     for it in items:
         lines.append(_fmt_listing_v2(it))
+        lines.append("")
+    return _cap_output("\n".join(lines))
+
+
+@mcp.tool()
+async def semantic_search_listings(query: str, limit: int = 10) -> str:
+    """
+    Sémantické hledání inzerátů volným textem: dotaz se zembeduje a porovná s vektory shrnutí
+    aktivních inzerátů (pgvector, kosinová podobnost). Hodí se, když klíčová slova nestačí –
+    „samostatný dům na okraji vesnice s velkou zahradou a dílnou", „byt pro pár blízko centra
+    Brna s terasou". Vrací nejpodobnější inzeráty s podobností 0–1; tvrdé filtry (cena, okres)
+    řeš až nad výsledky nebo kombinuj se search_listings.
+
+    Args:
+        query: Popis hledané nemovitosti vlastními slovy (aspoň 3 znaky)
+        limit: Počet výsledků (1–50, výchozí 10)
+    """
+    if not query or len(query.strip()) < 3:
+        return "Zadej popis hledané nemovitosti (aspoň 3 znaky)."
+    try:
+        hits = await _call_api("get", "/api/listings/semantic",
+                               params={"q": query.strip(), "limit": max(1, min(50, int(limit)))})
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 503:
+            return "Sémantické hledání není dostupné – služba embeddingů neodpovídá."
+        raise
+    if not hits:
+        return "Žádný inzerát s embeddingem neodpovídá dotazu (vektory se dopočítávají průběžně)."
+    lines = [f"**Sémantické hledání:** „{query.strip()}“ – {len(hits)} nejbližších inzerátů\n"]
+    for hit in hits:
+        lines.append(f"🔎 podobnost {hit.get('similarity', 0):.2f}")
+        lines.append(_fmt_listing_v2(hit.get("listing") or {}))
         lines.append("")
     return _cap_output("\n".join(lines))
 

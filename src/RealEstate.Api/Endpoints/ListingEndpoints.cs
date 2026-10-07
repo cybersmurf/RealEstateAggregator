@@ -17,6 +17,13 @@ public static class ListingEndpoints
         group.MapPost("/search", SearchListings)
             .WithName("SearchListings");
 
+        group.MapGet("/semantic", SemanticSearch)
+            .WithName("SemanticSearchListings")
+            .WithSummary("Sémantické hledání volným textem nad embeddingy shrnutí (pgvector); vrací nejbližší aktivní inzeráty s podobností 0–1")
+            .Produces<List<SemanticListingHitDto>>(200)
+            .Produces(400)
+            .Produces(503);
+
         group.MapGet("/stats", GetStats)
             .WithName("GetListingStats");
 
@@ -70,6 +77,25 @@ public static class ListingEndpoints
     {
         var result = await listingService.SearchAsync(filter, cancellationToken);
         return TypedResults.Ok(result);
+    }
+
+    private static async Task<IResult> SemanticSearch(
+        [FromQuery] string? q,
+        [FromServices] IListingService listingService,
+        CancellationToken cancellationToken,
+        [FromQuery] int limit = 20)
+    {
+        if (string.IsNullOrWhiteSpace(q) || q.Trim().Length < 3)
+            return Results.Problem(title: "Chybí dotaz", detail: "Parametr q musí mít aspoň 3 znaky.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        var hits = await listingService.SemanticSearchAsync(q.Trim(), limit, cancellationToken);
+        if (hits is null)
+            return Results.Problem(title: "Embeddingy nejsou k dispozici",
+                detail: "Služba embeddingů není nakonfigurovaná nebo neodpovídá.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+
+        return TypedResults.Ok(hits);
     }
 
     private static async Task<Ok<ListingStatsDto>> GetStats(

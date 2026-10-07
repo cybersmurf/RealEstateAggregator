@@ -14,6 +14,15 @@ public interface IListingService
         Guid id,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sémantické hledání: dotaz volným textem se zembeduje a porovná s <c>description_embedding</c>
+    /// aktivních inzerátů (jen hlavní kopie skupiny duplicit). Vrací null, když embeddingy nejsou k dispozici.
+    /// </summary>
+    Task<List<SemanticListingHitDto>?> SemanticSearchAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken);
+
     Task<ListingUserStateDto?> UpdateUserStateAsync(
         Guid listingId,
         ListingUserStateUpdateDto request,
