@@ -101,18 +101,24 @@ search_filters:
   # filtr zahodí (i když by prošel přes „jihomoravsk"). Petrův seznam obcí kolem Pálavy
   # a Novomlýnských nádrží – ostatní obce z jeho seznamu leží v okresech Brno-venkov
   # a Znojmo, které bereme celé. Shoda je na celé slovo (Pavlov ≠ Velké Pavlovice),
-  # s diakritikou i bez ní (slugy v URL). Jevišovka v seznamu není.
+  # s diakritikou i bez ní (slugy v URL). Doplněno o obce, které v původním seznamu
+  # chyběly, ale leží uvnitř té oblasti: Jevišovka, Mikulov, Sedlec, Bulhary, Šakvice,
+  # Starovice. Záměrně mimo (další prstenec na východ): Hustopeče, Křepice, Nikolčice,
+  # Zaječí, Lednice, Valtice, Hlohovec.
   partial_districts:
     Břeclav:
       - "Bavory"
       - "Brod nad Dyjí"
       - "Březí"
+      - "Bulhary"
       - "Dobré Pole"
       - "Dolní Dunajovice"
       - "Dolní Věstonice"
       - "Drnholec"
       - "Horní Věstonice"
+      - "Jevišovka"
       - "Klentnice"
+      - "Mikulov"
       - "Milovice"
       - "Novosedly"
       - "Nový Přerov"
@@ -120,7 +126,10 @@ search_filters:
       - "Perná"
       - "Popice"
       - "Pouzdřany"
+      - "Sedlec"
+      - "Starovice"
       - "Strachotín"
+      - "Šakvice"
       - "Uherčice"
       - "Velké Němčice"
 

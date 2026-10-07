@@ -49,8 +49,9 @@ zbraslav zbysov zdarec zelesice zelezne zhor zidlochovice
 # Okres Břeclav jen ČÁSTEČNĚ (7. 10. 2026): obce kolem Pálavy a Novomlýnských nádrží ze
 # settings.yaml `partial_districts` – zbytek okresu nestahujeme, takže tu schválně není.
 _BRECLAV_SLUGS = """
-bavory brod-nad-dyji brezi dobre-pole dolni-dunajovice dolni-vestonice drnholec horni-vestonice klentnice
-milovice novosedly novy-prerov pavlov perna popice pouzdrany strachotin uhercice velke-nemcice
+bavory brod-nad-dyji brezi bulhary dobre-pole dolni-dunajovice dolni-vestonice drnholec horni-vestonice
+jevisovka klentnice mikulov milovice novosedly novy-prerov pavlov perna popice pouzdrany sedlec starovice
+strachotin sakvice uhercice velke-nemcice
 """
 DISTRICT_MUNICIPALITY_SLUGS: Dict[str, FrozenSet[str]] = {
     "Znojmo": frozenset(_ZNOJMO_SLUGS.split()),
