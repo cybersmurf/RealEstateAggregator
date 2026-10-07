@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     pandoc \
     libheif-examples \
+    libheif-plugin-libde265 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/publish .
