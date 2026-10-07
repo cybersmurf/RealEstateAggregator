@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 
 namespace RealEstate.Infrastructure;
@@ -64,7 +65,16 @@ public static class SqlMigrationRunner
         {
             logger?.LogInformation("Schema migration {Name}: spouštím", migration.Name);
             await using var tx = await db.Database.BeginTransactionAsync(ct);
-            await db.Database.ExecuteSqlRawAsync(migration.Sql, ct);
+            // Skript jde přímo přes DbCommand: ExecuteSqlRaw čte složené závorky jako zástupné symboly
+            // parametrů, takže jsonb cesta '{has_pool}' nebo regexový kvantifikátor {0,60} shodily start API
+            // („Expected an ASCII digit", 8. 10. 2026).
+            await using (var command = db.Database.GetDbConnection().CreateCommand())
+            {
+                command.CommandText = migration.Sql;
+                command.CommandTimeout = 600;
+                command.Transaction = tx.GetDbTransaction();
+                await command.ExecuteNonQueryAsync(ct);
+            }
             await db.Database.ExecuteSqlRawAsync(
                 $"INSERT INTO {Table} (name, checksum) VALUES ({{0}}, {{1}})",
                 [migration.Name, migration.Checksum], ct);
