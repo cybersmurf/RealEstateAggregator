@@ -5,7 +5,7 @@
 -- Druhá část: RealityMIX geokóduje podle názvu obce a 12 inzerátů mělo GPS v jiném kraji
 -- (Kadov u Blatné místo Kadova na Znojemsku, Kuřim v Čechách…), Božice prohozenou šířku a délku.
 -- Scraper takové souřadnice nově zahazuje (database.sanitize_gps); tady se opraví existující řádky.
-SET search_path = re_realestate;
+SET search_path = re_realestate, public;
 
 UPDATE listings SET condition = CASE lower(btrim(condition))
     WHEN 'velmi dobrý' THEN 'Velmi dobrý'
