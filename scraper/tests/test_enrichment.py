@@ -145,3 +145,14 @@ def test_gps_mimo_kraj_se_zahodi_a_prohozena_otoci():
     d = {"latitude": None, "longitude": 16.0}
     sanitize_gps(d)
     assert d["latitude"] is None
+
+
+def test_nfd_texty_se_prevedou_na_nfc():
+    # RealityMIX posílá „ý" jako y + U+0301; „dobrý" tak mělo 6 znaků a nerovnalo se „Dobrý"
+    nfd = "dobry\u0301"
+    from core.database import normalize_condition
+    assert normalize_condition(nfd) == "Dobrý"
+    d = {"title": "Prodej domu", "description": "x", "municipality": "Kur\u030cim", "condition": "ve vy\u0301stavbe\u030c (hruba\u0301 stavba)"}
+    _enrich_listing_fields(d)
+    assert d["municipality"] == "Kuřim" and len(d["municipality"]) == 5
+    assert d["condition"] == "Ve výstavbě"

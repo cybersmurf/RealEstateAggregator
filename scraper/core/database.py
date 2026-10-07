@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import time
+import unicodedata
 import asyncpg
 import httpx
 import logging
@@ -132,8 +133,19 @@ def normalize_condition(value: Optional[str]) -> Optional[str]:
     """Sjednotí zápis stavu nemovitosti napříč zdroji; neznámou hodnotu nechá (jen ořízne mezery)."""
     if not value or not isinstance(value, str):
         return value
-    stripped = " ".join(value.split())
+    stripped = " ".join(unicodedata.normalize("NFC", value).split())
     return _CONDITION_CANONICAL.get(stripped.lower(), stripped)
+
+
+def normalize_unicode_fields(data: Dict[str, Any]) -> None:
+    """
+    Texty do NFC. RealityMIX posílá „ý" jako y + kombinující čárku (NFD): „dobrý" tak mělo
+    6 znaků, nerovnalo se „dobrý" ze Sreality a stejně by dopadla obec v párování duplicit
+    nebo ve fulltextu (audit 7. 10. 2026).
+    """
+    for key, value in data.items():
+        if isinstance(value, str):
+            data[key] = unicodedata.normalize("NFC", value)
 
 
 # Rámec Jihomoravského kraje s rezervou. Každý inzerát v DB je z okresů Znojmo, Brno a Břeclav,
@@ -170,6 +182,7 @@ def _enrich_listing_fields(data: Dict[str, Any]) -> None:
     Volá se automaticky v upsert_listing() pro všechny scrapers.
     Pokud scraper pole už vyplnil, ponechá stávající hodnotu.
     """
+    normalize_unicode_fields(data)
     text = ' '.join(filter(None, [data.get('title', ''), data.get('description', '')]))
 
     # disposition + rooms
