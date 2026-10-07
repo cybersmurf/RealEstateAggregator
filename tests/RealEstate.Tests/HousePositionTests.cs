@@ -66,6 +66,15 @@ public class HousePositionTests
         Assert.Equal("Vlevo vjezd, vpravo sousedova stodola.", verdict.Reason);
     }
 
+    [Fact]
+    public void ParseVerdict_ReadsMapMatchFlag()
+    {
+        Assert.True(HousePositionService.ParseVerdict("""{"position":"detached","map_matches_photos":true,"reason":"x"}""")!.MapMatchesPhotos);
+        Assert.False(HousePositionService.ParseVerdict("""{"position":"detached","map_matches_photos":false,"reason":"x"}""")!.MapMatchesPhotos);
+        Assert.Null(HousePositionService.ParseVerdict("""{"position":"detached","map_matches_photos":null,"reason":"x"}""")!.MapMatchesPhotos);
+        Assert.Null(HousePositionService.ParseVerdict("""{"position":"detached","reason":"x"}""")!.MapMatchesPhotos);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

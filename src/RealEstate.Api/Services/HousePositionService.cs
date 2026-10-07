@@ -29,7 +29,8 @@ public static class HousePositions
     };
 }
 
-public sealed record HousePositionVerdict(string Position, string Reason);
+/// <summary><see cref="MapMatchesPhotos"/>: model potvrdil, že budova pod zaměřovačem je dům z fotek (null = mapu neměl nebo neřekl).</summary>
+public sealed record HousePositionVerdict(string Position, string Reason, bool? MapMatchesPhotos = null);
 
 public sealed record HousePositionResultDto(Guid ListingId, string? Position, string? Label, string? Reason, int PhotosUsed, string? Message);
 
@@ -64,7 +65,7 @@ public sealed class HousePositionService(
         Decide how the HOUSE FOR SALE stands in relation to buildings on NEIGHBOURING plots.
 
         Respond with JSON only:
-        {"position":"detached","reason":"..."}
+        {"position":"detached","map_matches_photos":true,"reason":"..."}
 
         "position" - exactly one of:
           detached - no neighbour's building touches the house or its wings; there is a gap, driveway or garden on every side
@@ -79,6 +80,7 @@ public sealed class HousePositionService(
         - The cadastral map and the orthophoto are the best evidence: a building footprint that shares an edge with a footprint on a neighbouring parcel is attached. In listing photos the house for sale is usually centred or highlighted in colour.
         - If only the street facade is visible and you cannot see what is on either side, answer unknown. Never guess.
 
+        "map_matches_photos" - when both a map/orthophoto and listing photos are given: true if the building at the crosshair is clearly the same house as in the photos (roof shape and colour, courtyard, surroundings), false if it clearly is a different building (the listing's pin may be wrong), null when you cannot tell or no photos are given. When false, judge from the listing photos only.
         "reason" - one or two sentences in Czech saying what is on each side of the house (for example: "Vlevo vjezd a odstup od souseda, vpravo hospodářské křídlo přiléhá k sousedově stodole.").
         """;
 
@@ -138,6 +140,19 @@ public sealed class HousePositionService(
 
         var raw = await vision.AskVisionAsync(images, BuildPrompt(cadastre is not null, orthophoto is not null, gallery), 300, ct);
         var verdict = ParseVerdict(raw);
+
+        // Špendlík inzerátu nemusí sedět (makléř dá stejnou GPS víc domům). Když model řekne, že
+        // budova na mapě není dům z fotek, mapy zahodíme a rozhodne se znovu jen z galerie.
+        if (verdict?.MapMatchesPhotos == false && hasMaps && gallery > 0)
+        {
+            logger.LogWarning("Poloha domu {ListingId}: budova na mapě neodpovídá fotkám – znovu jen z galerie", listingId);
+            var galleryImages = images.Skip(images.Count - gallery).ToList();
+            hasAerial = selected.Take(gallery).Any(IsAerial);
+            raw = await vision.AskVisionAsync(galleryImages, BuildPrompt(false, false, galleryImages.Count), 300, ct);
+            verdict = ParseVerdict(raw);
+            if (verdict is not null)
+                verdict = verdict with { Reason = $"{MapMismatchNote} {verdict.Reason}" };
+        }
         if (verdict is not null)
             verdict = verdict with { Reason = WithEvidenceNote(verdict.Reason, hasAerial) };
         if (verdict is null)
@@ -173,7 +188,20 @@ public sealed class HousePositionService(
             .ThenByDescending(l => l.IsActive)
             .Select(l => new { l.Latitude, l.Longitude })
             .FirstOrDefaultAsync(ct);
-        return candidate is null ? null : (candidate.Latitude!.Value, candidate.Longitude!.Value);
+        if (candidate is null) return null;
+
+        // Tentýž bod u jiného domu = makléřův špendlík, ne poloha domu (Lechovice 7. 10. 2026:
+        // dvě nabídky téže kanceláře na jedné GPS). Mapa by pak ukázala cizí budovu.
+        var sharedWithOtherHouse = await db.Listings.AsNoTracking()
+            .AnyAsync(l => l.Latitude == candidate.Latitude && l.Longitude == candidate.Longitude
+                           && l.Id != rootId && l.DuplicateOfListingId != rootId
+                           && l.GeocodeSource != "nominatim", ct);
+        if (sharedWithOtherHouse)
+        {
+            logger.LogInformation("Poloha domu {ListingId}: GPS sdílí s jiným inzerátem – mapa se nepoužije", listingId);
+            return null;
+        }
+        return (candidate.Latitude!.Value, candidate.Longitude!.Value);
     }
 
     /// <summary>Úvod dotazu podle toho, které důkazy máme: mapa, ortofoto, fotky z galerie (v tomhle pořadí).</summary>
@@ -229,6 +257,7 @@ public sealed class HousePositionService(
     }
 
     public const string NoAerialNote = "Bez leteckého snímku i mapy – méně jisté.";
+    public const string MapMismatchNote = "GPS inzerátu ukazuje na jinou budovu, mapa se nepoužila.";
 
     /// <summary>Z fotek z ulice a ze dvora model boky domu spíš odhaduje – zdůvodnění to musí říct.</summary>
     public static string WithEvidenceNote(string reason, bool hasAerial)
@@ -256,7 +285,10 @@ public sealed class HousePositionService(
             var reason = doc.RootElement.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String
                 ? r.GetString()!.Trim()
                 : "";
-            return new HousePositionVerdict(position, reason.Length > 500 ? reason[..500] : reason);
+            bool? mapMatches = doc.RootElement.TryGetProperty("map_matches_photos", out var m) && m.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? m.GetBoolean()
+                : null;
+            return new HousePositionVerdict(position, reason.Length > 500 ? reason[..500] : reason, mapMatches);
         }
         catch (JsonException)
         {
