@@ -85,9 +85,15 @@ class HvRealityScraper:
 
     SOURCE_CODE = "HVREALITY"
 
+    # Kolikrát zkusit stránku REST výpisu, než se vzdáme (12. 10. 2026: jeden timeout 2. stránky
+    # → výpis 100 místo 253 a plný běh deaktivoval 40 živých inzerátů)
+    REST_PAGE_ATTEMPTS = 3
+
     def __init__(self) -> None:
         self.scraped_count = 0
         self._http_client: Optional[httpx.AsyncClient] = None
+        # False = REST výpis se nepodařilo projít celý; plný běh pak nesmí nic deaktivovat
+        self.lists_complete = True
 
     async def run(self, full_rescan: bool = False) -> int:
         max_pages = 20 if full_rescan else 3
@@ -95,6 +101,7 @@ class HvRealityScraper:
 
     async def scrape(self, max_pages: int = 3, full_rescan: bool = False) -> int:
         logger.info("Starting HV Reality scraper (max_pages=%s, full_rescan=%s)", max_pages, full_rescan)
+        self.lists_complete = True
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
                 timeout=30,
@@ -131,6 +138,12 @@ class HvRealityScraper:
                         except Exception as exc:
                             logger.error("Error processing %s: %s", item.get("url"), exc)
                             metrics.increment_failed()
+                    if full_rescan and not self.lists_complete:
+                        kept = await get_db_manager().mark_active_seen(self.SOURCE_CODE)
+                        logger.warning(
+                            "HV Reality REST výpis neúplný – %s aktivních inzerátů označeno jako viděné, nic se nedeaktivuje",
+                            kept,
+                        )
                     self._http_client = None
                     logger.info("HV Reality scraper done (REST). Scraped %s", self.scraped_count)
                     return self.scraped_count
@@ -197,15 +210,27 @@ class HvRealityScraper:
             while True:
                 url = (f"{BASE_URL}/wp-json/wp/v2/{post_type}?per_page=100&page={page}"
                        f"&orderby=modified&order=desc&_fields={REST_FIELDS}")
-                try:
-                    resp = await self._http_client.get(url)
-                    resp.raise_for_status()
-                    data = self._loads_rest(resp.text)
-                except Exception as exc:
-                    logger.warning("HV Reality REST %s page %s selhalo: %s", post_type, page, exc)
-                    return None if not items else items
+                data = None
+                for attempt in range(1, self.REST_PAGE_ATTEMPTS + 1):
+                    try:
+                        resp = await self._http_client.get(url)
+                        resp.raise_for_status()
+                        data = self._loads_rest(resp.text)
+                        break
+                    except Exception as exc:
+                        # str(ReadTimeout) je prázdný – bez typu výjimky log nic neřekl
+                        logger.warning("HV Reality REST %s page %s selhalo (%s/%s): %s: %s",
+                                       post_type, page, attempt, self.REST_PAGE_ATTEMPTS, type(exc).__name__, exc)
+                        if attempt < self.REST_PAGE_ATTEMPTS:
+                            await asyncio.sleep(2 * attempt)
+                if data is None:
+                    self.lists_complete = False
+                    if not items:
+                        return None
+                    break
                 if not isinstance(data, list):
-                    return None
+                    self.lists_complete = False
+                    return None if not items else items
                 items.extend(self.parse_rest_items(data))
                 total_pages = int(resp.headers.get("X-WP-TotalPages", "1") or 1)
                 if page >= total_pages or (not full_rescan and page >= 1):
