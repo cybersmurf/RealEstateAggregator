@@ -136,8 +136,16 @@ class HvRealityScraper:
                             metrics.increment_scraped()
                             await asyncio.sleep(0.5)
                         except Exception as exc:
-                            logger.error("Error processing %s: %s", item.get("url"), exc)
+                            logger.error("Error processing %s: %s: %s", item.get("url"), type(exc).__name__, exc)
                             metrics.increment_failed()
+                            # REST říká „V NABÍDCE", jen detail se nestáhl (12. 10. 2026: „All connection
+                            # attempts failed" u dvou živých parcel) – známý inzerát zůstane viděný a aktivní
+                            if item.get("state") != "sold":
+                                try:
+                                    await get_db_manager().touch_listings(
+                                        self.SOURCE_CODE, [(self._external_id(item["url"]), None, None)])
+                                except Exception as touch_exc:  # noqa: BLE001 – best-effort
+                                    logger.warning("Touch %s selhal: %s", item.get("url"), touch_exc)
                     if full_rescan and not self.lists_complete:
                         kept = await get_db_manager().mark_active_seen(self.SOURCE_CODE)
                         logger.warning(
