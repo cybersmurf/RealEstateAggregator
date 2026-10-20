@@ -456,24 +456,7 @@ class IdnesRealityScraper:
             # Offer type from URL
             offer_type = url_offer_type
 
-            # Extract photos - IDNES: plain <img> without class, src from sta-reality2.1gr.cz
-            photos = []
-            for img in soup.find_all("img"):
-                src = img.get("src") or img.get("data-src") or img.get("data-lazy") or ""
-                # Photos are served from sta-reality2.1gr.cz or iDnes CDN
-                if ("1gr.cz/sta/compile" in src or "gallery" in src.lower() or "photo" in src.lower()
-                        or ("idnes" in src.lower() and "/sta/" in src)):
-                    if src.startswith("//"):
-                        src = "https:" + src
-                    if src.startswith("http") and src not in photos:
-                        photos.append(src)
-            # Fallback: og:image
-            if not photos:
-                for og in soup.find_all("meta", property="og:image"):
-                    content = og.get("content")
-                    if content:
-                        photos.append(content)
-            photos = list(dict.fromkeys(photos))[:50]  # deduplicate, max 50
+            photos = self.extract_gallery_photos(soup)
 
             # Extract description - IDNES uses different selectors per property type:
             # Residential: .b-detail__desc / .b-detail__text
@@ -543,6 +526,38 @@ class IdnesRealityScraper:
         except Exception as exc:
             logger.error(f"Error parsing detail page {url}: {exc}")
             return None
+
+    @staticmethod
+    def extract_gallery_photos(soup: BeautifulSoup) -> List[str]:
+        """
+        Fotky inzerátu = jen velký carousel galerie (`.b-gallery` → `a[data-fancybox]` → `img`),
+        1018×600 jpg; lazy položky mají skutečnou URL v `data-lazy` a v `src` placeholder.
+
+        Do 20. 10. 2026 se braly všechny `<img>` z celé stránky, takže ke galerii přibyl placeholder
+        `no-image-gallery.png`, špendlík mapy, 130×80 náhledy, avatar makléře, logo kanceláře a fotky
+        z bloku „Podobné nabídky“ – cizí domy pak dostaly štítek „poškození“ a vyhrávaly v sadě fotek
+        skupiny duplicit (nejvíc fotek). Bez galerie zbývá og:image.
+        """
+        photos: List[str] = []
+        gallery = soup.select_one(".b-gallery")
+        if gallery is not None:
+            for anchor in gallery.select("a[data-fancybox]"):
+                img = anchor.find("img")
+                if img is None:
+                    continue
+                src = img.get("data-lazy") or img.get("data-src") or img.get("src") or ""
+                if src.startswith("//"):
+                    src = "https:" + src
+                if not src.startswith("http") or "/ui/image/" in src:
+                    continue
+                if src not in photos:
+                    photos.append(src)
+        if not photos:
+            for og in soup.find_all("meta", property="og:image"):
+                content = og.get("content") or ""
+                if content.startswith("http") and "/ui/image/" not in content and content not in photos:
+                    photos.append(content)
+        return photos[:50]
 
     @staticmethod
     def _extract_external_id(url: str) -> str:

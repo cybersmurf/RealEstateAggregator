@@ -1303,3 +1303,52 @@ class TestIdnesDetailPrice:
 
     def test_cena_na_dotaz(self):
         assert self._parse('<p class="b-detail__price"><strong>Info o ceně u RK</strong></p>')["price"] is None
+
+
+# ============================================================================
+# IdnesRealityScraper – galerie jen z carouselu (20. 10. 2026)
+# ============================================================================
+
+class TestIdnesGallery:
+    """Do 20. 10. 2026 scraper bral všechny <img> ze stránky: placeholder no-image-gallery.png
+    (u lazy položek je skutečná URL v data-lazy), špendlík mapy, 130×80 náhledy, avatar makléře,
+    logo kanceláře a fotky cizích domů z bloku „Podobné nabídky“. Dolní Věstonice tak měly 16 „fotek“
+    místo 8 a cizí ruina dostala štítek poškození."""
+
+    FIXTURE = Path(__file__).parent / "fixtures" / "idnes" / "detail_dum_dolni_vestonice_67f574327bd542979105a4ab.html"
+
+    @pytest.fixture(scope="class")
+    def photos(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(self.FIXTURE.read_text(encoding="utf-8"), "html.parser")
+        return IdnesRealityScraper.extract_gallery_photos(soup)
+
+    def test_only_the_eight_gallery_photos(self, photos):
+        assert len(photos) == 8
+        assert photos[0] == "https://sta-reality2.1gr.cz/sta/compile/thumbs/8/a/8/04604ba3dfc9b0577795d97499c6b.jpg"
+        assert photos[1] == "https://sta-reality2.1gr.cz/sta/compile/thumbs/4/7/0/40a3ff9e07318d4e30a8afb44626c.jpg"
+
+    def test_lazy_items_use_real_url_not_placeholder(self, photos):
+        assert not any("/ui/image/" in p for p in photos)
+        assert all(p.endswith(".jpg") for p in photos)
+
+    def test_no_thumbnails_avatar_logo_or_similar_offers(self, photos):
+        assert not any(p.endswith(".webp") for p in photos)
+        for foreign in ("061f3106046199d3a62b4eda1bd94", "6a7a66cc5188c7b0e4b020deed9c7",
+                        "716fc3361cadbcd0f5f0f0fc53e0e", "3a399eb83edd998d67a2b4563f93f"):
+            assert not any(foreign in p for p in photos)
+
+    def test_detail_page_carries_the_same_gallery(self, photos):
+        url = "https://reality.idnes.cz/detail/prodej/dum/dolni-vestonice-hlavni/67f574327bd542979105a4ab/"
+        listing = IdnesRealityScraper()._parse_detail_page(self.FIXTURE.read_text(encoding="utf-8"), url)
+        assert listing is not None
+        assert listing["photos"] == photos
+
+    def test_og_image_fallback_without_gallery(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(
+            '<html><head><meta property="og:image" content="https://sta-reality2.1gr.cz/sta/compile/thumbs/a/b/c/d.jpg">'
+            '</head><body><img src="https://sta-reality2.1gr.cz/sta/compile/thumbs/x/y/z/avatar.webp"></body></html>',
+            "html.parser")
+        assert IdnesRealityScraper.extract_gallery_photos(soup) == [
+            "https://sta-reality2.1gr.cz/sta/compile/thumbs/a/b/c/d.jpg"]
