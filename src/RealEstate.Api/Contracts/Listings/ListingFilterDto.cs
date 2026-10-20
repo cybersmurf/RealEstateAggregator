@@ -33,6 +33,8 @@ public sealed class ListingFilterDto
     public int? RoomsMax { get; set; }
 
     public string? UserStatus { get; set; }
+    /// <summary>Vyřadit inzeráty s těmito mými stavy (např. "Disliked", "Visited"); stav nese dům, platí i přes kopii ve skupině duplicit.</summary>
+    public List<string>? ExcludeStatuses { get; set; }
     public DateTime? OnlyNewSince { get; set; }
 
     /// <summary>

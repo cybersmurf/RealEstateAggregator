@@ -702,6 +702,21 @@ SellerName = sellerName,
             }
         }
 
+        // Vyřazené stavy („skrýt nezajímavé / navštívené"): vlastní stav i stav kopie ve skupině duplicit
+        if (filter.ExcludeStatuses is { Count: > 0 } excludeStatuses)
+        {
+            var userId = UserId;
+            var excluded = excludeStatuses.Where(st => st != "New").Distinct().ToList();
+            if (excluded.Count > 0)
+            {
+                predicate = predicate.And(x =>
+                    !x.UserStates.Any(s => s.UserId == userId && excluded.Contains(s.Status))
+                    && !_dbContext.UserListingStates.Any(s => s.UserId == userId && excluded.Contains(s.Status) && s.ListingId != x.Id
+                        && (s.ListingId == (x.DuplicateOfListingId ?? x.Id)
+                            || s.Listing.DuplicateOfListingId == (x.DuplicateOfListingId ?? x.Id))));
+            }
+        }
+
         // Změna ceny od data: v historii je záznam po datu, před kterým je záznam s jinou (vyšší) cenou.
         // První záznam vzniká se vznikem inzerátu, sám o sobě změna není.
         if (filter.PriceChangedSince is { } priceChangedSince)

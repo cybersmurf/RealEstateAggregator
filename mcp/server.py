@@ -466,6 +466,8 @@ async def search_listings(
             excluded |= {"Liked", "Disliked", "ToVisit", "Visited"}
         else:
             payload["userStatus"] = st
+    if excluded:
+        payload["excludeStatuses"] = sorted(excluded)  # API od 20. 10. 2026 vyřazuje stavy samo (i přes kopii v duplicitách)
     if new_in_days:
         payload["onlyNewSince"] = (_dt.now(_tz.utc) - _td(days=new_in_days)).isoformat()
     if gone_in_days:

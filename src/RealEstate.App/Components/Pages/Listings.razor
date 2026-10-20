@@ -192,6 +192,84 @@
                     </MudSelect>
                 </MudItem>
 
+                <!-- Čerstvost a pohyb ceny -->
+                <MudItem xs="6" md="3">
+                    <MudSelect T="int?" @bind-Value="_newInDays" Label="Nové na trhu za"
+                               Variant="Variant.Outlined" Clearable="true" Dense="true"
+                               AdornmentIcon="@Icons.Material.Filled.FiberNew">
+                        @foreach (var d in _dayOptions)
+                        {
+                            <MudSelectItem T="int?" Value="@((int?)d)">@DaysLabel(d)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudSelect T="int?" @bind-Value="_priceChangedInDays" Label="Změna ceny za"
+                               Variant="Variant.Outlined" Clearable="true" Dense="true"
+                               AdornmentIcon="@Icons.Material.Filled.TrendingDown">
+                        @foreach (var d in _priceDayOptions)
+                        {
+                            <MudSelectItem T="int?" Value="@((int?)d)">@DaysLabel(d)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSwitch T="bool" @bind-Value="_priceDropsOnly" Color="Color.Success" Size="Size.Small"
+                               Disabled="@(_priceChangedInDays is null)">Jen zlevnění</MudSwitch>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudSelect T="int?" @bind-Value="_goneInDays" Label="Zmizelé z trhu za"
+                               HelperText="Prodané / stažené místo aktivních"
+                               Variant="Variant.Outlined" Clearable="true" Dense="true"
+                               AdornmentIcon="@Icons.Material.Filled.EventBusy">
+                        @foreach (var d in _priceDayOptions)
+                        {
+                            <MudSelectItem T="int?" Value="@((int?)d)">@DaysLabel(d)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudStack Row="true" Spacing="1">
+                        <MudNumericField T="int?" @bind-Value="_filter.RoomsMin" Label="Pokoje od"
+                                         Variant="Variant.Outlined" Min="1" Max="20" Clearable="true" />
+                        <MudNumericField T="int?" @bind-Value="_filter.RoomsMax" Label="do"
+                                         Variant="Variant.Outlined" Min="1" Max="20" Clearable="true" />
+                    </MudStack>
+                </MudItem>
+
+                <!-- Stav a konstrukce -->
+                <MudItem xs="12" md="6">
+                    <MudSelect T="string" @bind-SelectedValues="_selectedConditions"
+                               MultiSelection="true" Label="Stav nemovitosti"
+                               Variant="Variant.Outlined" Clearable="true" Dense="true">
+                        @foreach (var c in _conditionOptions)
+                        {
+                            <MudSelectItem T="string" Value="@c">@c</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSelect T="string" @bind-SelectedValues="_selectedConstructionTypes"
+                               MultiSelection="true" Label="Konstrukce"
+                               Variant="Variant.Outlined" Clearable="true" Dense="true">
+                        @foreach (var c in _constructionOptions)
+                        {
+                            <MudSelectItem T="string" Value="@c">@c</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+
+                <!-- Skrýt podle mého stavu -->
+                <MudItem xs="12">
+                    <MudText Typo="Typo.caption" Class="mb-1">Skrýt</MudText>
+                    <MudChipSet T="string" @bind-SelectedValues="_excludedStatuses"
+                                SelectionMode="SelectionMode.MultiSelection"
+                                CheckMark="true">
+                        <MudChip T="string" Value="@("Disliked")" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Icon="@Icons.Material.Filled.HeartBroken">Nezajímavé</MudChip>
+                        <MudChip T="string" Value="@("Visited")" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info" Icon="@Icons.Material.Filled.DoneAll">Navštíveno</MudChip>
+                        <MudChip T="string" Value="@("ToVisit")" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Icon="@Icons.Material.Filled.DirectionsCar">K návštěvě</MudChip>
+                        <MudChip T="string" Value="@("Liked")" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success" Icon="@Icons.Material.Filled.Favorite">Zajímavé</MudChip>
+                    </MudChipSet>
+                </MudItem>
+
                 <!-- Zdroje -->
                 <MudItem xs="12">
                     <MudText Typo="Typo.caption" Class="mb-1">Zdroje</MudText>
@@ -617,6 +695,54 @@
         "8+1", "8+2"
     };
 
+    // Rozšířené filtry (to, podle čeho se hledá i přes MCP search_listings): stáří, změna ceny,
+    // zmizelé z trhu, stav, konstrukce, skryté stavy. Dny se ukládají jako dny a datum se počítá
+    // až při hledání, aby se obnovený filtr neposouval v čase.
+    private int? _newInDays;
+    private int? _priceChangedInDays;
+    private bool _priceDropsOnly = true;
+    private int? _goneInDays;
+    private IReadOnlyCollection<string>? _selectedConditions = new HashSet<string>();
+    private IReadOnlyCollection<string>? _selectedConstructionTypes = new HashSet<string>();
+    private IReadOnlyCollection<string>? _excludedStatuses = new HashSet<string>();
+
+    private static readonly int[] _dayOptions = [1, 3, 7, 14, 30];
+    private static readonly int[] _priceDayOptions = [7, 14, 30, 90];
+    private static readonly List<string> _conditionOptions =
+    [
+        "Novostavba", "Výborný", "Velmi dobrý", "Dobrý", "Po rekonstrukci", "Před rekonstrukcí",
+        "K rekonstrukci", "Nutná rekonstrukce", "V rekonstrukci", "Ve výstavbě", "Projekt", "Bezvadný", "Špatný", "K demolici",
+    ];
+    private static readonly List<string> _constructionOptions =
+    [
+        "Cihla", "Panel", "Smíšená", "Skelet", "Zděná", "Dřevo", "Dřevostavba", "Montovaná", "Jiné",
+    ];
+
+    private static string DaysLabel(int d) => d switch
+    {
+        1 => "1 den",
+        < 5 => $"{d} dny",
+        _ => $"{d} dní",
+    };
+
+    private static List<string>? ListOrNull(IReadOnlyCollection<string>? values)
+        => values is { Count: > 0 } ? values.ToList() : null;
+
+    /// <summary>Promítne rozšířené filtry z UI do DTO pro API (tabulka, karty, uložené hledání).</summary>
+    private void ApplyExtendedFilters(ListingFilterDto f)
+    {
+        var now = DateTime.UtcNow;
+        f.OnlyNewSince = _newInDays is { } n ? now.AddDays(-n) : null;
+        f.PriceChangedSince = _priceChangedInDays is { } p ? now.AddDays(-p) : null;
+        f.PriceDropsOnly = _priceChangedInDays is not null && _priceDropsOnly;
+        f.DeactivatedSince = _goneInDays is { } g ? now.AddDays(-g) : null;
+        f.Conditions = ListOrNull(_selectedConditions);
+        f.ConstructionTypes = ListOrNull(_selectedConstructionTypes);
+        f.ExcludeStatuses = ListOrNull(_excludedStatuses);
+        f.RoomsMin = _filter.RoomsMin;
+        f.RoomsMax = _filter.RoomsMax;
+    }
+
     // Quick filtry
     private string? _activeQuickFilter;
     private static readonly List<(string Key, string Label, string? PropertyType, string? OfferType, string? UserStatus, decimal? MaxPrice, int? RoomsMin, string? SearchText)> _quickFilters =
@@ -626,6 +752,8 @@
         ("domy-8m",          "🏠 Domy do 8M",           "House", "Sale", null,      8_000_000m,    null, null),
         ("domy-6m",          "🏠 Domy do 6M",           "House", "Sale", null,      6_000_000m,    null, null),
         ("land-sale",        "Pozemky k prodeji",       "Land",  "Sale", null,      null,          null, null),
+        ("nove-7",           "🆕 Nové za 7 dní",         null,    "Sale", null,      null,          null, null),
+        ("zlevnene-30",      "📉 Zlevněné za 30 dní",    null,    "Sale", null,      null,          null, null),
         ("liked",            "❤️ Oblíbené",              null,    null,   "Liked",   null,          null, null),
         ("to-visit",         "🚗 K návštěvě",            null,    null,   "ToVisit", null,          null, null),
     ];
@@ -655,7 +783,16 @@
         string?  SortBy,     // Sloupec třídění ("Price", "Title", atd.)
         bool     SortDescending, // Sestupné třídění
         string?  UserStatus, // Filtr dle mého stavu ("Liked", "ToVisit", ...)
-        List<string>? HousePositions = null
+        List<string>? HousePositions = null,
+        int?     NewInDays = null,
+        int?     PriceChangedInDays = null,
+        bool     PriceDropsOnly = true,
+        int?     GoneInDays = null,
+        List<string>? Conditions = null,
+        List<string>? ConstructionTypes = null,
+        List<string>? ExcludeStatuses = null,
+        int?     RoomsMin = null,
+        int?     RoomsMax = null
     );
 
     [SupplyParameterFromQuery(Name = "source")]
@@ -702,7 +839,16 @@
                     SortBy           = s.SortBy,
                     SortDescending   = s.SortDescending,
                     UserStatus       = s.UserStatus,
+                    RoomsMin         = s.RoomsMin,
+                    RoomsMax         = s.RoomsMax,
                 };
+                _newInDays                = s.NewInDays;
+                _priceChangedInDays       = s.PriceChangedInDays;
+                _priceDropsOnly           = s.PriceDropsOnly;
+                _goneInDays               = s.GoneInDays;
+                _selectedConditions       = new HashSet<string>(s.Conditions ?? []);
+                _selectedConstructionTypes = new HashSet<string>(s.ConstructionTypes ?? []);
+                _excludedStatuses         = new HashSet<string>(s.ExcludeStatuses ?? []);
                 _selectedSourceCodes  = s.SourceCodes ?? new List<string>();
                 _selectedDispositiones = s.Disposition != null ? new[] { s.Disposition } : new List<string>();
                 _selectedHousePositions = new HashSet<string>(s.HousePositions ?? []);
@@ -769,6 +915,7 @@
             RoomsMin = _filter.RoomsMin, RoomsMax = _filter.RoomsMax,
             SourceCodes = _selectedSourceCodes?.Count > 0 ? _selectedSourceCodes.ToList() : null,
         };
+        ApplyExtendedFilters(filter);
         var parameters = new DialogParameters<SaveSearchDialog> { { x => x.Filter, filter } };
         await DialogService.ShowAsync<SaveSearchDialog>("Uložit hledání", parameters);
     }
@@ -800,7 +947,16 @@
                 SortBy:            _filter.SortBy,
                 SortDescending:    _filter.SortDescending,
                 UserStatus:        _filter.UserStatus,
-                HousePositions:    SelectedHousePositionsOrNull
+                HousePositions:    SelectedHousePositionsOrNull,
+                NewInDays:         _newInDays,
+                PriceChangedInDays: _priceChangedInDays,
+                PriceDropsOnly:    _priceDropsOnly,
+                GoneInDays:        _goneInDays,
+                Conditions:        ListOrNull(_selectedConditions),
+                ConstructionTypes: ListOrNull(_selectedConstructionTypes),
+                ExcludeStatuses:   ListOrNull(_excludedStatuses),
+                RoomsMin:          _filter.RoomsMin,
+                RoomsMax:          _filter.RoomsMax
             );
             await LocalStorage.SetAsync(FilterStateKey, state);
         }
@@ -834,7 +990,8 @@
                 ? _selectedDispositiones!.First()
                 : null;
             _filter.HousePositions = SelectedHousePositionsOrNull;
-            
+            ApplyExtendedFilters(_filter);
+
             // Třídění: vždy aktualizuj z UI state (jinak se směr nikdy nepřepne).
             // LocalStorage restore: _filter.SortBy je nastaven, ale state.SortLabel je prázdný
             // (MudTable první volání má SortLabel="") → podmínka ochrání uložený sort.
@@ -900,6 +1057,7 @@
                 SortBy = _filter.SortBy,
                 SortDescending = _filter.SortDescending,
             };
+            ApplyExtendedFilters(cardFilter);
             var response = await Http.PostAsJsonAsync("api/listings/search", cardFilter, ct);
             ct.ThrowIfCancellationRequested();
             response.EnsureSuccessStatusCode();
@@ -969,6 +1127,9 @@
         _filter.PriceMax     = qf.MaxPrice;
         _filter.RoomsMin     = qf.RoomsMin;
         _filter.SearchText   = qf.SearchText;
+        _newInDays           = key == "nove-7" ? 7 : null;
+        _priceChangedInDays  = key == "zlevnene-30" ? 30 : null;
+        _priceDropsOnly      = true;
 
         if (_cardView)
         {
@@ -1000,6 +1161,13 @@
         _selectedSourceCodes = new List<string>(); // reset na prázdnou kolekci (ne null)
         _selectedDispositiones = new List<string>(); // reset na prázdnou kolekci
         _selectedHousePositions = new HashSet<string>();
+        _selectedConditions = new HashSet<string>();
+        _selectedConstructionTypes = new HashSet<string>();
+        _excludedStatuses = new HashSet<string>();
+        _newInDays = null;
+        _priceChangedInDays = null;
+        _priceDropsOnly = true;
+        _goneInDays = null;
         _activeQuickFilter = null;
 
         if (_cardView)
