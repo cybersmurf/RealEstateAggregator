@@ -238,7 +238,7 @@ _STATUS_ALIASES = {
     "visited": "Visited", "navstiveno": "Visited",
 }
 
-_SORTS_API = {"price", "area", "land", "date", "title", "location", "deactivated"}
+_SORTS_API = {"price", "area", "land", "date", "title", "location", "deactivated", "target"}
 _SORTS_LOCAL = {"price_per_m2", "land_per_price"}
 
 
@@ -332,6 +332,11 @@ def _fmt_listing_v2(l: dict) -> str:
     dups = l.get("otherSourceCodes") or []
     dup_txt = f" (+{', '.join(dups)})" if dups else ""
     signal = f"  |  cena: {l['priceSignal']}" if l.get("priceSignal") else ""
+    if l.get("targetCriteriaTotal"):
+        missing = l.get("targetCriteriaMissing") or []
+        signal += f"  |  🎯 {l.get('targetCriteriaMet', 0)}/{l['targetCriteriaTotal']}"
+        if missing:
+            signal += f" (chybí: {', '.join(missing)})"
     if l.get("previousPrice") and l.get("priceChangePct") is not None:
         arrow = "⬇" if l["priceChangePct"] < 0 else "⬆"
         changed = (l.get("priceChangedAt") or "")[:10]
@@ -377,6 +382,8 @@ async def search_listings(
     gone_in_days: Optional[int] = None,
     price_changed_in_days: Optional[int] = None,
     price_drops_only: bool = False,
+    price_signals: Optional[list[str] | str] = None,
+    target_min_criteria: Optional[int] = None,
     include_duplicates: bool = False,
     sort_by: Optional[str] = None,
     sort_desc: bool = False,
@@ -426,9 +433,15 @@ async def search_listings(
         price_changed_in_days: jen inzeráty, u kterých se za posledních N dní ZMĚNILA CENA
                (v historii cen je novější záznam s jinou cenou). price_drops_only=True → jen
                zlevnění. U každého výsledku je předchozí cena, změna v % a datum změny.
+        price_signals: AI cenový signál – ["low"] podhodnocené, "fair" přiměřené, "high" nadhodnocené
+               (bez signálu vypadnou)
+        target_min_criteria: NÁŠ CÍL – jen inzeráty s aspoň N z 8 kritérií (dům na prodej, cena do
+               10 mil., užitná plocha od 100 m², 4+ pokoje, okres Znojmo / Brno-venkov, zahrada,
+               samostatně stojící, bez nutné rekonstrukce). Každý výsledek nese 🎯 N/8 a co chybí.
         include_duplicates: ukázat i kopie téhož domu z dalších realitek (default ne)
     Řazení a stránky:
-        sort_by: price | area | land | date | title | location | price_per_m2 | land_per_price
+        sort_by: price | area | land | date | title | location | target (počet splněných kritérií)
+               | price_per_m2 | land_per_price
         sort_desc: sestupně
         page, page_size: stránkování (page_size max 100)
     """
@@ -467,7 +480,11 @@ async def search_listings(
         else:
             payload["userStatus"] = st
     if excluded:
-        payload["excludeStatuses"] = sorted(excluded)  # API od 20. 10. 2026 vyřazuje stavy samo (i přes kopii v duplicitách)
+        payload["excludeStatuses"] = sorted(excluded)
+    if (ps := [p.strip().lower() for p in _as_list(price_signals)]):
+        payload["priceSignals"] = ps
+    if target_min_criteria:
+        payload["targetMinCriteria"] = int(target_min_criteria)  # API od 20. 10. 2026 vyřazuje stavy samo (i přes kopii v duplicitách)
     if new_in_days:
         payload["onlyNewSince"] = (_dt.now(_tz.utc) - _td(days=new_in_days)).isoformat()
     if gone_in_days:

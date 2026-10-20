@@ -147,6 +147,9 @@ public class ListingService : IListingService
             "location" => filter.SortDescending
                             ? query.OrderByDescending(x => x.LocationText).ThenBy(x => x.Id)
                             : query.OrderBy(x => x.LocationText).ThenBy(x => x.Id),
+            "target"   => filter.SortDescending
+                            ? query.OrderByDescending(x => TargetProfile.ScoreExpression.Invoke(x)).ThenBy(x => x.Price == null).ThenBy(x => x.Price).ThenBy(x => x.Id)
+                            : query.OrderBy(x => TargetProfile.ScoreExpression.Invoke(x)).ThenBy(x => x.Id),
             "deactivated" => filter.SortDescending
                             ? query.OrderBy(x => x.DeactivatedAt == null).ThenByDescending(x => x.DeactivatedAt).ThenBy(x => x.Id)
                             : query.OrderBy(x => x.DeactivatedAt == null).ThenBy(x => x.DeactivatedAt).ThenBy(x => x.Id),
@@ -717,6 +720,19 @@ SellerName = sellerName,
             }
         }
 
+        // AI cenový signál (low / fair / high)
+        if (filter.PriceSignals is { Count: > 0 } priceSignals)
+        {
+            predicate = predicate.And(x => x.PriceSignal != null && priceSignals.Contains(x.PriceSignal));
+        }
+
+        // „Náš cíl": aspoň N splněných kritérií (součet CASE WHEN v SQL přes LinqKit)
+        if (filter.TargetMinCriteria is { } targetMin && targetMin > 0)
+        {
+            var score = TargetProfile.ScoreExpression;
+            predicate = predicate.And(x => score.Invoke(x) >= targetMin);
+        }
+
         // Změna ceny od data: v historii je záznam po datu, před kterým je záznam s jinou (vyšší) cenou.
         // První záznam vzniká se vznikem inzerátu, sám o sobě změna není.
         if (filter.PriceChangedSince is { } priceChangedSince)
@@ -799,6 +815,7 @@ SellerName = sellerName,
     {
         var userState = entity.UserStates.FirstOrDefault(s => s.UserId == UserId);
 
+        var target = TargetProfile.Evaluate(entity);
         return new ListingSummaryDto
         {
             Id = entity.Id,
@@ -836,7 +853,10 @@ SellerName = sellerName,
             UserStatusLastUpdated = userState?.LastUpdated,
             AiNormalizedData = entity.AiNormalizedData,
             PriceSignal = entity.PriceSignal,
-            SmartTags = entity.SmartTags
+            SmartTags = entity.SmartTags,
+            TargetCriteriaMet = target.Met,
+            TargetCriteriaTotal = target.Total,
+            TargetCriteriaMissing = target.Missing,
         };
     }
 

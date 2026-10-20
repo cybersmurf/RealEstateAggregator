@@ -55,6 +55,11 @@ public sealed class ListingSummaryDto
     /// <summary>Smart tagy jako JSON pole stringů, např. ["Cihla","Zahrada","Garáž"].</summary>
     public string? SmartTags { get; set; }
 
+    /// <summary>„Náš cíl": kolik kritérií TargetProfile inzerát splňuje, z kolika, a která chybí.</summary>
+    public int TargetCriteriaMet { get; set; }
+    public int TargetCriteriaTotal { get; set; }
+    public List<string> TargetCriteriaMissing { get; set; } = [];
+
     /// <summary>Kódy dalších zdrojů, kde je tentýž inzerát (duplikáty tohoto primárního záznamu).</summary>
     public List<string> OtherSourceCodes { get; set; } = [];
 }

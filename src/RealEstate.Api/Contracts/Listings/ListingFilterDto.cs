@@ -35,6 +35,12 @@ public sealed class ListingFilterDto
     public string? UserStatus { get; set; }
     /// <summary>Vyřadit inzeráty s těmito mými stavy (např. "Disliked", "Visited"); stav nese dům, platí i přes kopii ve skupině duplicit.</summary>
     public List<string>? ExcludeStatuses { get; set; }
+
+    /// <summary>AI cenový signál: "low" (podhodnocená) / "fair" / "high"; inzerát bez signálu vypadne.</summary>
+    public List<string>? PriceSignals { get; set; }
+
+    /// <summary>„Náš cíl": jen inzeráty, které splňují aspoň N z kritérií <c>TargetProfile</c> (celkem 8).</summary>
+    public int? TargetMinCriteria { get; set; }
     public DateTime? OnlyNewSince { get; set; }
 
     /// <summary>
