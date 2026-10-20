@@ -110,7 +110,7 @@ API_TIMEOUT = float(os.getenv("API_TIMEOUT_SECONDS", "30"))
 API_KEY = os.getenv("API_KEY", "dev-key-change-me")
 TRANSPORT = os.getenv("TRANSPORT", "stdio")   # "stdio" nebo "sse"
 PORT = int(os.getenv("PORT", "8002"))
-MISTRAL_API_KEY      = os.getenv("MISTRAL_API_KEY",      "Auf12P50gxnU6Py6l5qokYCBmYfWKtkU")
+MISTRAL_API_KEY      = os.getenv("MISTRAL_API_KEY", "")   # bez výchozí hodnoty – klíč patří jen do prostředí
 MISTRAL_VISION_MODEL = os.getenv("MISTRAL_VISION_MODEL", "mistral-medium-latest")
 
 # Max znaků které jeden MCP tool vrátí – omezuje výši kontextu a kreditů Claude
