@@ -440,7 +440,7 @@ public sealed class RealEstateDbContext : DbContext
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.ListingId).HasColumnName("listing_id");
-            entity.Property(e => e.Price).HasColumnName("price");
+            entity.Property(e => e.Price).HasColumnName("price").HasPrecision(15, 2);
             entity.Property(e => e.RecordedAt)
                 .HasColumnName("recorded_at")
                 .HasColumnType("timestamptz");

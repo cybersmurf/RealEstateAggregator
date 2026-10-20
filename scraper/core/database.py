@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Mapping, Sequence, Tuple
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from contextlib import asynccontextmanager
 
 # Cesta k lokálnímu úložišti fotek (sdílený volume s .NET API)
@@ -304,6 +305,20 @@ def _gallery_needs_reclassification(existing: Sequence[Mapping[str, Any]], photo
         return False
     known = {row["original_url"] for row in existing}
     return any(url not in known for url in photo_urls)
+
+
+_CENTS = Decimal("0.01")
+
+
+def money(value: Any) -> Optional[Decimal]:
+    """Cena jako Decimal na 2 místa. asyncpg zapisuje float do numeric s celým binárním rozvojem
+    (328.58999999999997498889570124447345733642578125) a Npgsql ho pak nepřevede na decimal."""
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value)).quantize(_CENTS, rounding=ROUND_HALF_UP)
+    except Exception:
+        return None
 
 
 class DatabaseManager:
@@ -656,7 +671,10 @@ class DatabaseManager:
                     )
 
             # 🔥 Zaloguj změnu ceny do price_history
-            new_price = listing_data.get("price")
+            # Obě strany jako Decimal na haléře – old_price přijde z DB jako Decimal a float
+            # 328.59 se mu nikdy nerovnal, takže se každou noc zapsala „změna" se stejnou cenou.
+            new_price = money(listing_data.get("price"))
+            old_price = money(old_price)
             if new_price is not None:
                 # Log při první ceně (nový listing) NEBO při změně ceny
                 if old_price is None or old_price != new_price:
