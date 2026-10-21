@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions
 
         // Sloučená karta duplicit, mazání stažených fotek, průběžné AI obohacení (shrnutí, štítky, normalizace, cenový signál, embeddingy)
         services.AddScoped<IDuplicateGroupService, DuplicateGroupService>();
+        services.AddScoped<RealEstate.Api.Services.Overview.IOverviewService, RealEstate.Api.Services.Overview.OverviewService>();
         services.AddSingleton<Services.Jobs.IBackgroundJobService, Services.Jobs.BackgroundJobService>();
         services.AddScoped<IPhotoPurgeService, PhotoPurgeService>();
         services.AddHostedService<AiEnrichmentHostedService>();

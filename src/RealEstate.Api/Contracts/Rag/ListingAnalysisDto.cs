@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace RealEstate.Api.Contracts.Rag;
 
 public record ListingAnalysisDto(
@@ -8,5 +10,7 @@ public record ListingAnalysisDto(
     string Source,
     bool HasEmbedding,
     DateTime CreatedAt,
-    DateTime UpdatedAt
+    DateTime UpdatedAt,
+    /// <summary>Strukturované hodnocení (JSON objekt), pokud ho analýza má.</summary>
+    JsonElement? Structured = null
 );

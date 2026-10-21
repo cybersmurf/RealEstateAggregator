@@ -441,7 +441,7 @@ SellerName = sellerName,
                 ListingId = listingId,
                 UserId = UserId,
                 Status = normalizedStatus,
-                Notes = request.Notes,
+                Notes = DedupeNotes(request.Notes),
                 LastUpdated = DateTime.UtcNow
             };
             _dbContext.UserListingStates.Add(userState);
@@ -449,7 +449,7 @@ SellerName = sellerName,
         else
         {
             userState.Status = normalizedStatus;
-            userState.Notes = request.Notes;
+            userState.Notes = DedupeNotes(request.Notes);
             userState.LastUpdated = DateTime.UtcNow;
             _dbContext.UserListingStates.Update(userState);
         }
@@ -462,6 +462,25 @@ SellerName = sellerName,
             Notes = userState.Notes,
             LastUpdated = userState.LastUpdated
         };
+    }
+
+    /// <summary>
+    /// Vyhodí opakované řádky poznámky (ranní úloha přes MCP připojovala tutéž větu znovu – Kubšice, Šumice).
+    /// Krátké řádky (pod 20 znaků, odrážky, data) se nechávají, jen delší věty se nesmí opakovat.
+    /// </summary>
+    public static string? DedupeNotes(string? notes)
+    {
+        if (string.IsNullOrWhiteSpace(notes)) return notes;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var lines = notes.Replace("\r\n", "\n").Split('\n');
+        var kept = new List<string>(lines.Length);
+        foreach (var line in lines)
+        {
+            var key = line.Trim();
+            if (key.Length >= 20 && !seen.Add(key)) continue;
+            kept.Add(line);
+        }
+        return string.Join('\n', kept);
     }
 
     public async Task<ListingStatsDto> GetStatsAsync(CancellationToken cancellationToken)

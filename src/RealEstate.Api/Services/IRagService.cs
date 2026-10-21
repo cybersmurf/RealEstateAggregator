@@ -6,7 +6,7 @@ namespace RealEstate.Api.Services;
 public interface IRagService
 {
     /// <summary>Uloží analýzu do DB a vygeneruje embedding (pokud OpenAI nakonfigurováno).</summary>
-    Task<ListingAnalysisDto> SaveAnalysisAsync(Guid listingId, string content, string source, string? title, CancellationToken ct);
+    Task<ListingAnalysisDto> SaveAnalysisAsync(Guid listingId, string content, string source, string? title, CancellationToken ct, string? structuredJson = null);
 
     /// <summary>RAG dotaz nad analýzami konkrétního inzerátu.</summary>
     Task<AskResponseDto> AskListingAsync(Guid listingId, string question, int topK, CancellationToken ct);

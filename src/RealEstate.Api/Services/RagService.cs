@@ -19,7 +19,7 @@ public sealed class RagService(
     // ─── SAVE ──────────────────────────────────────────────────────────────────
 
     public async Task<ListingAnalysisDto> SaveAnalysisAsync(
-        Guid listingId, string content, string source, string? title, CancellationToken ct)
+        Guid listingId, string content, string source, string? title, CancellationToken ct, string? structuredJson = null)
     {
         // Vygeneruj embedding (může vrátit null pokud OpenAI není nakonfigurováno)
         float[]? floats = null;
@@ -38,6 +38,7 @@ public sealed class RagService(
             Source = source,
             Title = title,
             Embedding = floats is not null ? new Vector(floats) : null,
+            Structured = string.IsNullOrWhiteSpace(structuredJson) ? null : structuredJson,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -305,7 +306,23 @@ public sealed class RagService(
     private static ListingAnalysisDto ToDto(ListingAnalysis a) => new(
         a.Id, a.ListingId, a.Content, a.Title, a.Source,
         HasEmbedding: a.Embedding is not null,
-        a.CreatedAt, a.UpdatedAt);
+        a.CreatedAt, a.UpdatedAt,
+        Structured: ParseStructured(a.Structured));
+
+    /// <summary>jsonb → JsonElement (klon, aby přežil dispose dokumentu); neplatný JSON = bez strukturovaných dat.</summary>
+    public static System.Text.Json.JsonElement? ParseStructured(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return doc.RootElement.Clone();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
 
     private static AnalysisChunkDto ToChunkDto(ListingAnalysis a, double similarity) => new(
         a.Id, a.Title,

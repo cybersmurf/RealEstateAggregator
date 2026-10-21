@@ -32,6 +32,10 @@ public sealed class RealEstateDbContext : DbContext
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<ListingPhotoComparison> ListingPhotoComparisons => Set<ListingPhotoComparison>();
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
+    public DbSet<HouseVote> HouseVotes => Set<HouseVote>();
+    public DbSet<HouseRank> HouseRanks => Set<HouseRank>();
+    public DbSet<HouseVisit> HouseVisits => Set<HouseVisit>();
+    public DbSet<DailyDigest> DailyDigests => Set<DailyDigest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -354,6 +358,7 @@ public sealed class RealEstateDbContext : DbContext
                 .HasMaxLength(50)
                 .HasDefaultValue("manual");
             entity.Property(e => e.Title).HasColumnName("title").HasMaxLength(500);
+            entity.Property(e => e.Structured).HasColumnName("structured").HasColumnType("jsonb");
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasColumnType("timestamptz");
@@ -594,6 +599,70 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz").HasDefaultValueSql("now()");
             entity.HasOne(e => e.Owner).WithMany().HasForeignKey(e => e.OwnerId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => e.Email).IsUnique().HasDatabaseName("ux_workspace_members_email");
+        });
+
+        modelBuilder.Entity<HouseVote>(entity =>
+        {
+            entity.ToTable("house_votes", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Value).HasColumnName("value").HasMaxLength(10).IsRequired();
+            entity.Property(e => e.Note).HasColumnName("note");
+            entity.Property(e => e.PriceAtVote).HasColumnName("price_at_vote").HasPrecision(15, 2);
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamptz");
+            entity.HasOne(e => e.Listing).WithMany().HasForeignKey(e => e.ListingId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.ListingId, e.UserId }).IsUnique().HasDatabaseName("ux_house_votes_listing_user");
+        });
+
+        modelBuilder.Entity<HouseRank>(entity =>
+        {
+            entity.ToTable("house_ranks", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.Bucket).HasColumnName("bucket").HasMaxLength(10).IsRequired();
+            entity.Property(e => e.Position).HasColumnName("position");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamptz");
+            entity.HasOne(e => e.Listing).WithMany().HasForeignKey(e => e.ListingId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.OwnerId, e.ListingId }).IsUnique().HasDatabaseName("ux_house_ranks_owner_listing");
+        });
+
+        modelBuilder.Entity<HouseVisit>(entity =>
+        {
+            entity.ToTable("house_visits", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ListingId).HasColumnName("listing_id");
+            entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.ScheduledAt).HasColumnName("scheduled_at").HasColumnType("timestamptz");
+            entity.Property(e => e.AgentName).HasColumnName("agent_name").HasMaxLength(200);
+            entity.Property(e => e.AgentPhone).HasColumnName("agent_phone").HasMaxLength(50);
+            entity.Property(e => e.Address).HasColumnName("address").HasMaxLength(500);
+            entity.Property(e => e.Checklist).HasColumnName("checklist").HasColumnType("jsonb");
+            entity.Property(e => e.Note).HasColumnName("note");
+            entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(20).IsRequired();
+            entity.Property(e => e.CreatedByUserId).HasColumnName("created_by_user_id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamptz");
+            entity.HasOne(e => e.Listing).WithMany().HasForeignKey(e => e.ListingId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.OwnerId, e.ScheduledAt }).HasDatabaseName("ix_house_visits_owner_scheduled");
+        });
+
+        modelBuilder.Entity<DailyDigest>(entity =>
+        {
+            entity.ToTable("daily_digests", "re_realestate");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.DigestDate).HasColumnName("digest_date");
+            entity.Property(e => e.GeneratedAt).HasColumnName("generated_at").HasColumnType("timestamptz");
+            entity.Property(e => e.Summary).HasColumnName("summary").IsRequired();
+            entity.Property(e => e.Items).HasColumnName("items").HasColumnType("jsonb");
+            entity.HasIndex(e => new { e.OwnerId, e.DigestDate }).IsUnique().HasDatabaseName("ux_daily_digests_owner_date");
         });
 
         modelBuilder.Entity<ListingPhotoComparison>(entity =>

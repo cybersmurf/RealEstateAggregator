@@ -26,6 +26,9 @@ public class ListingAnalysis
     /// <summary>Doba generování v sekundách (NULL = neznámo / starší záznamy)</summary>
     public double? ElapsedSeconds { get; set; }
 
+    /// <summary>Strukturované hodnocení (jsonb): shoda, typ, obyvatelne_podlazi, verdikt, varovani[], plusy[], minusy[], overit_na_miste[], varianta, trenazer, zahrada_m2, topeni.</summary>
+    public string? Structured { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

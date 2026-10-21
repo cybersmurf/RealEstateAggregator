@@ -691,6 +691,30 @@ public class DuplicateDetectionDescriptionTests
         Assert.Equal(relisted.Id, attached[gone.Id]);
     }
 
+    // Kubšice (21. 10. 2026): Sreality 5,7 mil. stažen 10. 10., 12. 10. tentýž dům znovu za 5,4 mil.
+    // Opakování v jednom zdroji vyžaduje cenu na korunu, přeinzerování ale bývá právě se slevou –
+    // stažený inzerát se proto páruje i volnějším pravidlem pro kopie (do 10 % se shodou všeho ostatního).
+
+    [Fact]
+    public void Remembered_RelistedInSameSourceWithLowerPrice_Attaches()
+    {
+        var gone = SrealityHouse(Body) with { IsActive = false, Price = 5_700_000m, District = "Znojmo", Disposition = "3+1" };
+        var relisted = gone with { Id = Guid.NewGuid(), IsActive = true, Price = 5_400_000m };
+
+        var attached = DuplicateDetectionService.AttachRemembered([relisted], [gone], new Dictionary<Guid, Guid>());
+
+        Assert.Equal(relisted.Id, attached[gone.Id]);
+    }
+
+    [Fact]
+    public void ActivePair_SameSourceDifferentPrice_StillNotDuplicate()
+    {
+        var a = SrealityHouse(Body) with { Price = 5_700_000m };
+        var b = a with { Id = Guid.NewGuid(), Price = 5_400_000m };
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(a, b));
+    }
+
     [Fact]
     public void Remembered_TwoDifferentLiveHouses_Ambiguous_NotAttached()
     {

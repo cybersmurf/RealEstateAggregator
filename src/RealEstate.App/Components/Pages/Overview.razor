@@ -1,0 +1,711 @@
+@page "/prehled"
+@implements IDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using RealEstate.Api.Contracts.Overview
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject PhotosBaseUrl PhotosBase
+
+<PageTitle>Přehled domů</PageTitle>
+
+<MudStack Spacing="2" Class="pa-2 pa-sm-4" Style="max-width: 1200px; margin: 0 auto;">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudIcon Icon="@Icons.Material.Filled.Home" Color="Color.Primary" />
+        <MudText Typo="Typo.h5">Přehled domů</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="_loading" aria-label="Obnovit" />
+    </MudStack>
+
+    <MudTabs @bind-ActivePanelIndex="_tab" Rounded="true" PanelClass="pt-3" ApplyEffectsToContainer="true" Elevation="1">
+
+        @* ───────────────────────── DNES ───────────────────────── *@
+        <MudTabPanel Text="Dnes" Icon="@Icons.Material.Filled.Today">
+            @if (_digestLoading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_digest is null)
+            {
+                <MudAlert Severity="Severity.Info">Zatím žádný denní záznam. Ranní úloha ho sem uloží po prvním běhu.</MudAlert>
+            }
+            else
+            {
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        @(_digest.IsToday ? "Dnes" : _digest.Date.ToString("d. M. yyyy")) · vygenerováno @_digest.GeneratedAt.ToLocalTime().ToString("d. M. H:mm")
+                        @if (!_digest.IsToday) { <text> · za dnešek záznam ještě není</text> }
+                    </MudText>
+                    <MudText Typo="Typo.h6">@_digest.Summary</MudText>
+
+                    @foreach (var group in DigestGroups())
+                    {
+                        <MudPaper Class="pa-3" Elevation="0" Outlined="true">
+                            <MudText Typo="Typo.subtitle1" Class="mb-2"><MudIcon Icon="@group.Icon" Size="Size.Small" Class="mr-1" Style="vertical-align:text-bottom" />@group.Label (@group.Items.Count)</MudText>
+                            @if (group.Collapsed)
+                            {
+                                <MudExpansionPanels Dense="true" Elevation="0">
+                                    <MudExpansionPanel Text="@($"Zobrazit {group.Items.Count} domů, které nesedí")">
+                                        @foreach (var it in group.Items)
+                                        {
+                                            <MudText Typo="Typo.body2" Class="py-1">• @DigestTitle(it)@(string.IsNullOrWhiteSpace(it.Text) ? "" : $" – {it.Text}")</MudText>
+                                        }
+                                    </MudExpansionPanel>
+                                </MudExpansionPanels>
+                            }
+                            else
+                            {
+                                <MudStack Spacing="1">
+                                    @foreach (var it in group.Items)
+                                    {
+                                        <MudPaper Class="pa-2" Elevation="0" Style="@(group.Key == "price_down" && (it.Text ?? "").Contains("7,5") ? "border-left: 4px solid var(--mud-palette-success);" : "border-left: 4px solid var(--mud-palette-lines-default);")">
+                                            <MudText Typo="Typo.body1">
+                                                @if (it.ListingId is { } lid)
+                                                {
+                                                    <MudLink Href="@($"/listings/{lid}")">@it.Title</MudLink>
+                                                }
+                                                else if (!string.IsNullOrWhiteSpace(it.Link))
+                                                {
+                                                    <MudLink Href="@it.Link" Target="_blank">@it.Title</MudLink>
+                                                }
+                                                else
+                                                {
+                                                    @it.Title
+                                                }
+                                            </MudText>
+                                            @if (!string.IsNullOrWhiteSpace(it.Text))
+                                            {
+                                                <MudText Typo="Typo.body2" Color="Color.Secondary">@it.Text</MudText>
+                                            }
+                                            @if (it.ListingId is { } lid2 && _cardsById.TryGetValue(lid2, out var card))
+                                            {
+                                                <MudStack Row="true" Spacing="1" Class="mt-1" Wrap="Wrap.Wrap">
+                                                    @MatchChip(card)
+                                                    @if (card.Price is { } p) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@FormatPrice(p)</MudChip> }
+                                                </MudStack>
+                                            }
+                                        </MudPaper>
+                                    }
+                                </MudStack>
+                            }
+                        </MudPaper>
+                    }
+                </MudStack>
+            }
+        </MudTabPanel>
+
+        @* ───────────────────────── KANDIDÁTI ───────────────────────── *@
+        <MudTabPanel Text="Kandidáti" Icon="@Icons.Material.Filled.EmojiEvents">
+            @if (_candidates is null)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else
+            {
+                <MudStack Spacing="2">
+                    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                        <MudChip T="string" Size="Size.Small" Variant="@(_onlyAgreed ? Variant.Filled : Variant.Outlined)" Color="Color.Success" OnClick="@(() => _onlyAgreed = !_onlyAgreed)" Icon="@Icons.Material.Filled.Handshake">Jen kde jsme se shodli</MudChip>
+                        <MudChip T="string" Size="Size.Small" Variant="@(_onlyBudget ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="@(() => _onlyBudget = !_onlyBudget)" Icon="@Icons.Material.Filled.Savings">Jen pod 7,5 mil.</MudChip>
+                        <MudChip T="string" Size="Size.Small" Variant="@(_onlyDetached ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => _onlyDetached = !_onlyDetached)" Icon="@Icons.Material.Filled.House">Jen samostatně stojící</MudChip>
+                        <MudSpacer />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Hlasují: @string.Join(", ", _candidates.People.Select(p => p.Name))
+                            @if (!_candidates.People.Any(p => p.IsMe)) { <text> · jste přihlášeni mimo tento prostor, hlasovat nelze</text> }
+                        </MudText>
+                    </MudStack>
+
+                    @foreach (var bucket in _candidates.Buckets)
+                    {
+                        var houses = bucket.Houses.Where(PassesFilters).ToList();
+                        <MudPaper Class="pa-2 pa-sm-3" Elevation="0" Outlined="true">
+                            <MudText Typo="Typo.h6" Class="mb-2">
+                                <MudIcon Icon="@BucketIcon(bucket.Key)" Size="Size.Small" Class="mr-1" Style="vertical-align:text-bottom" />@bucket.Label
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@houses.Count</MudChip>
+                            </MudText>
+                            @if (houses.Count == 0)
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">Nic tu není.</MudText>
+                            }
+                            <MudGrid Spacing="2">
+                                @for (var i = 0; i < houses.Count; i++)
+                                {
+                                    var card = houses[i];
+                                    var index = i;
+                                    <MudItem xs="12" sm="6" lg="4">
+                                        <MudCard Elevation="2" Style="@CardStyle(card)" Class="h-100">
+                                            @if (!string.IsNullOrWhiteSpace(card.PhotoUrl))
+                                            {
+                                                <MudCardMedia Image="@PhotosBase.Resolve(card.PhotoUrl, null, Navigation.BaseUri)" Height="170" />
+                                            }
+                                            <MudCardContent Class="pb-1">
+                                                <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1">
+                                                    <div style="min-width:0">
+                                                        <MudText Typo="Typo.subtitle1" Style="line-height:1.2"><MudLink Href="@($"/listings/{card.ListingId}")">@(card.Municipality ?? card.Title)</MudLink></MudText>
+                                                        <MudText Typo="Typo.caption" Color="Color.Secondary">@card.Title</MudText>
+                                                    </div>
+                                                    <MudSpacer />
+                                                    <MudText Typo="Typo.h6" Color="Color.Primary" Style="white-space:nowrap">@FormatPrice(card.Price)</MudText>
+                                                </MudStack>
+
+                                                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-1">
+                                                    @MatchChip(card)
+                                                    @if (!string.IsNullOrWhiteSpace(card.HouseType)) { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@card.HouseType</MudChip> }
+                                                    @if (!string.IsNullOrWhiteSpace(card.HabitableFloor)) { <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@HabitableColor(card.HabitableFloor)">obyvatelné podlaží: @card.HabitableFloor</MudChip> }
+                                                    @if (card.Agreed) { <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.Handshake">Shoda</MudChip> }
+                                                    @if (card.UpcomingVisitAt is { } va) { <MudChip T="string" Size="Size.Small" Color="Color.Info" Icon="@Icons.Material.Filled.Event">prohlídka @va.ToLocalTime().ToString("d. M. H:mm")</MudChip> }
+                                                    @if (!card.IsActive) { <MudChip T="string" Size="Size.Small" Color="Color.Dark" Variant="Variant.Outlined">staženo</MudChip> }
+                                                </MudStack>
+
+                                                @if (!string.IsNullOrWhiteSpace(card.Verdict))
+                                                {
+                                                    <MudText Typo="Typo.body2" Class="mt-2"><b>@card.Verdict</b></MudText>
+                                                }
+
+                                                <MudText Typo="Typo.body2" Class="mt-2" Color="Color.Secondary">
+                                                    @if (card.OriginalPrice is { } op && card.Price is { } cp && op != cp)
+                                                    {
+                                                        <span>@FormatPrice(op) → <b>@FormatPrice(cp)</b> (@(card.PriceChangePct is { } pct ? $"{pct:+0.#;-0.#} %" : ""))</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>cena od začátku beze změny</span>
+                                                    }
+                                                    <span> · @card.DaysOnMarket dní na trhu</span>
+                                                    @if (card.LastPriceChangeAt is { } lc) { <span> · poslední změna @lc.ToLocalTime().ToString("d. M.")</span> }
+                                                </MudText>
+                                                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-1">
+                                                    @if (card.NegotiationRoom) { <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Gavel">prostor pro jednání</MudChip> }
+                                                    @if (card.WaitForDiscount) { <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.HourglassBottom">čekat na slevu</MudChip> }
+                                                </MudStack>
+
+                                                @if (card.Warnings.Count > 0)
+                                                {
+                                                    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-1">
+                                                        @foreach (var w in card.Warnings)
+                                                        {
+                                                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Icon="@Icons.Material.Filled.Warning">@w</MudChip>
+                                                        }
+                                                    </MudStack>
+                                                }
+
+                                                @* Hlasování *@
+                                                <MudDivider Class="my-2" />
+                                                @foreach (var person in _candidates.People)
+                                                {
+                                                    var vote = card.Votes.FirstOrDefault(v => v.UserId == person.UserId);
+                                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-1" Wrap="Wrap.Wrap">
+                                                        <MudText Typo="Typo.body2" Style="min-width:56px"><b>@person.Name</b></MudText>
+                                                        @foreach (var (val, label, color, icon) in VoteOptions)
+                                                        {
+                                                            var selected = vote?.Value == val;
+                                                            <MudButton Size="Size.Small" Variant="@(selected ? Variant.Filled : Variant.Outlined)" Color="@color"
+                                                                       Disabled="@(!person.CanVote || _voting)" StartIcon="@icon"
+                                                                       OnClick="@(() => VoteAsync(card, val))">@label</MudButton>
+                                                        }
+                                                        @if (vote is not null)
+                                                        {
+                                                            <MudTooltip Text="@($"{vote.VotedAt.ToLocalTime():d. M. H:mm}{(string.IsNullOrWhiteSpace(vote.Note) ? "" : " – " + vote.Note)}")">
+                                                                <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Color="Color.Secondary" />
+                                                            </MudTooltip>
+                                                            @if (vote.BeforePriceChange) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Warning">hlasováno před změnou ceny</MudChip> }
+                                                        }
+                                                    </MudStack>
+                                                    @if (vote is not null && !string.IsNullOrWhiteSpace(vote.Note))
+                                                    {
+                                                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-1">„@vote.Note“</MudText>
+                                                    }
+                                                }
+                                                @if (_candidates.People.Any(p => p.CanVote))
+                                                {
+                                                    <MudTextField T="string" Value="@GetNoteDraft(card.ListingId)" ValueChanged="@(v => SetNoteDraft(card.ListingId, v))"
+                                                                  Placeholder="Krátká poznámka k hlasu (uloží se s dalším kliknutím)" Variant="Variant.Text" Margin="Margin.Dense" Class="mt-1" />
+                                                }
+
+                                                @if (card.Agreed && card.Bucket != "visit")
+                                                {
+                                                    <MudAlert Severity="Severity.Success" Dense="true" Class="mt-2">
+                                                        Oba chcete jet. <MudLink OnClick="@(() => MoveAsync(card, "visit"))">Přesunout do „Jet na prohlídku“</MudLink>
+                                                    </MudAlert>
+                                                }
+
+                                                @* Detail *@
+                                                <MudCollapse Expanded="@_expanded.Contains(card.ListingId)">
+                                                    <MudDivider Class="my-2" />
+                                                    <MudSimpleTable Dense="true" Elevation="0" Class="mb-2">
+                                                        <tbody>
+                                                            @foreach (var (k, v) in DetailRows(card))
+                                                            {
+                                                                <tr><td style="color:var(--mud-palette-text-secondary);white-space:nowrap">@k</td><td>@v</td></tr>
+                                                            }
+                                                        </tbody>
+                                                    </MudSimpleTable>
+                                                    @if (card.Pluses.Count > 0)
+                                                    {
+                                                        <MudText Typo="Typo.body2"><b>Plusy:</b> @string.Join(" · ", card.Pluses)</MudText>
+                                                    }
+                                                    @if (card.Minuses.Count > 0)
+                                                    {
+                                                        <MudText Typo="Typo.body2"><b>Minusy:</b> @string.Join(" · ", card.Minuses)</MudText>
+                                                    }
+                                                    @if (card.CriteriaMissing.Count > 0)
+                                                    {
+                                                        <MudText Typo="Typo.caption" Color="Color.Secondary">Kritéria: @card.CriteriaMet/@card.CriteriaTotal, chybí @string.Join(", ", card.CriteriaMissing)</MudText>
+                                                    }
+                                                    @if (!string.IsNullOrWhiteSpace(card.Notes))
+                                                    {
+                                                        <MudText Typo="Typo.caption" Color="Color.Secondary" Style="white-space:pre-line">@card.Notes</MudText>
+                                                    }
+                                                    <MudStack Row="true" Spacing="2" Class="mt-2" Wrap="Wrap.Wrap">
+                                                        <MudLink Href="@($"/listings/{card.ListingId}")">Detail a poslední analýza@(card.LastAnalysisAt is { } la ? $" ({la.ToLocalTime():d. M.})" : "")</MudLink>
+                                                        @if (!string.IsNullOrWhiteSpace(card.Url)) { <MudLink Href="@card.Url" Target="_blank">Inzerát (@card.SourceCode)</MudLink> }
+                                                    </MudStack>
+                                                </MudCollapse>
+                                            </MudCardContent>
+                                            <MudCardActions Class="pt-0">
+                                                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ToggleExpanded(card.ListingId))"
+                                                           EndIcon="@(_expanded.Contains(card.ListingId) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)">
+                                                    @(_expanded.Contains(card.ListingId) ? "Méně" : "Detail")
+                                                </MudButton>
+                                                <MudSpacer />
+                                                @if (_candidates.People.Any(p => p.CanVote))
+                                                {
+                                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => ReorderAsync(bucket, houses, index, -1))" aria-label="Výš" />
+                                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small" Disabled="@(index == houses.Count - 1)" OnClick="@(() => ReorderAsync(bucket, houses, index, +1))" aria-label="Níž" />
+                                                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                                        @foreach (var b in _candidates.Buckets.Where(b => b.Key != bucket.Key))
+                                                        {
+                                                            <MudMenuItem OnClick="@(() => MoveAsync(card, b.Key))">Přesunout: @b.Label</MudMenuItem>
+                                                        }
+                                                        @if (card.UpcomingVisitId is null)
+                                                        {
+                                                            <MudMenuItem OnClick="@(() => CreateVisitAsync(card))">Domluvit prohlídku</MudMenuItem>
+                                                        }
+                                                    </MudMenu>
+                                                }
+                                            </MudCardActions>
+                                        </MudCard>
+                                    </MudItem>
+                                }
+                            </MudGrid>
+                        </MudPaper>
+                    }
+                </MudStack>
+            }
+        </MudTabPanel>
+
+        @* ───────────────────────── PROHLÍDKY ───────────────────────── *@
+        <MudTabPanel Text="Prohlídky" Icon="@Icons.Material.Filled.Event">
+            @if (_visits is null)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_visits.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info">Žádné prohlídky. Založte ji u domu v Kandidátech (⋮ → Domluvit prohlídku), nebo ji založí ranní úloha z mailu makléře.</MudAlert>
+            }
+            else
+            {
+                <MudStack Spacing="2">
+                    @foreach (var v in _visits)
+                    {
+                        var done = v.Status == "done" || v.Status == "cancelled";
+                        <MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="@(done ? "opacity:.6" : "")">
+                            <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="2">
+                                @if (!string.IsNullOrWhiteSpace(v.PhotoUrl))
+                                {
+                                    <MudImage Src="@PhotosBase.Resolve(v.PhotoUrl, null, Navigation.BaseUri)" Width="72" Height="72" ObjectFit="ObjectFit.Cover" Class="rounded" />
+                                }
+                                <div style="min-width:0;flex:1">
+                                    <MudText Typo="Typo.subtitle1" Style="line-height:1.2"><MudLink Href="@($"/listings/{v.ListingId}")">@(v.Municipality ?? v.Title)</MudLink> · @FormatPrice(v.Price)</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@v.Title</MudText>
+                                    <MudChip T="string" Size="Size.Small" Color="@VisitColor(v.Status)" Variant="Variant.Outlined">@VisitLabel(v.Status)</MudChip>
+                                </div>
+                            </MudStack>
+
+                            <MudGrid Spacing="1" Class="mt-1">
+                                <MudItem xs="7" sm="4">
+                                    <MudDatePicker Label="Datum" Date="@(v.ScheduledAt?.ToLocalTime().Date)" DateChanged="@(d => SetVisitDate(v, d))" Culture="@CsCulture" DateFormat="d. M. yyyy" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(done || !_canWrite)" />
+                                </MudItem>
+                                <MudItem xs="5" sm="3">
+                                    <MudTimePicker Label="Čas" Time="@(v.ScheduledAt?.ToLocalTime().TimeOfDay)" TimeChanged="@(t => SetVisitTime(v, t))" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(done || !_canWrite)" />
+                                </MudItem>
+                                <MudItem xs="12" sm="5">
+                                    <MudTextField T="string" Label="Makléř (jméno, telefon)" Value="@AgentText(v)" ValueChanged="@(s => SetAgent(v, s))" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(done || !_canWrite)" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudTextField T="string" Label="Adresa" Value="@v.Address" ValueChanged="@(s => { v.Address = s; })" Margin="Margin.Dense" Variant="Variant.Outlined" Disabled="@(done || !_canWrite)" />
+                                </MudItem>
+                            </MudGrid>
+
+                            <MudText Typo="Typo.subtitle2" Class="mt-2">Co ověřit na místě</MudText>
+                            @for (var i = 0; i < v.Checklist.Count; i++)
+                            {
+                                var idx = i;
+                                var item = v.Checklist[idx];
+                                <MudCheckBox T="bool" Value="@item.Done" ValueChanged="@(val => ToggleChecklistAsync(v, idx, val))" Dense="true" Disabled="@(!_canWrite)">
+                                    <span style="@(item.Done ? "text-decoration:line-through;opacity:.7" : "")">@item.Text</span>
+                                </MudCheckBox>
+                            }
+                            @if (!done && _canWrite)
+                            {
+                                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                    <MudTextField T="string" @bind-Value="_newChecklistText[v.Id]" Placeholder="Přidat bod…" Margin="Margin.Dense" Variant="Variant.Text" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="@(() => AddChecklistAsync(v))" aria-label="Přidat bod" />
+                                </MudStack>
+                            }
+
+                            <MudTextField T="string" Label="Poznámka po prohlídce" Value="@v.Note" ValueChanged="@(s => { v.Note = s; })" Lines="2" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-2" Disabled="@(!_canWrite)" />
+
+                            @if (_canWrite)
+                            {
+                                <MudStack Row="true" Spacing="1" Class="mt-2" Wrap="Wrap.Wrap">
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Save" OnClick="@(() => SaveVisitAsync(v))">Uložit</MudButton>
+                                    @if (v.Status == "proposed")
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info" OnClick="@(() => SaveVisitAsync(v, "planned"))">Potvrdit termín</MudButton>
+                                    }
+                                    @if (!done)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.DoneAll" OnClick="@(() => CompleteVisitAsync(v))">Hotovo – navštíveno</MudButton>
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="@(() => SaveVisitAsync(v, "cancelled"))">Zrušit</MudButton>
+                                    }
+                                </MudStack>
+                            }
+                        </MudPaper>
+                    }
+                </MudStack>
+            }
+        </MudTabPanel>
+    </MudTabs>
+</MudStack>
+
+@code {
+    private static readonly CultureInfo CsCulture = CultureInfo.GetCultureInfo("cs-CZ");
+    private static readonly (string Value, string Label, Color Color, string Icon)[] VoteOptions =
+    [
+        ("go", "Jet se podívat", Color.Success, Icons.Material.Filled.DirectionsCar),
+        ("maybe", "Možná", Color.Warning, Icons.Material.Filled.HelpOutline),
+        ("no", "Ne", Color.Error, Icons.Material.Filled.Close),
+    ];
+
+    private int _tab;
+    private bool _loading;
+    private bool _digestLoading = true;
+    private bool _voting;
+    private DailyDigestDto? _digest;
+    private CandidatesDto? _candidates;
+    private Dictionary<Guid, HouseCardDto> _cardsById = new();
+    private List<VisitDto>? _visits;
+    private bool _canWrite;
+    private bool _onlyAgreed, _onlyBudget, _onlyDetached;
+    private readonly HashSet<Guid> _expanded = [];
+    private readonly Dictionary<Guid, string> _noteDrafts = new();
+    private readonly Dictionary<Guid, string> _newChecklistText = new();
+    private readonly CancellationTokenSource _cts = new();
+    private System.Threading.Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        // Hlasy toho druhého „živě": obnovit kandidáty každých 45 s
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            if (_tab != 1 || _cts.IsCancellationRequested) return;
+            await InvokeAsync(async () => { await LoadCandidatesAsync(); StateHasChanged(); });
+        }, null, TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(45));
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            await Task.WhenAll(LoadDigestAsync(), LoadCandidatesAsync(), LoadVisitsAsync());
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadDigestAsync()
+    {
+        _digestLoading = true;
+        try
+        {
+            var resp = await Http.GetAsync("api/overview/digest", _cts.Token);
+            _digest = resp.StatusCode == System.Net.HttpStatusCode.NoContent ? null
+                : await resp.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<DailyDigestDto>(cancellationToken: _cts.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Snackbar.Add($"Denní záznam se nenačetl: {ex.Message}", Severity.Error); }
+        finally { _digestLoading = false; }
+    }
+
+    private async Task LoadCandidatesAsync()
+    {
+        try
+        {
+            _candidates = await Http.GetFromJsonAsync<CandidatesDto>("api/overview/candidates", _cts.Token);
+            _cardsById = _candidates?.Buckets.SelectMany(b => b.Houses).ToDictionary(c => c.ListingId) ?? new();
+            foreach (var c in _cardsById.Values)
+                _cardsById.TryAdd(c.GroupId, c);
+            _canWrite = _candidates?.People.Any(p => p.CanVote) ?? false;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Snackbar.Add($"Kandidáti se nenačetli: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task LoadVisitsAsync()
+    {
+        try
+        {
+            _visits = await Http.GetFromJsonAsync<List<VisitDto>>("api/overview/visits", _cts.Token) ?? [];
+            foreach (var v in _visits) _newChecklistText.TryAdd(v.Id, "");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Snackbar.Add($"Prohlídky se nenačetly: {ex.Message}", Severity.Error); }
+    }
+
+    // ─── Dnes ─────────────────────────────────────────────────────────────────
+
+    private sealed record DigestGroup(string Key, string Label, string Icon, bool Collapsed, List<DigestItemDto> Items);
+
+    private static readonly (string Key, string Label, string Icon, bool Collapsed)[] DigestOrder =
+    [
+        ("watched", "Sledované domy", Icons.Material.Filled.Visibility, false),
+        ("reply", "Odpovědi makléřů", Icons.Material.Filled.MarkEmailRead, false),
+        ("new_fit", "Nové domy – sedí", Icons.Material.Filled.NewReleases, false),
+        ("new_partial", "Nové domy – částečně sedí", Icons.Material.Filled.NewReleases, false),
+        ("new_no", "Nové domy – nesedí", Icons.Material.Filled.Block, true),
+        ("price_down", "Zlevnění", Icons.Material.Filled.TrendingDown, false),
+        ("price_up", "Zdražení", Icons.Material.Filled.TrendingUp, false),
+        ("gone", "Stažené", Icons.Material.Filled.EventBusy, false),
+    ];
+
+    private IEnumerable<DigestGroup> DigestGroups()
+    {
+        if (_digest is null) yield break;
+        var known = DigestOrder.Select(d => d.Key).ToHashSet();
+        foreach (var (key, label, icon, collapsed) in DigestOrder)
+        {
+            var items = _digest.Items.Where(i => string.Equals(i.Type, key, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (items.Count > 0) yield return new DigestGroup(key, label, icon, collapsed, items);
+        }
+        var other = _digest.Items.Where(i => !known.Contains((i.Type ?? "").ToLowerInvariant())).ToList();
+        if (other.Count > 0) yield return new DigestGroup("other", "Ostatní", Icons.Material.Filled.Info, false, other);
+    }
+
+    private string DigestTitle(DigestItemDto it) => it.Title;
+
+    // ─── Kandidáti ────────────────────────────────────────────────────────────
+
+    private bool PassesFilters(HouseCardDto c)
+        => (!_onlyAgreed || c.Agreed)
+           && (!_onlyBudget || c.Price is null || c.Price <= 7_500_000m)
+           && (!_onlyDetached || (c.HouseType ?? "").Contains("samostatn", StringComparison.OrdinalIgnoreCase));
+
+    private static string CardStyle(HouseCardDto c)
+        => c.Agreed ? "border: 2px solid var(--mud-palette-success);"
+         : c.Vetoed ? "opacity: .55;"
+         : "";
+
+    private static string BucketIcon(string key) => key switch
+    {
+        "visit" => Icons.Material.Filled.DirectionsCar,
+        "watch" => Icons.Material.Filled.Visibility,
+        _ => Icons.Material.Filled.Layers,
+    };
+
+    private RenderFragment MatchChip(HouseCardDto c) => __builder =>
+    {
+        var (label, color) = c.Match switch
+        {
+            "fits" => ("SEDÍ", Color.Success),
+            "no" => ("NESEDÍ", Color.Error),
+            _ => ("ČÁSTEČNĚ", Color.Warning),
+        };
+        <MudTooltip Text="@(c.CriteriaMissing.Count == 0 ? $"{c.CriteriaMet}/{c.CriteriaTotal} kritérií" : "Chybí: " + string.Join(", ", c.CriteriaMissing))">
+            <MudChip T="string" Size="Size.Small" Color="@color">@label</MudChip>
+        </MudTooltip>
+    };
+
+    private static Color HabitableColor(string s) => s.ToLowerInvariant() switch
+    {
+        "ano" => Color.Success,
+        "ne" => Color.Error,
+        _ => Color.Warning,
+    };
+
+    private static IEnumerable<(string, string)> DetailRows(HouseCardDto c)
+    {
+        if (!string.IsNullOrWhiteSpace(c.RoomsNote)) yield return ("Pokoje mimo obývák a kuchyň", c.RoomsNote);
+        if (!string.IsNullOrWhiteSpace(c.Variant)) yield return ("Varianta", c.Variant);
+        if (!string.IsNullOrWhiteSpace(c.Trainer)) yield return ("Trenažér", c.Trainer);
+        if (!string.IsNullOrWhiteSpace(c.ExtraSpace)) yield return ("Prostor navíc", c.ExtraSpace);
+        if (!string.IsNullOrWhiteSpace(c.Garage)) yield return ("Garáž / dílna", c.Garage);
+        if (c.GardenM2 is { } g) yield return ("Zahrada", $"{g:N0} m²");
+        if (!string.IsNullOrWhiteSpace(c.Heating)) yield return ("Topení", c.Heating);
+        if (!string.IsNullOrWhiteSpace(c.HabitableFloor)) yield return ("Obyvatelné podlaží", c.HabitableFloor);
+        if (!string.IsNullOrWhiteSpace(c.LocationText)) yield return ("Lokalita", c.LocationText);
+    }
+
+    private static string FormatPrice(decimal? p) => p is { } v ? $"{v:N0} Kč".Replace(',', ' ') : "cena neuvedena";
+
+    private string GetNoteDraft(Guid id) => _noteDrafts.GetValueOrDefault(id, "");
+    private void SetNoteDraft(Guid id, string? v) => _noteDrafts[id] = v ?? "";
+    private void ToggleExpanded(Guid id) { if (!_expanded.Remove(id)) _expanded.Add(id); }
+
+    private async Task VoteAsync(HouseCardDto card, string value)
+    {
+        _voting = true;
+        try
+        {
+            var note = GetNoteDraft(card.ListingId);
+            var resp = await Http.PutAsJsonAsync($"api/overview/votes/{card.ListingId}", new VoteRequestDto(value, string.IsNullOrWhiteSpace(note) ? null : note), _cts.Token);
+            if (!resp.IsSuccessStatusCode)
+            {
+                Snackbar.Add(resp.StatusCode == System.Net.HttpStatusCode.Forbidden ? "Hlasovat může jen člen prostoru s právem zápisu." : $"Hlas se neuložil ({(int)resp.StatusCode})", Severity.Error);
+                return;
+            }
+            _noteDrafts.Remove(card.ListingId);
+            await LoadCandidatesAsync();
+        }
+        catch (Exception ex) { Snackbar.Add($"Hlas se neuložil: {ex.Message}", Severity.Error); }
+        finally { _voting = false; }
+    }
+
+    private async Task ReorderAsync(BucketDto bucket, List<HouseCardDto> houses, int index, int delta)
+    {
+        var target = index + delta;
+        if (target < 0 || target >= houses.Count) return;
+        (houses[index], houses[target]) = (houses[target], houses[index]);
+        await SaveRanksAsync(houses.Select((h, i) => new RankItemDto(h.ListingId, bucket.Key, i)).ToList());
+    }
+
+    private async Task MoveAsync(HouseCardDto card, string bucket)
+        => await SaveRanksAsync([new RankItemDto(card.ListingId, bucket, 0)]);
+
+    private async Task SaveRanksAsync(List<RankItemDto> items)
+    {
+        try
+        {
+            var resp = await Http.PutAsJsonAsync("api/overview/ranks", items, _cts.Token);
+            if (!resp.IsSuccessStatusCode) { Snackbar.Add("Pořadí se neuložilo.", Severity.Error); return; }
+            await LoadCandidatesAsync();
+        }
+        catch (Exception ex) { Snackbar.Add($"Pořadí se neuložilo: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task CreateVisitAsync(HouseCardDto card)
+    {
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("api/overview/visits", new VisitUpsertDto(card.ListingId, null, null, null, null, null, null, "planned"), _cts.Token);
+            if (!resp.IsSuccessStatusCode) { Snackbar.Add("Prohlídka se nezaložila.", Severity.Error); return; }
+            await Task.WhenAll(LoadVisitsAsync(), LoadCandidatesAsync());
+            _tab = 2;
+            Snackbar.Add("Prohlídka založena – doplňte termín a makléře.", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add($"Prohlídka se nezaložila: {ex.Message}", Severity.Error); }
+    }
+
+    // ─── Prohlídky ────────────────────────────────────────────────────────────
+
+    private static string VisitLabel(string s) => s switch
+    {
+        "proposed" => "návrh termínu",
+        "planned" => "domluvená",
+        "done" => "hotovo",
+        "cancelled" => "zrušená",
+        _ => s,
+    };
+
+    private static Color VisitColor(string s) => s switch
+    {
+        "proposed" => Color.Warning,
+        "planned" => Color.Info,
+        "done" => Color.Success,
+        _ => Color.Default,
+    };
+
+    private static string AgentText(VisitDto v) => string.Join(", ", new[] { v.AgentName, v.AgentPhone }.Where(x => !string.IsNullOrWhiteSpace(x)));
+
+    private static void SetAgent(VisitDto v, string? text)
+    {
+        var parts = (text ?? "").Split(',', 2, StringSplitOptions.TrimEntries);
+        v.AgentName = parts.Length > 0 && parts[0].Length > 0 ? parts[0] : null;
+        v.AgentPhone = parts.Length > 1 && parts[1].Length > 0 ? parts[1] : null;
+    }
+
+    private static void SetVisitDate(VisitDto v, DateTime? d)
+    {
+        if (d is null) { v.ScheduledAt = null; return; }
+        var time = v.ScheduledAt?.ToLocalTime().TimeOfDay ?? new TimeSpan(10, 0, 0);
+        v.ScheduledAt = DateTime.SpecifyKind(d.Value.Date + time, DateTimeKind.Local).ToUniversalTime();
+    }
+
+    private static void SetVisitTime(VisitDto v, TimeSpan? t)
+    {
+        var date = v.ScheduledAt?.ToLocalTime().Date ?? DateTime.Today;
+        v.ScheduledAt = DateTime.SpecifyKind(date + (t ?? TimeSpan.Zero), DateTimeKind.Local).ToUniversalTime();
+    }
+
+    private async Task SaveVisitAsync(VisitDto v, string? status = null)
+    {
+        try
+        {
+            var dto = new VisitUpsertDto(null, v.ScheduledAt, v.AgentName ?? "", v.AgentPhone ?? "", v.Address ?? "", v.Checklist, v.Note ?? "", status);
+            var resp = await Http.PutAsJsonAsync($"api/overview/visits/{v.Id}", dto, _cts.Token);
+            if (!resp.IsSuccessStatusCode) { Snackbar.Add("Prohlídka se neuložila.", Severity.Error); return; }
+            await LoadVisitsAsync();
+            Snackbar.Add("Uloženo.", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add($"Prohlídka se neuložila: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task ToggleChecklistAsync(VisitDto v, int index, bool done)
+    {
+        v.Checklist[index] = v.Checklist[index] with { Done = done };
+        await PutChecklistAsync(v);
+    }
+
+    private async Task AddChecklistAsync(VisitDto v)
+    {
+        var text = _newChecklistText.GetValueOrDefault(v.Id, "").Trim();
+        if (text.Length == 0) return;
+        v.Checklist.Add(new ChecklistItemDto(text, false));
+        _newChecklistText[v.Id] = "";
+        await PutChecklistAsync(v);
+    }
+
+    private async Task PutChecklistAsync(VisitDto v)
+    {
+        try
+        {
+            var resp = await Http.PutAsJsonAsync($"api/overview/visits/{v.Id}", new VisitUpsertDto(null, null, null, null, null, v.Checklist, null, null), _cts.Token);
+            if (!resp.IsSuccessStatusCode) Snackbar.Add("Checklist se neuložil.", Severity.Error);
+        }
+        catch (Exception ex) { Snackbar.Add($"Checklist se neuložil: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task CompleteVisitAsync(VisitDto v)
+    {
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"api/overview/visits/{v.Id}/done", new { note = v.Note }, _cts.Token);
+            if (!resp.IsSuccessStatusCode) { Snackbar.Add("Nepodařilo se uzavřít prohlídku.", Severity.Error); return; }
+            await Task.WhenAll(LoadVisitsAsync(), LoadCandidatesAsync());
+            Snackbar.Add("Dům je ve stavu Navštíveno.", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add($"Nepodařilo se uzavřít prohlídku: {ex.Message}", Severity.Error); }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

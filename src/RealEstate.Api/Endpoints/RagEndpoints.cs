@@ -94,7 +94,8 @@ public static class RagEndpoints
         if (string.IsNullOrWhiteSpace(dto.Content))
             return TypedResults.BadRequest(new { error = "Content nesmí být prázdný" });
 
-        var result = await rag.SaveAnalysisAsync(id, dto.Content, dto.Source, dto.Title, ct);
+        var structured = dto.Structured is { ValueKind: System.Text.Json.JsonValueKind.Object } el ? el.GetRawText() : null;
+        var result = await rag.SaveAnalysisAsync(id, dto.Content, dto.Source, dto.Title, ct, structured);
         return TypedResults.Created($"/api/listings/{id}/analyses/{result.Id}", result);
     }
 

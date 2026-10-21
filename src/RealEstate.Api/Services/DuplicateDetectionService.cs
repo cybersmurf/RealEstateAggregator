@@ -49,6 +49,9 @@ public sealed class DuplicateDetectionService(
     /// </summary>
     private const double LaggingPriceTolerance = 0.10;
 
+    /// <summary>Jak dlouho po stažení se inzerát ještě připojuje k živé kopii (přeinzerování, jiný portál).</summary>
+    private const int RememberedWindowDays = 365;
+
     /// <summary>Max. vzdálenost GPS bodů v metrech.</summary>
     private const double GpsMaxMeters = 300;
 
@@ -114,14 +117,21 @@ public sealed class DuplicateDetectionService(
 
     public async Task<DuplicateScanResultDto> DetectAsync(CancellationToken cancellationToken)
     {
-        // Aktivní inzeráty + stažené, ke kterým má někdo vlastní záznam (stav, poznámky, fotky
-        // z prohlídky). Ty se nepárují mezi sebou, jen se připojí ke své živé kopii – dům, kde
-        // už uživatel byl, se jinak po návratu na jiný portál tváří jako neviděný.
+        // Aktivní inzeráty + stažené z posledního roku a stažené, ke kterým má někdo vlastní záznam
+        // (stav, poznámky, fotky z prohlídky, hlas, pořadí, prohlídka). Stažené se nepárují mezi
+        // sebou, jen se připojí ke své živé kopii – dům, kde už uživatel byl, se jinak po návratu
+        // na jiný portál tváří jako neviděný, a přeinzerovaný dům (Kubšice: Sreality 5,7 mil.
+        // stažen 10. 10., 12. 10. znovu za 5,4 mil.) by ztratil historii ceny i dny na trhu.
+        var rememberedSince = DateTime.UtcNow.AddDays(-RememberedWindowDays);
         var all = await ctx.Listings
             .AsNoTracking()
             .Where(l => l.IsActive
+                        || (l.DeactivatedAt != null && l.DeactivatedAt >= rememberedSince)
                         || l.UserStates.Any(s => s.Status != "New" || (s.Notes != null && s.Notes != ""))
-                        || ctx.UserListingPhotos.Any(p => p.ListingId == l.Id))
+                        || ctx.UserListingPhotos.Any(p => p.ListingId == l.Id)
+                        || ctx.HouseVotes.Any(v => v.ListingId == l.Id)
+                        || ctx.HouseRanks.Any(r => r.ListingId == l.Id)
+                        || ctx.HouseVisits.Any(v => v.ListingId == l.Id))
             .Select(l => new DuplicateCandidate(
                 l.Id, l.SourceId, l.PropertyType, l.OfferType,
                 l.Price, l.Latitude, l.Longitude,
@@ -174,9 +184,9 @@ public sealed class DuplicateDetectionService(
     /// přesná GPS obou do 300 m, NEBO (bez přesné GPS) stejná cena
     /// na korunu + plochy bez rozporu + (GPS do 300 m, NEBO shodná plocha a GPS do 5 km či stejná obec).
     /// </summary>
-    public static bool IsDuplicatePair(DuplicateCandidate a, DuplicateCandidate b)
+    public static bool IsDuplicatePair(DuplicateCandidate a, DuplicateCandidate b, bool allowSameSource = false)
     {
-        if (a.SourceId == b.SourceId) return false;              // opakování v jednom zdroji řeší IsSameSourceRepeat
+        if (a.SourceId == b.SourceId && !allowSameSource) return false;  // opakování v jednom zdroji řeší IsSameSourceRepeat
         if (!TypesCompatible(a.PropertyType, b.PropertyType)) return false;
         if (a.OfferType != b.OfferType) return false;
 
@@ -517,7 +527,9 @@ public sealed class DuplicateDetectionService(
             {
                 var livePrice = (double)live.Price!.Value;
                 if (Math.Abs(livePrice - price) > Math.Max(livePrice, price) * LaggingPriceTolerance) continue;
-                if (IsDuplicatePair(gone, live) || IsSameSourceRepeat(gone, live))
+                // Stažený inzerát se s živým nemůže „opakovat" vedle sebe – v témže zdroji jde o přeinzerování,
+                // typicky s novou (nižší) cenou, proto tu platí i volnější pravidlo pro kopie napříč portály.
+                if (IsDuplicatePair(gone, live, allowSameSource: true) || IsSameSourceRepeat(gone, live))
                     groups.Add(mapping.TryGetValue(live.Id, out var primaryId) ? primaryId : live.Id);
             }
 

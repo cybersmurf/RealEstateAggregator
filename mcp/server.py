@@ -173,6 +173,25 @@ async def _call_api(method: str, path: str, **kwargs) -> dict | list:
         ) from e
 
 
+async def _wait_for_job(started: dict, max_seconds: int = 180) -> dict:
+    """Úloha na pozadí (202 + jobId): čeká na dokončení přes GET /api/jobs/{id} a vrátí její result.
+    Vision modely trvají desítky sekund – synchronní volání naráželo na API_TIMEOUT (30 s)."""
+    job_id = (started or {}).get("jobId")
+    if not job_id:
+        return started or {}
+    import asyncio as _asyncio
+    deadline = time.monotonic() + max_seconds
+    while True:
+        job = await _call_api("get", f"/api/jobs/{job_id}")
+        if job.get("isFinished") or job.get("status") in ("Succeeded", "Failed", "Cancelled"):
+            if job.get("status") == "Failed":
+                raise ToolError(f"Úloha {job_id} selhala: {job.get('error') or 'bez detailu'}")
+            return job.get("result") or {}
+        if time.monotonic() > deadline:
+            raise ToolError(f"Úloha {job_id} stále běží (po {max_seconds} s) – zkus to za chvíli znovu, výsledek se uloží sám.")
+        await _asyncio.sleep(3)
+
+
 def _fmt_auction_date(value: str | None) -> str:
     """ISO datum dražby z API (UTC) → místní čas Europe/Prague, nebo 'neuveden'."""
     if not value:
@@ -883,7 +902,7 @@ async def get_inspection_photos(listing_id: str, page: int = 1, page_size: int =
         + (f"➡️ Další: `get_inspection_photos(listing_id='{listing_id}', page={page+1})`" if page < total_pages else "")
     )]
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:  # igluu.cz (Century 21, Reas) vrací 303 na CDN
         for i, p in enumerate(page_photos, start + 1):
             filename = p.get('originalFileName', f'photo-{i}.jpg')
             filesize_kb = p.get('fileSizeBytes', 0) // 1024
@@ -1005,7 +1024,7 @@ async def get_listing_photos(listing_id: str, page: int = 1, page_size: int = 5,
         + (f"➡️ Další: `get_listing_photos(listing_id='{listing_id}', page={page+1})`" if page < total_pages else "")
     )]
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:  # igluu.cz (Century 21, Reas) vrací 303 na CDN
         for i, p in enumerate(page_photos, start + 1):
             stored = p.get("storedUrl") or ""
             original = p.get("originalUrl") or ""
@@ -1440,6 +1459,7 @@ async def save_analysis(
     content: str,
     title: Optional[str] = None,
     source: str = "claude",
+    structured: Optional[dict] = None,
 ) -> str:
     """
     💾 Uloží NOVOU analýzu inzerátu do databáze.
@@ -1461,12 +1481,24 @@ async def save_analysis(
         content: Plný text analýzy (markdown, plain text – libovolná délka)
         title: Volitelný nadpis (např. "Analýza z prohlídky 26.2.2026")
         source: Původ: "claude" (default) | "mcp" | "manual" | "ai" | "perplexity"
+        structured: Volitelné STRUKTUROVANÉ hodnocení pro kartu domu na /prehled (nemusí se parsovat
+               z markdownu). Klíče: shoda ("sedí" | "částečně" | "nesedí"), typ (bungalov / patrový /
+               řadový / samostatně stojící), obyvatelne_podlazi ("ano" | "jde udělat" | "ne"),
+               verdikt (JEDNA věta proč ano / proč ne), varovani [..] (jen dřevo, přímotopy, odpojený
+               plyn, kotel 20+ let, voda jen ze studny, hliníkové rozvody, nezapsané stavby v KN,
+               vlhkost, u hlavní silnice…), plusy [..], minusy [..], overit_na_miste [..] (předvyplní
+               checklist prohlídky), varianta ("A" | "B" | "–"), trenazer (kam), zahrada_m2 (číslo),
+               topeni, pokoje (mimo obývák a kuchyň), prostor_navic, garaz.
     """
     payload = {
         "content": content,
         "title": title,
         "source": source,
     }
+    if structured:
+        if not isinstance(structured, dict):
+            raise ToolError("structured musí být JSON objekt (dict)")
+        payload["structured"] = structured
     try:
         result = await _call_api(
             "post", f"/api/listings/{listing_id}/analyses", json=payload
@@ -1484,7 +1516,176 @@ async def save_analysis(
         f"Zdroj: {result.get('source')}\n"
         f"Embedding: {emb_status}\n"
         f"Délka: {len(content)} znaků"
+        + ("\nStrukturované hodnocení: uloženo (karta domu na /prehled)" if structured else "")
     )
+
+
+
+# ─── /prehled: denní záznam, hlasy, prohlídky ────────────────────────────────
+
+_VOTE_LABELS = {"go": "Jet se podívat", "maybe": "Možná", "no": "Ne"}
+_VISIT_STATUS_LABELS = {"proposed": "návrh", "planned": "domluvená", "done": "hotovo", "cancelled": "zrušená"}
+
+
+@mcp.tool()
+async def save_daily_digest(summary: str, items: list[dict], date: Optional[str] = None) -> str:
+    """
+    📰 Uloží DENNÍ ZÁZNAM pro záložku „Dnes" na https://realestate.sudata.eu/prehled. Volá ranní
+    úloha; stránka ho jen zobrazuje, nic nepřepočítává. Jeden záznam na den – opakované volání
+    téhož dne ho přepíše.
+
+    Args:
+        summary: JEDNA souhrnná věta, např. „Za poslední den: 1 nový dům, 0 zlevnění, 4 stažené.
+                 Sledované beze změny." Když se nic nestalo, řekni to jednou větou.
+        items: Položky {type, listingId?, title, text?, link?}. type je jedna z:
+               watched (sledované domy: změna ceny, stažení, nové fotky od makléře, poloha domu),
+               reply (odpověď makléře: shrnutí 1–2 věty, přílohy, navržený termín),
+               new_fit / new_partial (nové domy, které SEDÍ / ČÁSTEČNĚ sedí – ukážou se jako karta),
+               new_no (nové domy, které NESEDÍ – jen řádek s důvodem),
+               price_down / price_up (stará → nová cena, %, celková sleva od začátku inzerce;
+               text zmiň, když se dům dostal pod 7,5 mil.),
+               gone (zmizely ze všech portálů).
+               Pořadí skupin na stránce je pevné, prázdné se nezobrazí.
+        date: Den záznamu YYYY-MM-DD (default dnes, Europe/Prague).
+    """
+    payload = {"summary": summary, "items": items or []}
+    if date:
+        payload["date"] = date
+    result = await _call_api("post", "/api/overview/digest", json=payload)
+    return (
+        f"✅ Denní záznam uložen pro {result.get('date')}: {len(result.get('items') or [])} položek.\n"
+        f"{result.get('summary')}\n"
+        f"Odkaz do mailu: https://realestate.sudata.eu/prehled"
+    )
+
+
+def _fmt_votes(votes: list) -> str:
+    if not votes:
+        return "bez hlasů"
+    parts = []
+    for v in votes:
+        txt = f"{v.get('name')}: {_VOTE_LABELS.get(v.get('value'), v.get('value'))}"
+        if v.get("note"):
+            txt += f" („{v['note']}“)"
+        if v.get("beforePriceChange"):
+            txt += " [hlasováno před změnou ceny]"
+        parts.append(txt)
+    return "; ".join(parts)
+
+
+@mcp.tool()
+async def get_votes(listing_id: Optional[str] = None) -> str:
+    """
+    🗳️ Hlasy Petra a Lenky k domům (Jet se podívat / Možná / Ne) z /prehled – aby je ranní úloha
+    mohla zmínit („Lenka dala Kubšicím Ne"). Hlas platí pro celý dům napříč portály.
+
+    Args:
+        listing_id: UUID inzerátu – hlasy k tomu domu; bez něj všechny domy s hlasy.
+    """
+    if listing_id:
+        votes = await _call_api("get", "/api/overview/votes", params={"listingId": listing_id})
+        return f"Hlasy k `{listing_id}`: {_fmt_votes(votes)}"
+    by_listing = await _call_api("get", "/api/overview/votes")
+    if not by_listing:
+        return "Zatím nikdo nehlasoval."
+    lines = []
+    for lid, votes in by_listing.items():
+        try:
+            listing = await _call_api("get", f"/api/listings/{lid}")
+            name = f"{listing.get('title', '')} ({listing.get('locationText', '')})"
+        except httpx.HTTPStatusError:
+            name = "?"
+        lines.append(f"- `{lid}` {name}: {_fmt_votes(votes)}")
+    return "\n".join(lines)
+
+
+def _fmt_visit(v: dict) -> str:
+    when = (v.get("scheduledAt") or "")[:16].replace("T", " ") or "termín zatím není"
+    checklist = v.get("checklist") or []
+    done = sum(1 for c in checklist if c.get("done"))
+    agent = ", ".join(x for x in [v.get("agentName"), v.get("agentPhone")] if x)
+    lines = [
+        f"🏠 **{v.get('title', '')}** – {v.get('locationText') or v.get('municipality') or ''}",
+        f"   prohlídka `{v['id']}` | dům `{v['listingId']}` | {when} | {_VISIT_STATUS_LABELS.get(v.get('status'), v.get('status'))}",
+    ]
+    if agent:
+        lines.append(f"   makléř: {agent}")
+    if v.get("address"):
+        lines.append(f"   adresa: {v['address']}")
+    if checklist:
+        lines.append(f"   co ověřit ({done}/{len(checklist)} hotovo): " + "; ".join(("✅ " if c.get("done") else "☐ ") + c.get("text", "") for c in checklist))
+    if v.get("note"):
+        lines.append(f"   poznámka: {v['note']}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def get_visits(from_date: Optional[str] = None, to_date: Optional[str] = None) -> str:
+    """
+    📅 Prohlídky z /prehled (domluvené, navržené i hotové) s checklistem „co ověřit na místě".
+
+    Args:
+        from_date, to_date: rozsah termínu YYYY-MM-DD (prohlídky bez termínu se vracejí vždy)
+    """
+    params = {}
+    if from_date:
+        params["from"] = from_date
+    if to_date:
+        params["to"] = to_date
+    visits = await _call_api("get", "/api/overview/visits", params=params)
+    if not visits:
+        return "Žádné prohlídky."
+    return "\n\n".join(_fmt_visit(v) for v in visits)
+
+
+@mcp.tool()
+async def save_visit(
+    listing_id: Optional[str] = None,
+    visit_id: Optional[str] = None,
+    scheduled_at: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    agent_phone: Optional[str] = None,
+    address: Optional[str] = None,
+    checklist: Optional[list[str]] = None,
+    note: Optional[str] = None,
+    status: Optional[str] = None,
+) -> str:
+    """
+    📅 Založí nebo upraví PROHLÍDKU pro /prehled. Makléř navrhne termín v mailu → ranní úloha založí
+    návrh (status="proposed"); Petr a Lenka ho na stránce potvrdí. Bez checklistu se předvyplní
+    z poslední analýzy (overit_na_miste + varovani).
+
+    Args:
+        listing_id: UUID inzerátu (nová prohlídka)
+        visit_id: UUID prohlídky (úprava existující – pak listing_id netřeba)
+        scheduled_at: termín ISO 8601, např. "2026-10-24T15:30" (místní čas)
+        agent_name, agent_phone, address: makléř a místo (bez zadání se vezmou z inzerátu)
+        checklist: body „co ověřit na místě" (seznam vět)
+        note: poznámka (po prohlídce volný text)
+        status: proposed | planned | done | cancelled
+    """
+    if not listing_id and not visit_id:
+        raise ToolError("Zadej listing_id (nová prohlídka) nebo visit_id (úprava).")
+    payload: dict = {
+        "listingId": listing_id,
+        "scheduledAt": scheduled_at,
+        "agentName": agent_name,
+        "agentPhone": agent_phone,
+        "address": address,
+        "checklist": [{"text": t, "done": False} for t in checklist] if checklist else None,
+        "note": note,
+        "status": status,
+    }
+    try:
+        if visit_id:
+            v = await _call_api("put", f"/api/overview/visits/{visit_id}", json=payload)
+            return "✅ Prohlídka upravena\n" + _fmt_visit(v)
+        v = await _call_api("post", "/api/overview/visits", json=payload)
+        return "✅ Prohlídka založena\n" + _fmt_visit(v)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return "Inzerát nebo prohlídka nenalezena."
+        raise
 
 
 _SEVERITY_LABELS = {"high": "závažné", "medium": "zavádějící", "low": "kosmetické"}
@@ -1578,7 +1779,10 @@ async def detect_house_position(listing_id: str) -> str:
         listing_id: UUID inzerátu
     """
     try:
-        result = await _call_api("post", "/api/photos/detect-house-position", params={"listingId": listing_id, "wait": "true"})
+        result = await _wait_for_job(
+            await _call_api("post", "/api/photos/detect-house-position", params={"listingId": listing_id, "wait": "false"}),
+            max_seconds=180,
+        )
     except httpx.HTTPStatusError as e:
         if e.response.status_code in (400, 404):
             return f"Inzerát {listing_id} nenalezen."
@@ -1720,7 +1924,8 @@ async def set_listing_status(
             lines.append(f"➖ `{listing_id}` {name} – už je **{_USER_STATUS_LABELS[target]}**, nic se nemění")
             continue
 
-        if note and note.strip():
+        if note and note.strip() and note.strip() not in notes:
+            # tutéž větu nepřipojovat podruhé (ranní úloha ji posílala každý den znovu – Kubšice, Šumice)
             notes = f"{notes}\n{note.strip()}" if notes else note.strip()
 
         await _call_api("post", f"/api/listings/{listing_id}/state", json={"status": target, "notes": notes or None})
