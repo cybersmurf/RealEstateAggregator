@@ -148,6 +148,17 @@ public sealed class OverviewService(
             .ToListAsync(ct);
         var byId = listings.ToDictionary(l => l.Id);
 
+        // Kandidát je jen dům, který ještě jde koupit a kde jsme nebyli: dům s kopií ve stavu
+        // Navštíveno nebo Nezajímavé vypadne (stav patří domu, ne kopii), stejně jako dům, jehož
+        // všechny kopie jsou stažené – ten patří do „zmizelých", ne do žebříčku.
+        var closedStates = await db.UserListingStates.AsNoTracking()
+            .Where(s => s.UserId == ownerId && allMemberIds.Contains(s.ListingId) && (s.Status == "Visited" || s.Status == "Disliked"))
+            .Select(s => s.ListingId)
+            .ToListAsync(ct);
+        var closedRoots = members.Where(kv => kv.Value.Any(closedStates.Contains)).Select(kv => kv.Key).ToHashSet();
+        var deadRoots = members.Where(kv => !kv.Value.Any(id => byId.TryGetValue(id, out var l) && l.IsActive)).Select(kv => kv.Key).ToHashSet();
+        rootIds = rootIds.Where(r => !closedRoots.Contains(r) && !deadRoots.Contains(r)).ToList();
+
         var votes = await db.HouseVotes.AsNoTracking().Include(v => v.User)
             .Where(v => allMemberIds.Contains(v.ListingId)).ToListAsync(ct);
         var ranks = await db.HouseRanks.AsNoTracking()
