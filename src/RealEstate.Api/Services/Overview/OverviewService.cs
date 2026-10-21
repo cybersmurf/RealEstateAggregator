@@ -206,6 +206,7 @@ public sealed class OverviewService(
         var buckets = Buckets.Select(b => new BucketDto(b, BucketLabels[b],
             cards.Where(c => c.Bucket == b)
                 .OrderBy(c => c.Position)
+                .ThenBy(c => c.IsActive ? 0 : 1)
                 .ThenByDescending(c => c.Agreed)
                 .ThenByDescending(c => c.CriteriaMet)
                 .ThenBy(c => c.Price ?? decimal.MaxValue)
@@ -412,6 +413,15 @@ public sealed class OverviewService(
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Hlas {Value} od {User} k domu {Listing}", value, userId, listingId);
         return await GetVotesAsync(listingId, ct);
+    }
+
+    public async Task<bool> ClearVoteAsync(Guid listingId, CancellationToken ct)
+    {
+        var userId = currentUser.UserId ?? throw new UnauthorizedAccessException("Hlasovat může jen přihlášený uživatel");
+        var root = await RootOfAsync(listingId, ct);
+        var members = (await LoadGroupMembersAsync([root], ct))[root];
+        var deleted = await db.HouseVotes.Where(v => v.UserId == userId && members.Contains(v.ListingId)).ExecuteDeleteAsync(ct);
+        return deleted > 0;
     }
 
     // ─── Pořadí ───────────────────────────────────────────────────────────────

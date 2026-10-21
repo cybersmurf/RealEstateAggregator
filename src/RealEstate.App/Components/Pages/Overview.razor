@@ -208,6 +208,10 @@
                                                             <MudTooltip Text="@($"{vote.VotedAt.ToLocalTime():d. M. H:mm}{(string.IsNullOrWhiteSpace(vote.Note) ? "" : " – " + vote.Note)}")">
                                                                 <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" Color="Color.Secondary" />
                                                             </MudTooltip>
+                                                            @if (person.CanVote)
+                                                            {
+                                                                <MudIconButton Icon="@Icons.Material.Filled.Backspace" Size="Size.Small" OnClick="@(() => ClearVoteAsync(card))" aria-label="Zrušit hlas" />
+                                                            }
                                                             @if (vote.BeforePriceChange) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Warning">hlasováno před změnou ceny</MudChip> }
                                                         }
                                                     </MudStack>
@@ -574,6 +578,17 @@
         }
         catch (Exception ex) { Snackbar.Add($"Hlas se neuložil: {ex.Message}", Severity.Error); }
         finally { _voting = false; }
+    }
+
+    private async Task ClearVoteAsync(HouseCardDto card)
+    {
+        try
+        {
+            var resp = await Http.DeleteAsync($"api/overview/votes/{card.ListingId}", _cts.Token);
+            if (resp.IsSuccessStatusCode || resp.StatusCode == System.Net.HttpStatusCode.NotFound) await LoadCandidatesAsync();
+            else Snackbar.Add("Hlas se nepodařilo zrušit.", Severity.Error);
+        }
+        catch (Exception ex) { Snackbar.Add($"Hlas se nepodařilo zrušit: {ex.Message}", Severity.Error); }
     }
 
     private async Task ReorderAsync(BucketDto bucket, List<HouseCardDto> houses, int index, int delta)

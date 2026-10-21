@@ -31,6 +31,13 @@ public static class OverviewEndpoints
             catch (KeyNotFoundException) { return Results.NotFound(); }
         }).WithName("Vote");
 
+        group.MapDelete("/votes/{listingId:guid}", async (Guid listingId, [FromServices] IOverviewService svc, [FromServices] ICurrentUser user, CancellationToken ct) =>
+        {
+            if (!user.CanWriteWorkspace && !user.IsAdmin) return Results.Forbid();
+            try { return await svc.ClearVoteAsync(listingId, ct) ? Results.NoContent() : Results.NotFound(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+        }).WithName("ClearVote");
+
         group.MapPut("/ranks", async ([FromBody] List<RankItemDto> items, [FromServices] IOverviewService svc, [FromServices] ICurrentUser user, CancellationToken ct) =>
         {
             if (!user.CanWriteWorkspace && !user.IsAdmin) return Results.Forbid();

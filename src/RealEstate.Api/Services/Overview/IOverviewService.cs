@@ -12,6 +12,7 @@ public interface IOverviewService
     Task<List<VoteDto>> GetVotesAsync(Guid listingId, CancellationToken ct);
     Task<Dictionary<Guid, List<VoteDto>>> GetAllVotesAsync(CancellationToken ct);
     Task<List<VoteDto>> VoteAsync(Guid listingId, VoteRequestDto request, CancellationToken ct);
+    Task<bool> ClearVoteAsync(Guid listingId, CancellationToken ct);
     Task SaveRanksAsync(IReadOnlyList<RankItemDto> items, CancellationToken ct);
 
     Task<List<VisitDto>> GetVisitsAsync(DateTime? from, DateTime? to, CancellationToken ct);
