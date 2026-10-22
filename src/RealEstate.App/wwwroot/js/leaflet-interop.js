@@ -28,11 +28,37 @@ window.leafletMap = (() => {
         addBaseLayers(map, 'osm');
 
         _maps[mapId] = map;
-        _markerLayers[mapId] = L.layerGroup().addTo(map);
+        _markerLayers[mapId] = createMarkerLayer().addTo(map);
         _corridorLayers[mapId] = L.layerGroup().addTo(map);
         _bboxLayers[mapId] = L.layerGroup().addTo(map);
 
         return true;
+    }
+
+    /**
+     * Vrstva markerů: shlukování (Leaflet.markercluster) s počtem inzerátů v kruhu jako na Reasu.
+     * Shluky se rozpadají přibližováním, od úrovně ulice se kreslí jednotlivé špendlíky.
+     * Bez pluginu (starý bundle v cache) se použije obyčejná skupina.
+     */
+    function createMarkerLayer() {
+        if (typeof L.markerClusterGroup !== 'function') return L.layerGroup();
+        return L.markerClusterGroup({
+            maxClusterRadius: 60,
+            disableClusteringAtZoom: 16,
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false,
+            zoomToBoundsOnClick: true,
+            chunkedLoading: true,
+            iconCreateFunction: cluster => {
+                const n = cluster.getChildCount();
+                const size = n < 10 ? 34 : n < 100 ? 40 : 48;
+                return L.divIcon({
+                    html: `<div class="re-cluster-inner">${n}</div>`,
+                    className: 're-cluster',
+                    iconSize: L.point(size, size)
+                });
+            }
+        });
     }
 
     /**
@@ -190,7 +216,9 @@ window.leafletMap = (() => {
         const map = _maps[mapId];
         if (!layer || !map) return;
 
-        const bounds = L.featureGroup(layer.getLayers()).getBounds();
+        const bounds = typeof layer.getBounds === 'function'
+            ? layer.getBounds()
+            : L.featureGroup(layer.getLayers()).getBounds();
         if (bounds.isValid()) {
             map.fitBounds(bounds, { padding: [40, 40] });
         }
@@ -383,6 +411,10 @@ window.leafletMap = (() => {
         const { marker, point } = entry;
         marker.setIcon(getHighlightedMarkerIcon(point.propertyType, point.offerType));
         marker.setZIndexOffset(1000);
+        // Marker schovaný ve shluku: zvýrazní se jeho shluk
+        const layer = _markerLayers[mapId];
+        const cluster = typeof layer?.getVisibleParent === 'function' ? layer.getVisibleParent(marker) : null;
+        if (cluster && cluster !== marker && cluster._icon) cluster._icon.classList.add('re-cluster--active');
     }
 
     /**
@@ -394,6 +426,9 @@ window.leafletMap = (() => {
         const { marker, point } = entry;
         marker.setIcon(getMarkerIcon(point.propertyType, point.offerType));
         marker.setZIndexOffset(0);
+        const layer = _markerLayers[mapId];
+        const cluster = typeof layer?.getVisibleParent === 'function' ? layer.getVisibleParent(marker) : null;
+        if (cluster && cluster !== marker && cluster._icon) cluster._icon.classList.remove('re-cluster--active');
     }
 
     /**
