@@ -80,6 +80,8 @@ Endpoints are registered in `src/RealEstate.Api/Endpoints/` as extension methods
 
 **Poznámka k ceně:** scraper smí poslat `price_note` (upsert ji vždy přepíše) a `keep_last_price` – rezervovaná nabídka bez ceny si nechá poslední známou. Premia Reality: `td.prodano` → deaktivace, `td.rezervace` → štítek „Rezervace".
 
+**Kopie bez ceny (od 25. 10. 2026):** inzerát s cenou „dohodou“ se páruje přes `DuplicateDetectionService.IsPricelessCopy` – okres bez rozporu, obec nebo GPS do 5 km, plochy bez rozporu a aspoň jedna shodná (nebo dispozice) a tentýž popis či dlouhý titulek; jednoznačnost v cizím zdroji platí dál.
+
 **Zmizelé z trhu:** `POST /api/listings/search` s `deactivatedSince` vrací neaktivní inzeráty stažené od data, u kterých už neběží ani kopie ve skupině duplicit (řazení `deactivated`); MCP `search_listings(gone_in_days=N)`. Bez toho filtru hledání vrací jen aktivní.
 
 Long-running listing actions (photo classification `bulk-classify`, alt texts, `analyze-local`, `export-drive`, `export-analysis-to-drive`) run as server-side background jobs (`IBackgroundJobService`, in-memory, cancelled only on app shutdown). `?wait=false` returns 202 + `jobId`, default waits as before; status via `GET /api/jobs/{id}` and `GET /api/jobs?listingId=&active=true`. The Blazor detail page starts jobs with `wait=false`, polls them and resumes tracking after navigation, so leaving the page never aborts the work.
