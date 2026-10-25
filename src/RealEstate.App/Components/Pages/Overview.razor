@@ -18,6 +18,20 @@
         <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="_loading" aria-label="Obnovit" />
     </MudStack>
 
+    @if (_unauthorized)
+    {
+        <MudAlert Severity="Severity.Info">
+            Přehled domů je dostupný přihlášeným uživatelům – <MudLink Href="/login?returnUrl=%2Fprehled">přihlásit se</MudLink>.
+        </MudAlert>
+    }
+    else if (_forbidden)
+    {
+        <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.Lock">
+            Přehled domů vidí jen správci a členové jejich sdíleného prostoru.
+        </MudAlert>
+    }
+    else
+    {
     <MudTabs @bind-ActivePanelIndex="_tab" Rounded="true" PanelClass="pt-3" ApplyEffectsToContainer="true" Elevation="1">
 
         @* ───────────────────────── DNES ───────────────────────── *@
@@ -382,6 +396,7 @@
             }
         </MudTabPanel>
     </MudTabs>
+    }
 </MudStack>
 
 @code {
@@ -408,6 +423,7 @@
     private readonly Dictionary<Guid, string> _newChecklistText = new();
     private readonly CancellationTokenSource _cts = new();
     private System.Threading.Timer? _timer;
+    private bool _unauthorized, _forbidden;
 
     protected override async Task OnInitializedAsync()
     {
@@ -415,7 +431,7 @@
         // Hlasy toho druhého „živě": obnovit kandidáty každých 45 s
         _timer = new System.Threading.Timer(async _ =>
         {
-            if (_tab != 1 || _cts.IsCancellationRequested) return;
+            if (_tab != 1 || _unauthorized || _forbidden || _cts.IsCancellationRequested) return;
             await InvokeAsync(async () => { await LoadCandidatesAsync(); StateHasChanged(); });
         }, null, TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(45));
     }
@@ -433,12 +449,21 @@
         }
     }
 
+    /// <summary>401 = nepřihlášen, 403 = bez přístupu k záznamům prostoru – místo chybových hlášek se zobrazí výzva.</summary>
+    private bool AllowedOrFlag(HttpResponseMessage resp)
+    {
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) { _unauthorized = true; return false; }
+        if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden) { _forbidden = true; return false; }
+        return true;
+    }
+
     private async Task LoadDigestAsync()
     {
         _digestLoading = true;
         try
         {
             var resp = await Http.GetAsync("api/overview/digest", _cts.Token);
+            if (!AllowedOrFlag(resp)) return;
             _digest = resp.StatusCode == System.Net.HttpStatusCode.NoContent ? null
                 : await resp.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<DailyDigestDto>(cancellationToken: _cts.Token);
         }
@@ -451,7 +476,9 @@
     {
         try
         {
-            _candidates = await Http.GetFromJsonAsync<CandidatesDto>("api/overview/candidates", _cts.Token);
+            var resp = await Http.GetAsync("api/overview/candidates", _cts.Token);
+            if (!AllowedOrFlag(resp)) return;
+            _candidates = await resp.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<CandidatesDto>(cancellationToken: _cts.Token);
             _cardsById = _candidates?.Buckets.SelectMany(b => b.Houses).ToDictionary(c => c.ListingId) ?? new();
             foreach (var c in _cardsById.Values)
                 _cardsById.TryAdd(c.GroupId, c);
@@ -465,7 +492,9 @@
     {
         try
         {
-            _visits = await Http.GetFromJsonAsync<List<VisitDto>>("api/overview/visits", _cts.Token) ?? [];
+            var resp = await Http.GetAsync("api/overview/visits", _cts.Token);
+            if (!AllowedOrFlag(resp)) return;
+            _visits = await resp.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<List<VisitDto>>(cancellationToken: _cts.Token) ?? [];
             foreach (var v in _visits) _newChecklistText.TryAdd(v.Id, "");
         }
         catch (OperationCanceledException) { }
