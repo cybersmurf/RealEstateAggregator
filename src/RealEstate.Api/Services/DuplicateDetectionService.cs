@@ -138,7 +138,7 @@ public sealed class DuplicateDetectionService(
                 l.Municipality, l.AreaBuiltUp, l.AreaLand, l.FirstSeenAt,
                 l.GeocodeSource != "nominatim" && !ApproxGpsSources.Contains(l.SourceCode),
                 l.District, l.Title, l.Disposition,
-                l.Price >= ExactPriceEvidenceMin ? l.Description : null,
+                l.Price >= ExactPriceEvidenceMin || l.Price == null ? l.Description : null,
                 l.IsActive))
             .ToListAsync(cancellationToken);
 
@@ -190,7 +190,7 @@ public sealed class DuplicateDetectionService(
         if (!TypesCompatible(a.PropertyType, b.PropertyType)) return false;
         if (a.OfferType != b.OfferType) return false;
 
-        if (a.Price is not > 0 || b.Price is not > 0) return false;
+        if (a.Price is not > 0 || b.Price is not > 0) return IsPricelessCopy(a, b);
         var maxPrice = (double)Math.Max(a.Price.Value, b.Price.Value);
         var priceDiff = (double)Math.Abs(a.Price.Value - b.Price.Value);
 
@@ -262,6 +262,37 @@ public sealed class DuplicateDetectionService(
         return municipalityMissing
             && builtUp == true && land == true
             && DistrictMatches(a.District, b.District);
+    }
+
+    /// <summary>
+    /// Kopie bez ceny („cena dohodou", „informace v RK" – Realcity 34 z 267 aktivních, Sreality ~900).
+    /// Bez ceny se inzerát do párování vůbec nedostal, i když měl na jiném portálu slovo od slova stejný
+    /// popis (Oslavany, Havířská 220 m²: Realcity bez ceny, Sreality/iDNES/Reas 7 999 999 Kč). Chybí-li
+    /// cena na kterékoli straně, musí sedět všechno ostatní: okres bez rozporu, stejná obec nebo GPS do
+    /// 5 km (dvě přesné GPS nad 1,5 km vylučují), plochy bez rozporu a aspoň jedna shodná (nebo stejná
+    /// dispozice) a k tomu tentýž popis nebo dlouhý titulek. Jednoznačnost v cizím zdroji hlídá
+    /// <see cref="BuildClusters"/> – šablonové byty developera bez ceny se tak neslijí.
+    /// </summary>
+    public static bool IsPricelessCopy(DuplicateCandidate a, DuplicateCandidate b)
+    {
+        if (a.SourceId == b.SourceId) return false;
+        if (!TypesCompatible(a.PropertyType, b.PropertyType) || a.OfferType != b.OfferType) return false;
+        if (DistrictsDiffer(a.District, b.District)) return false;
+
+        double? distance =
+            a.Latitude is not null && a.Longitude is not null &&
+            b.Latitude is not null && b.Longitude is not null
+                ? GpsDistanceMeters(a.Latitude.Value, a.Longitude.Value, b.Latitude.Value, b.Longitude.Value)
+                : null;
+        if (distance > PreciseGpsRejectMeters && a.PreciseGps && b.PreciseGps) return false;
+        if (!(distance <= ApproxGpsMaxMeters) && !MunicipalityMatches(a.Municipality, b.Municipality)) return false;
+
+        var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
+        var land = CompareAreas(a.AreaLand, b.AreaLand);
+        if (builtUp == false || land == false) return false;
+        if (builtUp != true && land != true && !DispositionsMatch(a.Disposition, b.Disposition)) return false;
+
+        return TitlesMatch(a.Title, b.Title) || DescriptionsMatch(a.Description, b.Description);
     }
 
     /// <summary>
@@ -382,6 +413,9 @@ public sealed class DuplicateDetectionService(
         return partsA.Overlaps(partsB);
     }
 
+    private static string? NormalizeDistrict(string? district)
+        => string.IsNullOrWhiteSpace(district) ? null : NormalizeText(district);
+
     private static bool DistrictMatches(string? a, string? b)
         => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
            && NormalizeText(a) == NormalizeText(b);
@@ -464,6 +498,25 @@ public sealed class DuplicateDetectionService(
                     if (IsDuplicatePair(a, sorted[j]))
                         pairs.Add((a, sorted[j]));
                 }
+            }
+        }
+
+        // Inzeráty bez ceny („cena dohodou") nemají cenové okno – porovnávají se se všemi zástupci
+        // téže nabídky ve stejném okrese (bez okresu se všemi); o shodě rozhodne IsPricelessCopy.
+        var byOfferDistrict = representatives.ToLookup(c => (c.OfferType, District: NormalizeDistrict(c.District)));
+        foreach (var a in representatives.Where(c => c.Price is not > 0))
+        {
+            var district = NormalizeDistrict(a.District);
+            var pool = district is null
+                ? representatives.Where(c => c.OfferType == a.OfferType)
+                : byOfferDistrict[(a.OfferType, district)].Concat(byOfferDistrict[(a.OfferType, null)]);
+            foreach (var b in pool)
+            {
+                if (b.Id == a.Id) continue;
+                // Dva bez ceny by se potkaly z obou stran – stačí jedna orientace
+                if (b.Price is not > 0 && a.Id.CompareTo(b.Id) >= 0) continue;
+                if (IsDuplicatePair(a, b))
+                    pairs.Add((a, b));
             }
         }
 

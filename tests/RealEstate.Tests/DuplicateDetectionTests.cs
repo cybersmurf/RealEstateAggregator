@@ -734,3 +734,93 @@ public class DuplicateDetectionDescriptionTests
         Assert.Empty(DuplicateDetectionService.AttachRemembered([other], [gone], new Dictionary<Guid, Guid>()));
     }
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  Kopie bez ceny (25. 10. 2026): Realcity má u 34 z 267 inzerátů „cena dohodou" a bez ceny se inzerát
+//  do párování vůbec nedostal – Oslavany, Havířská 220 m² zůstala vedle Sreality/iDNES/Reas (7 999 999 Kč),
+//  ačkoli popis je slovo od slova stejný.
+// ─────────────────────────────────────────────────────────────────
+public class DuplicateDetectionPricelessTests
+{
+    private static readonly Guid Realcity = Guid.NewGuid();
+    private static readonly Guid Sreality = Guid.NewGuid();
+    private static readonly Guid Idnes = Guid.NewGuid();
+
+    private const string Text =
+        "Nabízíme k prodeji rodinný dům v Oslavanech v ulici Havířská o užitné ploše 220 m² na pozemku 500 m². "
+        + "Dům je dvoupodlažní, zděný, s valbovou střechou z roku 2008 a plastovými okny. V přízemí je obývací pokoj "
+        + "s kuchyňským koutem a vstupem na terasu, pracovna, koupelna a technická místnost s plynovým kotlem. "
+        + "V patře jsou tři ložnice, šatna a druhá koupelna s vanou. Na pozemku je garáž pro dvě auta, zahradní domek, "
+        + "vzrostlé ovocné stromy a venkovní bazén s přístřeškem. Veškeré sítě jsou zavedeny, možnost ihned bydlet.";
+
+    private const string OtherText =
+        "Prodej řadového domu v Oslavanech po částečné rekonstrukci. V přízemí vstupní hala, kuchyně, obývací pokoj "
+        + "a koupelna, v podkroví dvě ložnice a komora. Vytápění tuhými palivy, voda z obecního řadu, kanalizace do "
+        + "septiku. Za domem úzký dvorek s kůlnou a malá zahrádka. Dům vyžaduje dokončení fasády a výměnu oken, "
+        + "cena odpovídá stavu. Obec má kompletní občanskou vybavenost včetně školy, lékaře a vlakového spojení do Brna.";
+
+    private static DuplicateCandidate Make(Guid source, decimal? price, string? description = Text,
+        string municipality = "Oslavany", double? builtUp = 220, double? land = 500, string? disposition = null,
+        double? lat = null, double? lon = null, bool precise = false, string district = "Brno-venkov",
+        string title = "Prodej domu 220 m²")
+        => new(Guid.NewGuid(), source, PropertyType.House, OfferType.Sale, price, lat, lon, municipality, builtUp, land,
+            new DateTime(2026, 9, 30), precise, district, title, disposition, description);
+
+    [Fact]
+    public void PricelessCopy_SameDescriptionAndArea_SameMunicipality_IsDuplicate()
+        => Assert.True(DuplicateDetectionService.IsDuplicatePair(
+            Make(Realcity, price: null, land: null),
+            Make(Sreality, price: 7_999_999m)));
+
+    [Fact]
+    public void PricelessCopy_DifferentDescription_NotDuplicate()
+        => Assert.False(DuplicateDetectionService.IsDuplicatePair(
+            Make(Realcity, price: null, description: OtherText),
+            Make(Sreality, price: 7_999_999m)));
+
+    [Fact]
+    public void PricelessCopy_ConflictingArea_NotDuplicate()
+        => Assert.False(DuplicateDetectionService.IsDuplicatePair(
+            Make(Realcity, price: null, builtUp: 160),
+            Make(Sreality, price: 7_999_999m)));
+
+    [Fact]
+    public void PricelessCopy_OtherMunicipalityWithoutGps_NotDuplicate()
+        => Assert.False(DuplicateDetectionService.IsDuplicatePair(
+            Make(Realcity, price: null, municipality: "Ivančice"),
+            Make(Sreality, price: 7_999_999m)));
+
+    [Fact]
+    public void PricelessCopy_BothWithoutPrice_SameTextAndAreas_IsDuplicate()
+        => Assert.True(DuplicateDetectionService.IsDuplicatePair(
+            Make(Realcity, price: null),
+            Make(Idnes, price: null)));
+
+    [Fact]
+    public void BuildClusters_PricelessJoinsPricedGroup()
+    {
+        var realcity = Make(Realcity, price: null);
+        var sreality = Make(Sreality, price: 7_999_999m);
+        var idnes = Make(Idnes, price: 7_999_999m, lat: 49.1255, lon: 16.3345);
+
+        var map = DuplicateDetectionService.BuildClusters([realcity, sreality, idnes]);
+
+        Assert.Equal(2, map.Count);
+        Assert.Single(map.Values.Distinct());
+        Assert.Contains(realcity.Id, map.Keys.Append(map.Values.First()));
+    }
+
+    [Fact]
+    public void BuildClusters_PricelessWithTwoTemplateUnitsInOneSource_StaysAlone()
+    {
+        // Developer: dva byty se stejným textem i plochou na Sreality – bez ceny nelze říct, který to je
+        var realcity = Make(Realcity, price: null, disposition: "2+kk");
+        var unitA = Make(Sreality, price: 6_500_000m, disposition: "2+kk");
+        var unitB = Make(Sreality, price: 6_600_000m, disposition: "2+kk");
+
+        var map = DuplicateDetectionService.BuildClusters([realcity, unitA, unitB]);
+
+        Assert.DoesNotContain(realcity.Id, map.Keys);
+        Assert.DoesNotContain(realcity.Id, map.Values);
+    }
+}
