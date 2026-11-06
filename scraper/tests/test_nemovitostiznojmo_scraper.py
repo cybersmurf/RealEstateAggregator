@@ -144,3 +144,9 @@ class TestNemZnojmoDetail:
         from_title = scraper._parse_detail_page(html, {"url": f"{BASE}/x/detail/2", "title": ""})
         assert from_list["property_type"] == "Dům"
         assert from_title["property_type"] == "Dům"
+
+
+def test_rezervovana_nabidka_ma_popis_ne_stitek():
+    """6. 11. 2026: první <p> v main je štítek „Rezervováno“ – byl popisem 7 nabídek."""
+    result = _detail("detail_9920439_rezervovano.html", "9920439")
+    assert result["description"].startswith("K prodeji nabízíme rovinatou zahradu")

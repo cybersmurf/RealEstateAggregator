@@ -5,6 +5,7 @@ Webflow SSR – httpx + BeautifulSoup
 """
 import logging
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlencode
 
@@ -187,6 +188,10 @@ class LexamoScraper:
         # jen název obce ("Vrbovec") a zahodí i inzeráty z cílového okresu.
         district = self._extract_district(url)
 
+        # Obec – poslední část lokality („Dobšická, Znojmo“ → Znojmo); do 6. 11. 2026
+        # zůstávala prázdná u všech inzerátů
+        municipality = self._extract_municipality(location, url)
+
         # Parameters (Užitná plocha, Celková plocha, …)
         params = self._extract_params(soup)
         area = params.get("uzitna_plocha") or params.get("celkova_plocha")
@@ -208,6 +213,7 @@ class LexamoScraper:
             "property_type": property_type,
             "area_built_up": area,
             "location_text": location,
+            "municipality": municipality,
             "district": district,
             "photos": photos,
         }
@@ -247,6 +253,34 @@ class LexamoScraper:
         # Slug je bez diakritiky; geo filtr porovnává case-insensitive substringem,
         # takže stačí vrátit čitelnou podobu se zachovaným kmenem.
         return DISTRICT_SLUG_MAP.get(slug, slug.replace("-", " ").title())
+
+    @staticmethod
+    def _slug(text: str) -> str:
+        ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+        return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
+
+    @classmethod
+    def _extract_municipality(cls, location: str, url: str = "") -> Optional[str]:
+        """Obec z lokality: 'Mašovice' → 'Mašovice', 'Dobšická, Znojmo' → 'Znojmo',
+        'Kamechy, Brno' → 'Brno' (městská část se zahodí).
+
+        Lokalita může pocházet i z nouzového hledání v textu stránky, proto obec bereme,
+        jen když ji nese i slug URL (…-masovice-okres-znojmo-…) – jinak raději nic.
+        """
+        parts = [p.strip() for p in (location or "").split(",") if p.strip()]
+        while parts and re.match(r"^okr(es|\.)\s", parts[-1], re.I):
+            parts.pop()
+        if not parts:
+            return None
+        municipality = re.sub(r"^\d{3}\s?\d{2}\s+", "", parts[-1])        # PSČ
+        municipality = re.split(r"\s+[–-]\s+", municipality)[0].strip()   # „Znojmo - Přímětice“
+        if re.match(r"^Brno-(?!venkov|město|mesto)", municipality, re.I):
+            municipality = "Brno"                                            # „Brno-Bystrc“
+        if not municipality or re.search(r"\d", municipality) or len(municipality) > 60:
+            return None
+        if url and cls._slug(municipality) not in url.lower():
+            return None
+        return municipality
 
     def _extract_price(self, soup: BeautifulSoup) -> Optional[float]:
         """Extract price from heading or paragraph containing Kč."""

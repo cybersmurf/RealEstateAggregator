@@ -9,7 +9,7 @@ import asyncio
 import logging
 import re
 import time
-from typing import Any, List, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import httpx
@@ -60,6 +60,11 @@ _TITLE_TYPE_PATTERNS = [
 ]
 
 _RE_LIST_TOTAL = re.compile(r"výsledky\s*\d+\s*-\s*(\d+)\s*z\s*celkem\s*(\d+)")
+
+# Částka v Kč: tisíce oddělené (nezlomitelnou) mezerou, volitelně haléře za desetinnou čárkou
+_RE_PRICE_AMOUNT = re.compile(r"(\d{1,3}(?:[ \xa0\u202f]\d{3})+|\d+)(?:,(\d{1,2}))?\s*Kč")
+# Jednotka ceny „( za m²)" / „Kč/m2" – cena za metr, ne za nemovitost
+_RE_PER_M2 = re.compile(r"(?:za\s*|/\s*)m\s*(?:²|2\b)", re.IGNORECASE)
 
 
 class RemaxScraper:
@@ -504,15 +509,24 @@ class RemaxScraper:
                 value = value_el.get_text(' ', strip=True)
                 params[label] = value
 
-        # Užitná plocha / Plocha parcely
-        if 'Užitná plocha' in params:
-            m = re.search(r'(\d[\d\s]*)', params['Užitná plocha'])
-            if m:
-                result["area_built_up"] = float(m.group(1).replace(' ', '').replace('\xa0', ''))
-        if 'Plocha parcely' in params:
-            m = re.search(r'(\d[\d\s]*)', params['Plocha parcely'])
-            if m:
-                result["area_land"] = float(m.group(1).replace(' ', '').replace('\xa0', ''))
+        # ── Property type ─────────────────────────────────────────────────────
+        # Před plochami a cenou: cena „za m²" se násobí výměrou pozemku, nebo plochou stavby
+        title_lower = result.get("title", "").lower()
+        result["property_type"] = self._infer_property_type(
+            title_lower,
+            params.get('Typ nemovitosti', ''),
+            list_item.get("property_type_hint", "Ostatní"),
+        )
+
+        # Užitná plocha / Plocha parcely; pozemek uvádí výměru jako „Celková plocha"
+        area_built_up = self._parse_area(params.get('Užitná plocha', ''))
+        if area_built_up is not None:
+            result["area_built_up"] = area_built_up
+        area_land = self._parse_area(params.get('Plocha parcely', ''))
+        if area_land is None and result["property_type"] == "Pozemek":
+            area_land = self._parse_area(params.get('Celková plocha', ''))
+        if area_land is not None:
+            result["area_land"] = area_land
 
         # Stav objektu → condition
         if 'Stav objektu' in params:
@@ -538,36 +552,32 @@ class RemaxScraper:
                 result["disposition"] = disp_m.group(1).upper().replace('KK', 'kk')
 
         # ── Price ──────────────────────────────────────────────────────────────
+        # Jen z hlavičky detailu – kalkulačka hypotéky a „podobné nemovitosti" nesou jiné částky
         price_el = soup.select_one('.pd-header__price')
+        amount, per_m2 = (None, False)
         if price_el:
-            price_text = price_el.get_text(' ', strip=True)
-            price_m = re.search(r'([\d\s\xa0]+)\s*Kč', price_text)
-            if price_m:
-                try:
-                    result["price"] = float(
-                        price_m.group(1).replace(' ', '').replace('\xa0', '').replace('\u202f', '')
-                    )
-                except ValueError:
-                    pass
+            amount, per_m2 = self._parse_price_text(price_el.get_text(' ', strip=True))
+        else:
+            # Záloha jen pro stránku bez hlavičky s cenou (jiné rozložení): první výskyt
+            # "čísla Kč". Když hlavička je a číslo v ní není ("Cena na vyžádání v kanceláři",
+            # "Rezervováno"), cena prostě není – první částka na stránce patří něčemu jinému.
+            price_node = soup.find(string=_RE_PRICE_AMOUNT)
+            if price_node:
+                amount, per_m2 = self._parse_price_text(str(price_node))
+        if amount is not None and per_m2:
+            # „5 326,60 Kč (za m²)" u pozemku: celková cena = jednotková × výměra. Bez plochy
+            # cenu neuvádíme (do 6. 11. 2026 se z ní ukládalo 60 Kč) – jednotková jde do poznámky.
+            area = result.get("area_land") if result["property_type"] == "Pozemek" else result.get("area_built_up")
+            if area:
+                result["price"] = float(round(amount * area))
+            result["price_note"] = f"{self._format_czk(amount)} Kč/m²"
+        elif amount is not None:
+            result["price"] = float(round(amount))
         # Rezervace: nabídka zůstává, k ceně jde štítek; když web cenu nahradil textem,
         # upsert nechá poslední známou
         if self._detect_status(html, soup) == "reserved":
             result["price_note"] = "Rezervace"
             result["keep_last_price"] = True
-        if 'price' not in result and price_el is None:
-            # Záloha jen pro stránku bez hlavičky s cenou (jiné rozložení): první výskyt
-            # "čísla Kč". Když hlavička je a číslo v ní není ("Cena na vyžádání v kanceláři",
-            # "Rezervováno"), cena prostě není – první částka na stránce patří něčemu jinému.
-            price_node = soup.find(string=re.compile(r'(\d[\d\s\xa0]+)\s*Kč'))
-            if price_node:
-                pm = re.search(r'([\d\s\xa0]+)\s*Kč', price_node)
-                if pm:
-                    try:
-                        result["price"] = float(
-                            pm.group(1).replace(' ', '').replace('\xa0', '').replace('\u202f', '')
-                        )
-                    except ValueError:
-                        pass
 
         # ── Photos ────────────────────────────────────────────────────────────
         photo_urls = []
@@ -579,14 +589,6 @@ class RemaxScraper:
         photo_urls = self.own_listing_photos(photo_urls)
         result["photos"] = photo_urls[:50]
 
-        # ── Property type ─────────────────────────────────────────────────────
-        title_lower = result.get("title", "").lower()
-        result["property_type"] = self._infer_property_type(
-            title_lower,
-            params.get('Typ nemovitosti', ''),
-            list_item.get("property_type_hint", "Ostatní"),
-        )
-
         # ── Offer type ────────────────────────────────────────────────────────
         if "pronájem" in title_lower or "pronajem" in title_lower:
             result["offer_type"] = "Pronájem"
@@ -596,6 +598,37 @@ class RemaxScraper:
             result["offer_type"] = list_item.get("offer_type_hint", "Prodej")
 
         return result
+
+    @staticmethod
+    def _parse_price_text(text: str) -> Tuple[Optional[float], bool]:
+        """
+        Částka a jednotka z textu ceny: „8 490 000 Kč (za nemovitost)" → (8490000.0, False),
+        „5 326,60 Kč (za m²)" → (5326.6, True), text bez částky → (None, False).
+
+        Desetinná čárka dřív rozbila celé číslo – z „5 326,60 Kč" zbylo 60, z „4 369 000,02 Kč" 2.
+        """
+        match = _RE_PRICE_AMOUNT.search(text)
+        if not match:
+            return None, False
+        whole = re.sub(r"\D", "", match.group(1))
+        amount = float(f"{whole}.{match.group(2)}" if match.group(2) else whole)
+        return amount, bool(_RE_PER_M2.search(text, match.end()))
+
+    @staticmethod
+    def _parse_area(text: str) -> Optional[float]:
+        """„5 166 m²" → 5166.0, „41,5 m²" → 41.5; bez čísla None."""
+        match = re.search(r"(\d[\d\s\xa0\u202f]*)(?:,(\d+))?", text or "")
+        if not match:
+            return None
+        whole = re.sub(r"\D", "", match.group(1))
+        return float(f"{whole}.{match.group(2)}" if match.group(2) else whole)
+
+    @staticmethod
+    def _format_czk(amount: float) -> str:
+        """5326.6 → „5 326,60", 2500.0 → „2 500" (mezera jako oddělovač tisíců)."""
+        if amount == int(amount):
+            return f"{int(amount):,}".replace(",", " ")
+        return f"{amount:,.2f}".replace(",", " ").replace(".", ",")
 
     @staticmethod
     def _infer_property_type(title_lower: str, type_param: str, hint: str) -> str:

@@ -131,3 +131,66 @@ class TestPremiaTypNemovitosti:
     def test_bez_popisku_plati_vychozi_typ_kategorie(self):
         url = f"{BASE}/rekreace/prodej-x-znojmo-okres-znojmo-x-1.html"
         assert PremiaRealityScraper._property_type({}, url, "Pozemek") == "Pozemek"
+
+
+TVORIHRAZ = "/domy/prodej-rodinneho-domu-tvorihraz-okres-znojmo-dum-na-prodej-3124.html"
+
+
+class TestPremiaCenaAFotkyJenZNabidky:
+    """6. 11. 2026: stránka nese i blok „Podobné nabídky" s cenami a náhledy cizích domů. Náhledy
+    306×172 se ukládaly jako fotky nabídky (stejné u až deseti nabídek); cena musí být z tabulky
+    „Základní přehled"."""
+
+    def test_cena_ze_zakladniho_prehledu_ne_z_podobnych_nabidek(self):
+        html = (FIX / "detail_dum_tvorihraz_sleva_3124.html").read_text(encoding="utf-8")
+        assert "Podobné nabídky" in html and "2\xa0999\xa0000\xa0Kč" in html
+        listing = _parse("detail_dum_tvorihraz_sleva_3124.html", TVORIHRAZ)
+        assert listing["price"] == 3_190_000
+        assert "price_note" not in listing
+        assert listing["area_built_up"] == 100
+        assert listing["area_land"] == 135
+        assert listing["municipality"] == "Tvořihráz"
+
+    def test_fotky_jen_z_galerie_nabidky_v_plne_velikosti(self):
+        listing = _parse("detail_dum_tvorihraz_sleva_3124.html", TVORIHRAZ)
+        photos = listing["photos"]
+        assert len(photos) == 4  # náhled nahoře je první fotka galerie – nezdvojí se
+        assert all("/files/importestate/3124/thumbs_1300_866/" in url for url in photos)
+        assert not any("/3106/" in url or "/3170/" in url or "thumbs_306_" in url for url in photos)
+
+    def test_bez_nadpisu_se_nebere_tabulka_z_podobnych_nabidek(self):
+        html = """<html><body><h1>Dům na prodej</h1><h2>Tvořihráz</h2>
+        <section id="nemovitosti"><table>
+          <tr><td class="prodano" colspan="2">PRODÁNO</td></tr>
+          <tr><td>Cena</td><td><strong>2 999 000 Kč</strong></td></tr>
+          <tr><td>Užitná plocha</td><td><strong>110 m<sup>2</sup></strong></td></tr>
+        </table>
+        <img src="https://www.premiareality.cz/files/importestate/3106/thumbs_306_172/a_thumb306x172.jpg"></section>
+        <table>
+          <tr><td class="price">Cena</td><td><strong>3 190 000 Kč</strong><br/>+ provize RK 3 %</td></tr>
+          <tr><td>Užitná plocha</td><td><strong>100 m<sup>2</sup></strong></td></tr>
+          <tr><td>Užitná plocha</td><td><strong>999 m<sup>2</sup></strong></td></tr>
+        </table>
+        <img src="https://www.premiareality.cz/files/importestate/3124/thumbs_1300_731/b_thumb1300x731.jpg">
+        </body></html>"""
+        listing = PremiaRealityScraper()._parse_detail_page(
+            html, {"url": BASE + TVORIHRAZ, "title": "", "default_property_type": "Dům"}
+        )
+        assert "sold" not in listing  # štítek PRODÁNO patří podobné nabídce
+        assert listing["price"] == 3_190_000
+        assert listing["area_built_up"] == 100  # první výskyt popisku platí
+        assert listing["photos"] == [
+            "https://www.premiareality.cz/files/importestate/3124/thumbs_1300_731/b_thumb1300x731.jpg"
+        ]
+
+    @pytest.mark.parametrize("text, expected", [
+        ("3\xa0190\xa0000\xa0Kč + provize RK", 3_190_000),
+        ("3 190 000 Kč + provize RK 3 %", 3_190_000),
+        ("1\xa0196\xa0202\xa0Kč", 1_196_202),
+        ("7 500 Kč", 7_500),
+        ("1 250 000,50 Kč", 1_250_000),
+        ("Informace o ceně v RK", None),
+        ("", None),
+    ])
+    def test_castka_z_bunky_cena(self, text, expected):
+        assert PremiaRealityScraper()._parse_price(text) == expected

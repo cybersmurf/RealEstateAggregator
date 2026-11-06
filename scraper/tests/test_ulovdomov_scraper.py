@@ -6,13 +6,15 @@ fixturách nahrazené zástupnými (Jan Novák, +420000000000, makler@example.co
 import copy
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
+import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.scrapers.ulovdomov_scraper import UlovDomovScraper, BASE_URL, MAX_PHOTOS
+from core.scrapers import ulovdomov_scraper
+from core.scrapers.ulovdomov_scraper import UlovDomovScraper, BASE_URL, MAX_PHOTOS, SITEMAP_URL
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ulovdomov"
 
@@ -401,3 +403,97 @@ class TestUlovDomovPomocne:
     def test_stranka_bez_nabidky_vraci_none(self):
         html = '<script id="__NEXT_DATA__" type="application/json">{"props": {"pageProps": {"offer": {"success": false}}}}</script>'
         assert UlovDomovScraper.parse_detail_page(html) is None
+
+
+class TestUlovDomovStazeny:
+    """6. 11. 2026: inzerát 5675451 vrací 404 („Tady nikdo nebydlí“), sitemap ho nese dál."""
+
+    def test_stranka_404_je_stazeny_inzerat(self):
+        html = _read("detail_404_5675451.html")
+        assert UlovDomovScraper.is_not_found_page(html) is True
+        assert UlovDomovScraper.parse_detail_page(html) is None
+
+    @pytest.mark.parametrize("name", ["detail_dum_znojmo_5673902.html", "detail_neaktivni_999999.html"])
+    def test_detail_neni_stranka_404(self, name):
+        assert UlovDomovScraper.is_not_found_page(_read(name)) is False
+
+    def test_bez_next_data_neni_stranka_404(self):
+        assert UlovDomovScraper.is_not_found_page("<html><body>nic</body></html>") is False
+
+
+# Kandidáti sitemapy bez vlastní fixtury: co vrátí jejich detail
+HTTP_404_ID = "5681213"
+SOFT_404_ID = "5667574"   # HTTP 200, ale stránka Next.js /404
+INACTIVE_ID = "5433124"   # status IMPORT_IGNORED
+DETAIL_FIXTURES = {
+    "5680750": "detail_dum_pronajem_krumlov_5680750.html",
+    "5673902": "detail_dum_znojmo_5673902.html",
+    "5662221": "detail_byt_brno_5662221.html",
+    "5622283": "detail_pozemek_kanice_5622283.html",
+    "5578960": "detail_pozemek_lesna_vsetin_5578960.html",
+    "1470297": "detail_byt_pronajem_znojmo_1470297.html",
+    SOFT_404_ID: "detail_404_5675451.html",
+    INACTIVE_ID: "detail_neaktivni_999999.html",
+}
+
+
+class _FakeUlovDomov(UlovDomovScraper):
+    """Sitemap a detaily z fixtur; žádné HTTP, žádná DB."""
+
+    def __init__(self, all_404: bool = False) -> None:
+        super().__init__()
+        self.all_404 = all_404
+        self.saved: List[Dict[str, Any]] = []
+        self.deactivated: List[str] = []
+
+    async def _fetch(self, url: str) -> str:
+        if url == SITEMAP_URL:
+            return _read("sitemap_offers.xml")
+        offer_id = url.rsplit("/", 1)[1]
+        if self.all_404 or offer_id == HTTP_404_ID:
+            request = httpx.Request("GET", url)
+            raise httpx.HTTPStatusError("404", request=request, response=httpx.Response(404, request=request))
+        return _read(DETAIL_FIXTURES[offer_id])
+
+    async def _save_listing(self, listing: Dict[str, Any]) -> None:
+        self.saved.append(listing)
+
+    async def _deactivate_listing(self, external_id: str) -> bool:
+        self.deactivated.append(external_id)
+        return True
+
+
+@pytest.fixture
+def _bez_cekani(monkeypatch):
+    async def _no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(ulovdomov_scraper.asyncio, "sleep", _no_sleep)
+
+
+@pytest.mark.usefixtures("_bez_cekani")
+class TestUlovDomovBehStazene:
+
+    async def test_stazene_se_neulozi_a_deaktivuji(self):
+        scraper = _FakeUlovDomov()
+        total = await scraper.scrape(max_details=None)
+        saved_ids = {listing["external_id"] for listing in scraper.saved}
+        assert saved_ids == {"5680750", "5673902", "5662221", "5622283", "1470297"}
+        assert total == 5
+        assert sorted(scraper.deactivated) == sorted([HTTP_404_ID, SOFT_404_ID, INACTIVE_ID])
+        assert scraper.skipped["http_404"] == 1
+        assert scraper.skipped["not_found_page"] == 1
+        assert scraper.skipped["status_IMPORT_IGNORED"] == 1
+
+    async def test_jiny_okres_se_nedeaktivuje(self):
+        scraper = _FakeUlovDomov()
+        await scraper.scrape(max_details=None)
+        assert scraper.skipped["other_district"] == 1
+        assert "5578960" not in scraper.deactivated
+
+    async def test_pojistka_kdyz_vse_vraci_404(self, monkeypatch):
+        monkeypatch.setattr(ulovdomov_scraper, "GONE_GUARD_MIN", 2)
+        scraper = _FakeUlovDomov(all_404=True)
+        assert await scraper.scrape(max_details=None) == 0
+        assert scraper.skipped["http_404"] == 9
+        assert scraper.deactivated == []

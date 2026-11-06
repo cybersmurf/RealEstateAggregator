@@ -71,3 +71,43 @@ class TestBazosHledani:
     def test_hledani_nema_cenovy_strop_a_pokryva_okoli_brna(self):
         assert all("cenado=&" in search_url(c, p, r, 2) for c, p, r in SEARCHES)
         assert any(p == "60200" and c == "prodam/dum/" for c, p, r in SEARCHES)
+
+
+def _detail_html(crumb_path: str, crumb_label: str) -> str:
+    """Detail s levým menu (odkazy na všechny rubriky) před drobečkovou navigací – jako na webu."""
+    return f"""
+<div class="menuleft">
+  <a href="/prodam/byt/">Byty</a><a href="/prodam/dum/">Domy</a><a href="/prodam/pozemek/">Pozemky</a>
+  <a href="/pronajmu/byt/">Byty</a>
+</div>
+<div class="drobky"><a href="https://www.bazos.cz/">Hlavní stránka</a> > <a href="https://reality.bazos.cz/">Reality</a>
+ > <a href="https://reality.bazos.cz/{crumb_path.split('/')[0]}/">X</a>
+ > <a href="https://reality.bazos.cz/{crumb_path}/">{crumb_label}</a> > <b>Inzerát č. 1</b></div>
+<h1 class="nadpisdetail">Titulek</h1>
+"""
+
+
+class TestBazosTypZRubriky:
+    """6. 11. 2026: zahrady a pozemky z rubriky „zahrada" byly „byt" (první odkaz menu), pronájmy prodej."""
+
+    def setup_method(self):
+        from bs4 import BeautifulSoup
+        self.scraper = BazosScraper()
+        self.soup = lambda html: BeautifulSoup(html, "html.parser")
+
+    def test_zahrada_je_pozemek_ne_byt(self):
+        soup = self.soup(_detail_html("prodam/zahrada", "Zahrady"))
+        assert self.scraper._infer_types(soup, "Prodej pozemku - zahrady v Kuřimi", "x") == ("Prodej", "Pozemek")
+
+    def test_pronajem_z_rubriky_pronajmu(self):
+        soup = self.soup(_detail_html("pronajmu/byt", "Byty"))
+        assert self.scraper._infer_types(soup, "Ivančice centrum byt 1+kk vybavený", "x") == ("Pronájem", "Byt")
+
+    def test_dum_v_rubrice_dum(self):
+        soup = self.soup(_detail_html("prodam/dum", "Domy"))
+        assert self.scraper._infer_types(soup, "Rodinný dům 4+1 se zahradou v centru Hevlína", "x") == ("Prodej", "Dům")
+
+    def test_menu_bez_drobku_neurcuje_typ(self):
+        html = '<div class="menuleft"><a href="/prodam/byt/">Byty</a></div><h1>Stodola</h1>'
+        offer, ptype = self.scraper._infer_types(self.soup(html), "Stodola u lesa", "x")
+        assert (offer, ptype) == ("Prodej", "Ostatní")

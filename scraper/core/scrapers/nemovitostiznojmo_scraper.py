@@ -316,7 +316,12 @@ class NemovitostiZnojmoScraper:
             result["municipality"] = municipality[:100]
 
         # Popis
-        desc_el = soup.select_one(".description, article .content, main p, .perex")
+        # První <p> v main bývá štítek fotky („Rezervováno“) – 6. 11. 2026 to byl popis 7 nabídek.
+        # Popis je nejdelší odstavec, krátké štítky a výzvy („Kontaktujte makléře“) se přeskočí.
+        desc_el = soup.select_one(".description, article .content, .perex")
+        if desc_el is None:
+            paragraphs = [p for p in soup.select("main p") if len(p.get_text(" ", strip=True)) >= 40]
+            desc_el = max(paragraphs, key=lambda p: len(p.get_text(" ", strip=True)), default=None)
         result["description"] = desc_el.get_text(" ", strip=True)[:5000] if desc_el else ""
 
         # Parametry (Eurobydleni)

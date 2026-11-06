@@ -54,6 +54,9 @@ _TYPE_LABEL_PATTERNS = [
     (re.compile(r"sklep"), "Ostatní"),
 ]
 
+# Částka v Kč: tisíce oddělené (nezlomitelnou) mezerou, volitelně haléře za desetinnou čárkou
+_RE_PRICE_AMOUNT = re.compile(r"(\d{1,3}(?:[ \xa0\u202f]\d{3})+|\d+)(?:,(\d{1,2}))?\s*Kč")
+
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -168,24 +171,44 @@ class PremiaRealityScraper:
 
         return results
 
+    @staticmethod
+    def _overview_table(soup: BeautifulSoup) -> Optional[Any]:
+        """
+        Tabulka „Základní přehled" (cena, typ, plochy, obec) – jediný zdroj parametrů nabídky.
+        Stránka bez nadpisu (starší rozložení) → první tabulka mimo blok „Podobné nabídky".
+        """
+        for heading in soup.find_all(["h2", "h3", "h4"]):
+            if "základní přehled" in heading.get_text(" ", strip=True).lower():
+                table = heading.find_next("table")
+                if table is not None:
+                    return table
+        for table in soup.find_all("table"):
+            if table.find_parent(id="nemovitosti") is None:
+                return table
+        return None
+
     def _extract_table_params(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """Extrahuje parametry z detailní tabulky (label | value)."""
+        """Parametry z tabulky „Základní přehled" (label | value); první výskyt popisku platí."""
         params: Dict[str, str] = {}
-        for row in soup.select("table tr"):
+        table = self._overview_table(soup)
+        if table is None:
+            return params
+        for row in table.select("tr"):
             cells = row.select("td, th")
             if len(cells) >= 2:
                 label = cells[0].get_text(" ", strip=True).lower().rstrip(":")
                 value = cells[1].get_text(" ", strip=True)
                 if label and value:
-                    params[label] = value
+                    params.setdefault(label, value)
         return params
 
-    @staticmethod
-    def _listing_status(soup: BeautifulSoup) -> Optional[str]:
+    @classmethod
+    def _listing_status(cls, soup: BeautifulSoup) -> Optional[str]:
         """„sold" / „reserved" podle štítku v tabulce parametrů (<td class="prodano|rezervace">)."""
-        if soup.select_one("td.prodano"):
+        scope = cls._overview_table(soup) or soup
+        if scope.select_one("td.prodano"):
             return "sold"
-        if soup.select_one("td.rezervace"):
+        if scope.select_one("td.rezervace"):
             return "reserved"
         return None
 
@@ -229,10 +252,19 @@ class PremiaRealityScraper:
         return default_type
 
     def _parse_price(self, text: str) -> Optional[float]:
+        """
+        Částka z buňky „Cena": „3 190 000 Kč + provize RK" → 3190000.0, „Informace o ceně v RK" → None.
+
+        Bere první částku před „Kč" – dřív se slepily všechny číslice buňky, takže by
+        „… + provize RK 3 %" nebo haléře za čárkou cenu znásobily.
+        """
         if not text:
             return None
-        clean = re.sub(r"[^\d]", "", text)
-        return float(clean) if clean else None
+        match = _RE_PRICE_AMOUNT.search(text)
+        if not match:
+            return None
+        whole = re.sub(r"\D", "", match.group(1))
+        return float(round(float(f"{whole}.{match.group(2)}" if match.group(2) else whole)))
 
     def _parse_area(self, text: str) -> Optional[float]:
         if not text:
@@ -336,42 +368,44 @@ class PremiaRealityScraper:
         else:
             result["description"] = ""
 
-        # Fotky – parent <a href> u každého <img> v galerii
-        photo_urls: List[str] = []
-        seen_photos: set = set()
-        for img in soup.select(".carousel-detail img, .preview img, img[src*='importestate'], img[src*='estate']"):
-            parent_a = img.find_parent("a", href=True)
-            photo_url = ""
-            if parent_a:
-                photo_href = parent_a.get("href", "")
-                candidate = urljoin(BASE_URL, photo_href) if photo_href else ""
-                # Přeskoč .html hrefs (odkazují na stránku inzerátu, ne na fotku)
-                if candidate.endswith(".html") or not re.search(r'\.(jpe?g|png|webp|gif)(\?|$)', candidate, re.IGNORECASE):
-                    candidate = ""
-                if candidate:
-                    photo_url = self._fix_thumbs_url(candidate)
-            if not photo_url:
-                src = img.get("src") or img.get("data-src", "")
-                if src:
-                    photo_url = self._fix_thumbs_url(urljoin(BASE_URL, src))
-
-            if photo_url and photo_url not in seen_photos:
-                seen_photos.add(photo_url)
-                photo_urls.append(photo_url)
-
-        # Fallback: všechny imgs přes 5000 pixelů (podle pattern z průzkumu)
-        if not photo_urls:
-            for img in soup.find_all("img"):
-                src = str(img.get("src", "") or img.get("data-src", ""))
-                if "importestate" in src or "estate" in src:
-                    photo_url = self._fix_thumbs_url(urljoin(BASE_URL, src))
-                    if photo_url not in seen_photos:
-                        seen_photos.add(photo_url)
-                        photo_urls.append(photo_url)
-
-        result["photos"] = photo_urls[:50]
+        result["photos"] = self._gallery_photos(soup, result["external_id"])
 
         return result
+
+    def _gallery_photos(self, soup: BeautifulSoup, external_id: str) -> List[str]:
+        """
+        Fotky jen z galerie nabídky (.carousel-detail), ve velikosti, jakou galerie ukazuje
+        (thumbs_1300_866, thumbs_1300_731…), a jen ze složky /files/importestate/{id}/.
+
+        Do 6. 11. 2026 se braly i <img> z bloku „Podobné nabídky" – náhledy 306×172 cizích domů,
+        stejné až u deseti nabídek; detail pak ukazoval cizí dům.
+        """
+        images = soup.select(".carousel-detail img")
+        from_gallery = bool(images)
+        if not from_gallery:
+            # Starší rozložení bez karuselu: obrázky nabídky mimo blok podobných nabídek
+            images = [img for img in soup.select("img[src*='importestate']") if img.find_parent(id="nemovitosti") is None]
+
+        photo_urls: List[str] = []
+        for img in images:
+            src = img.get("src") or img.get("data-src") or ""
+            parent_a = img.find_parent("a", href=True)
+            href = parent_a.get("href", "") if parent_a else ""
+            # Odkaz na fotku má přednost (plná velikost); .html odkaz vede na stránku nabídky
+            if href and re.search(r"\.(jpe?g|png|webp|gif)(\?|$)", href, re.IGNORECASE):
+                src = href
+            if not src:
+                continue
+            photo_url = self._fix_thumbs_url(urljoin(BASE_URL, src))
+            if photo_url not in photo_urls:
+                photo_urls.append(photo_url)
+
+        # Složka fotek = číslo nabídky z URL. Když nesedí ani jedna fotka, galerie je pořád
+        # galerie nabídky; mimo galerii ale cizí složka znamená cizí dům.
+        own = [u for u in photo_urls if f"/importestate/{external_id}/" in u]
+        if own or not from_gallery:
+            return own[:50]
+        return photo_urls[:50]
 
     @staticmethod
     def _fix_thumbs_url(url: str) -> str:

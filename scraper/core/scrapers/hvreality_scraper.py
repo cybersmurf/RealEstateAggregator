@@ -80,6 +80,17 @@ PROPERTY_TYPE_MAP = {
     "sklep": "Ostatní", "vinný": "Ostatní", "chalupa": "Dům", "chata": "Dům"
 }
 
+# Odstavce šablony webu (kontaktní výzva, newsletter, patička). Nabídka, kterou makléř v HV
+# nevyplnil, neměla jiný text a tohle se 6. 11. 2026 uložilo jako popis 7 různých domů.
+BOILERPLATE_PREFIXES = (
+    "Vážení klienti, pokud Vás tato nemovitost zaujala",
+    "Pravidelná dávka čerstvých nemovitostí",
+    "Vaše spolehlivá realitní kancelář",
+    "©",
+    "Abychom poskytli co nejlepší služby",
+)
+
+
 class HvRealityScraper:
     """Scraper pro hvreality.cz."""
 
@@ -495,7 +506,7 @@ class HvRealityScraper:
         desc_parts = []
         for p in soup.select(".elementor-widget-text-editor p, .entry-content p, article p"):
             text = p.get_text(" ", strip=True)
-            if len(text) > 20:
+            if len(text) > 20 and not text.startswith(BOILERPLATE_PREFIXES):
                 desc_parts.append(text)
         result["description"] = "\n\n".join(desc_parts)[:5000]
 
@@ -524,6 +535,11 @@ class HvRealityScraper:
         # (okres Pelhřimov). Spolehlivý zdroj je meta description:
         # „Prodej rodinného domu Křelovice - okres Pelhřimov, Kraj Vysočina. …"
         muni, district = self._parse_locality(soup, list_item.get("url") or result.get("url") or "")
+        if not muni:
+            # Nabídka bez meta description: „Prodej bytu 2+kk 46 m2 – Znojmo"
+            tail = result["title"].rsplit("–", 1)[-1].strip() if "–" in result["title"] else ""
+            if tail and tail[0].isupper() and len(tail) <= 40 and not any(ch.isdigit() for ch in tail):
+                muni = tail
         district = district or list_item.get("county")
         if muni:
             result["municipality"] = muni[:100]

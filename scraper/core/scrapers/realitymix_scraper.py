@@ -20,6 +20,14 @@ v HTML jsou i náhledy „podobných nemovitostí“). Inzerát bez fotek (formu
 „Mám zájem o více fotografií“) má v og:image jen obecný obrázek portálu.
 Kontakt: .offer-detail-sidebar__agent (jméno, telefon, e-mail) → seller_*.
 
+Stažený inzerát: detail vrací HTTP 200, ale místo inzerátu výpis „podobných“ s hláškou
+„Požadovaný inzerát již není v naší databázi. Našli jsme ale 10 podobných…“ (og:title
+výpisu okresu, breadcrumbs jen do okresu, žádné .advert-detail-heading). Takový detail
+se neukládá a inzerát se na konci běhu deaktivuje – i když ho výpis ještě nese
+(6. 11. 2026 večer takto hlásilo stažení 70 z 1 420 aktivních inzerátů, všechny stažené
+během dne po nočním běhu). Stránka bez hlášky i bez .advert-detail-heading není detail –
+neuloží se, ale ani nedeaktivuje.
+
 Proč: 30. 9. 2026 měl RealityMIX 844 domů v JMK (163 v okrese Znojmo),
 robots.txt scraping výpisů i detailů povoluje.
 """
@@ -86,6 +94,10 @@ DISPOSITION_RE = re.compile(r"\b(\d)\s*\+\s*(kk|\d)\b", re.I)
 AUCTION_SUBJECT_RE = re.compile(r"předmět\w*\s+dražby", re.I)
 AUCTION_AGENCY_RE = re.compile(r"dra[žz]b", re.I)
 PHOTO_HOST = "st.realitymix.cz/i/"
+GONE_RE = re.compile(r"inzer[aá]t\s+již\s+není\s+v\s+naší\s+databázi", re.I)
+# Pojistka jako v runneru: víc stažených inzerátů než max(10, uložených) v jednom běhu
+# ukazuje spíš na změnu webu než na vlnu stahování – pak se nedeaktivuje nic.
+GONE_GUARD_MIN = 10
 
 
 class RealityMixScraper:
@@ -96,6 +108,7 @@ class RealityMixScraper:
     def __init__(self, lists: Optional[List[Tuple[str, str, str, str]]] = None) -> None:
         self.lists = lists or DEFAULT_LISTS
         self.scraped_count = 0
+        self.gone_ids: List[str] = []
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
@@ -110,7 +123,9 @@ class RealityMixScraper:
                 for path, property_type, offer_type, district in self.lists:
                     await self._scrape_list(path, property_type, offer_type, district, max_pages, metrics)
         self._http_client = None
-        logger.info("RealityMIX scraper done. Scraped %s", self.scraped_count)
+        deactivated = await self._deactivate_gone()
+        logger.info("RealityMIX scraper done. Scraped %s, gone %s (deactivated %s)",
+                    self.scraped_count, len(set(self.gone_ids)), deactivated)
         return self.scraped_count
 
     async def _scrape_list(self, path: str, property_type: str, offer_type: str, district: str,
@@ -129,16 +144,8 @@ class RealityMixScraper:
                     break
                 logger.info("%s page %s: %s listings (total %s)", path, page, len(items), total)
                 for item in items:
-                    try:
-                        detail_html = await self._fetch(item["url"])
-                        normalized = self.parse_detail_page(detail_html, item, property_type, offer_type, district)
-                        await self._save_listing(normalized)
-                        self.scraped_count += 1
-                        metrics.increment_scraped()
-                        await asyncio.sleep(0.4)
-                    except Exception as exc:
-                        logger.error("Error processing %s: %s", item.get("url"), exc)
-                        metrics.increment_failed()
+                    await self._process_item(item, property_type, offer_type, district, metrics)
+                    await asyncio.sleep(0.4)
                 if not has_next or (total and page * PAGE_SIZE >= total):
                     break
                 page += 1
@@ -152,6 +159,56 @@ class RealityMixScraper:
                 metrics.increment_failed()
                 break
 
+    async def _process_item(self, item: Dict[str, Any], property_type: str, offer_type: str,
+                            district: str, metrics: Any) -> None:
+        """Stáhne detail položky výpisu a uloží ji; stažený inzerát jen poznamená k deaktivaci."""
+        try:
+            try:
+                detail_html = await self._fetch(item["url"])
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in (404, 410):
+                    raise
+                self._mark_gone(item, f"HTTP {exc.response.status_code}")
+                return
+            if self.is_gone_detail(detail_html):
+                # Výpis ho ještě nese, detail už ne – neukládat (last_seen_at by ho držel aktivní)
+                self._mark_gone(item, "již není v databázi")
+                return
+            normalized = self.parse_detail_page(detail_html, item, property_type, offer_type, district)
+            await self._save_listing(normalized)
+            self.scraped_count += 1
+            metrics.increment_scraped()
+        except Exception as exc:
+            logger.error("Error processing %s: %s", item.get("url"), exc)
+            metrics.increment_failed()
+
+    def _mark_gone(self, item: Dict[str, Any], reason: str) -> None:
+        external_id = item.get("external_id") or ""
+        logger.info("RealityMIX %s už na portálu není (%s) – neukládám", external_id, reason)
+        if external_id:
+            self.gone_ids.append(external_id)
+
+    async def _deactivate_gone(self) -> int:
+        """Deaktivuje inzeráty, jejichž detail hlásí, že už na portálu nejsou."""
+        gone = list(dict.fromkeys(self.gone_ids))
+        if not gone:
+            return 0
+        if len(gone) > max(GONE_GUARD_MIN, self.scraped_count):
+            logger.warning("RealityMIX: %s detailů hlásí stažený inzerát, uloženo jen %s – "
+                           "nedeaktivuji nic (změnil se web?)", len(gone), self.scraped_count)
+            return 0
+        deactivated = 0
+        for external_id in gone:
+            try:
+                if await self._deactivate_listing(external_id):
+                    deactivated += 1
+            except Exception as exc:
+                logger.error("RealityMIX: deaktivace %s selhala: %s", external_id, exc)
+        return deactivated
+
+    async def _deactivate_listing(self, external_id: str) -> bool:
+        return await get_db_manager().deactivate_listing(self.SOURCE_CODE, external_id)
+
     @http_retry
     async def _fetch(self, url: str) -> str:
         if self._http_client is None:
@@ -161,6 +218,11 @@ class RealityMixScraper:
         return response.text
 
     # ── parsování (čisté funkce, testovatelné na uloženém HTML) ──────────────
+
+    @staticmethod
+    def is_gone_detail(html: str) -> bool:
+        """Detail staženého inzerátu: hláška „již není v naší databázi“ + výpis podobných."""
+        return bool(GONE_RE.search(html or ""))
 
     def parse_list_page(self, html: str, page: int = 1) -> Tuple[List[Dict[str, Any]], int, bool]:
         """Vrátí (položky, celkový počet nalezených, existuje další stránka)."""
@@ -253,6 +315,9 @@ class RealityMixScraper:
     def parse_detail_page(self, html: str, item: Dict[str, Any], property_type: str, offer_type: str,
                           district: str) -> Dict[str, Any]:
         soup = BeautifulSoup(html, "html.parser")
+        if soup.select_one("[class*='advert-detail-heading']") is None:
+            # Výpis, chybová stránka nebo jiná šablona – titulek, okres i fotky by byly cizí
+            raise ValueError("detail bez .advert-detail-heading* (není to inzerát)")
         crumbs = self._breadcrumbs(soup)
 
         # Breadcrumbs: [RealityMix, Byty, Prodej, (3+kk|les), Jihomoravský kraj, OKRES, Obec, část]

@@ -9,8 +9,13 @@ Strategie: výpis podle okresu + detail (SSR, httpx + BeautifulSoup, bez Playwri
   (zakazuje jen kombinace s řazením, cenou a více hodnotami).
 - Položka výpisu nese adresu detailu, cenu a lokalitu „Ulice, Obec, okres X" (okresní město bez
   „okres") – odtud bereme obec i okres, takže odpadá hádání z adresy.
-- Detail se stahuje jen u nových inzerátů a při změně ceny; známým se obnoví „naposledy viděno".
-  Jinak by plný běh znamenal ~3 000 detailů za noc (2,5 h, limit úlohy je 45 min).
+- Detail se stahuje u nových inzerátů, při změně ceny a u sedminy známých denně (rotace podle
+  hashe external_id); ostatním známým se obnoví jen „naposledy viděno". Všechny detaily každou noc
+  by byly ~3 000 požadavků (limit úlohy je 45 min).
+- Rotace (od 7. 11. 2026): makléři galerie přenahrávají a každá fotka dostane novou URL, staré vrací
+  404. Výpis změnu galerie neprozradí (jen náhled 420×260 s jiným hashem než fotky galerie), takže bez
+  čerstvého detailu zůstávaly uložené fotky mrtvé (6. 11. 2026: 4 z 10 vzorků, např. 0 z 47 fotek
+  inzerátu tři dny po prvním stažení).
 
 Do 6. 10. 2026 se inzeráty hledaly v sitemapě podle 13 názvů obcí v URL: pokrývalo to jen město
 Znojmo a pár obcí (370 z ~2 900 nabídek) a slug „miroslav" pouštěl dovnitř pražskou ulici
@@ -20,6 +25,8 @@ import asyncio
 import logging
 import re
 import time
+import zlib
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
@@ -53,9 +60,14 @@ class IdnesRealityScraper:
     INCREMENTAL_LIST_PAGES = 3      # inkrementální běh: jen první stránky každého okresu
     MAX_DETAILS_PER_RUN = 800       # strop počtu detailů na běh
     # Limit úlohy v runneru je 45 min; kdo ho přetáhne, je zrušen a nahlášen jako selhání.
-    # Detail trvá 2–3 s a výpisy 4–10 min, takže 800 detailů se vejde jen někdy (6. 10. 2026
+    # Detail trvá 1–3 s a výpisy 4–10 min, takže 800 detailů se vejde jen někdy (6. 10. 2026
     # dva běhy ze čtyř přetáhly) – běh proto končí sám, jakmile vyčerpá časový rozpočet.
     TIME_BUDGET_SECONDS = 36 * 60
+    # Každý známý inzerát dostane čerstvý detail (fotky, popis, cena) aspoň jednou za tolik dní.
+    # 6. 11. 2026: výpisy 5,3 min, 169 detailů za 175 s (~1 s včetně pauzy); sedmina z ~2 800
+    # známých = ~400 detailů, ~7 min navíc (při 3 s na detail ~20 min – pořád pod rozpočtem,
+    # rotace jde až za novými a změnami ceny, takže co se nevejde, ubere jen z ní).
+    ROTATION_DAYS = 7
 
     def __init__(self):
         """Initialize the scraper."""
@@ -109,10 +121,12 @@ class IdnesRealityScraper:
                         kept = await db.mark_active_seen(self.SOURCE_CODE)
                         logger.warning(f"iDNES lists incomplete – {kept} active listings kept as seen, nothing will be deactivated")
 
-                    details = [i for i in self.select_for_detail(items, known) if self.passes_filters(i)]
+                    details = [i for i in self.select_for_detail(items, known, day=self.today())
+                               if self.passes_filters(i)]
+                    rotating = sum(1 for i in details if i.get("rotation"))
                     logger.info(
                         f"iDNES lists: {len(items)} listings, {touched} known refreshed, "
-                        f"{len(details)} need detail (limit {self.MAX_DETAILS_PER_RUN}), "
+                        f"{len(details)} need detail ({rotating} weekly rotation, limit {self.MAX_DETAILS_PER_RUN}), "
                         f"{self.skipped_other_district} skipped as other district"
                     )
 
@@ -282,13 +296,30 @@ class IdnesRealityScraper:
         return float(digits) if digits else None
 
     @staticmethod
-    def select_for_detail(items: List[Dict[str, Any]], known: Dict[str, Optional[float]]) -> List[Dict[str, Any]]:
+    def today() -> int:
+        """Číslo dne (UTC) pro rotaci."""
+        return datetime.now(timezone.utc).date().toordinal()
+
+    @classmethod
+    def in_rotation(cls, external_id: str, day: int, days: Optional[int] = None) -> bool:
+        """
+        Patří inzerát dnes do rotace? Stabilní hash external_id (vestavěný hash() se mezi procesy
+        liší) rozdělí inzeráty do `days` skupin a každý den přijde na řadu jedna.
+        """
+        days = days or cls.ROTATION_DAYS
+        return zlib.crc32(external_id.encode("utf-8")) % days == day % days
+
+    @classmethod
+    def select_for_detail(cls, items: List[Dict[str, Any]], known: Dict[str, Optional[float]],
+                          day: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Které položky potřebují detail: napřed známé se změněnou cenou (ať se zapíše do historie),
-        potom nové. Známé se stejnou cenou detail nepotřebují.
+        potom nové, nakonec známé z dnešní rotace (`day`; None = bez rotace) – ty dostanou
+        příznak `rotation`. Ostatní známé se stejnou cenou detail nepotřebují.
         """
         changed: List[Dict[str, Any]] = []
         new: List[Dict[str, Any]] = []
+        rotation: List[Dict[str, Any]] = []
         for item in items:
             if item["external_id"] not in known:
                 new.append(item)
@@ -296,7 +327,9 @@ class IdnesRealityScraper:
             old_price, list_price = known[item["external_id"]], item["price"]
             if list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5):
                 changed.append(item)
-        return changed + new
+            elif day is not None and cls.in_rotation(item["external_id"], day):
+                rotation.append({**item, "rotation": True})
+        return changed + new + rotation
 
     @staticmethod
     def types_from_url(url: str) -> Tuple[str, str]:
@@ -370,10 +403,16 @@ class IdnesRealityScraper:
 
     @classmethod
     def apply_list_item(cls, normalized: Dict[str, Any], item: Dict[str, Any]) -> None:
-        """Do dat z detailu doplní lokalitu z výpisu (obec, okres) a štítek rezervace z titulku."""
+        """
+        Do dat z detailu doplní lokalitu z výpisu (obec, okres), cenu z výpisu, když ji detail
+        nepřečetl (upsert cenu přepisuje – obnova detailu v rotaci by ji jinak smazala), a štítek
+        rezervace z titulku.
+        """
         normalized["location_text"] = item["location_text"][:200]
         normalized["municipality"] = item["municipality"]
         normalized["district"] = item["district"]
+        if normalized.get("price") is None and item.get("price") is not None:
+            normalized["price"] = item["price"]
 
         title = normalized.get("title") or ""
         if cls._RE_RESERVED_TITLE.search(title):
@@ -527,35 +566,54 @@ class IdnesRealityScraper:
             logger.error(f"Error parsing detail page {url}: {exc}")
             return None
 
-    @staticmethod
-    def extract_gallery_photos(soup: BeautifulSoup) -> List[str]:
+    # Fotka inzerátu: zkompilovaný náhled (sta-reality*.1gr.cz/sta/compile/thumbs/…) nebo ještě
+    # nezkompilovaný /file/thumbnail/{id}?profile=… (přesměruje na zkompilovaný)
+    _RE_LISTING_PHOTO = re.compile(r"^https?://[^/]+/(?:sta/compile/thumbs/|file/thumbnail/)", re.IGNORECASE)
+
+    @classmethod
+    def is_listing_photo(cls, url: str) -> bool:
+        """
+        Je URL fotka inzerátu? Grafika portálu (/ui/image/: no-image-gallery.png, map-marker.png,
+        video-play.png) ani video (.mp4) ne. 6. 11. 2026 měly no-image-gallery.png a map-marker.png
+        ve fotkách desítky aktivních inzerátů (uložené před opravou galerie, od té doby bez detailu).
+        """
+        if not url or "/ui/" in url.lower():
+            return False
+        if url.lower().split("?")[0].endswith((".mp4", ".webm", ".svg", ".gif")):
+            return False
+        return bool(cls._RE_LISTING_PHOTO.match(url))
+
+    @classmethod
+    def extract_gallery_photos(cls, soup: BeautifulSoup) -> List[str]:
         """
         Fotky inzerátu = jen velký carousel galerie (`.b-gallery` → `a[data-fancybox]` → `img`),
         1018×600 jpg; lazy položky mají skutečnou URL v `data-lazy` a v `src` placeholder.
+        Položka s videem (`data-fancybox-video`) má jako náhled první fotku – přeskakuje se.
 
         Do 20. 10. 2026 se braly všechny `<img>` z celé stránky, takže ke galerii přibyl placeholder
         `no-image-gallery.png`, špendlík mapy, 130×80 náhledy, avatar makléře, logo kanceláře a fotky
         z bloku „Podobné nabídky“ – cizí domy pak dostaly štítek „poškození“ a vyhrávaly v sadě fotek
-        skupiny duplicit (nejvíc fotek). Bez galerie zbývá og:image.
+        skupiny duplicit (nejvíc fotek). Bez galerie zbývá og:image. Každá URL navíc musí projít
+        `is_listing_photo`.
         """
         photos: List[str] = []
         gallery = soup.select_one(".b-gallery")
         if gallery is not None:
             for anchor in gallery.select("a[data-fancybox]"):
+                if anchor.has_attr("data-fancybox-video"):
+                    continue
                 img = anchor.find("img")
                 if img is None:
                     continue
                 src = img.get("data-lazy") or img.get("data-src") or img.get("src") or ""
                 if src.startswith("//"):
                     src = "https:" + src
-                if not src.startswith("http") or "/ui/image/" in src:
-                    continue
-                if src not in photos:
+                if cls.is_listing_photo(src) and src not in photos:
                     photos.append(src)
         if not photos:
             for og in soup.find_all("meta", property="og:image"):
                 content = og.get("content") or ""
-                if content.startswith("http") and "/ui/image/" not in content and content not in photos:
+                if cls.is_listing_photo(content) and content not in photos:
                     photos.append(content)
         return photos[:50]
 

@@ -340,6 +340,8 @@ class DatabaseManager:
         self._cache_ttl = timedelta(seconds=source_cache_ttl_seconds)
         # Inzeráty, jejichž klasifikovaná galerie dostala nové fotky – runner je po scrapu pošle API
         self._galleries_to_reclassify: set[UUID] = set()
+        # Zdroje, které v tomto běhu neprošly celý výpis – runner u nich nedeaktivuje neviděné
+        self._incomplete_sources: set[str] = set()
     
     async def connect(self) -> None:
         """Create connection pool."""
@@ -863,15 +865,26 @@ class DatabaseManager:
 
     async def mark_active_seen(self, source_code: str) -> int:
         """
-        Všechny aktivní inzeráty zdroje označí jako právě viděné. Pro běh, který nestihl projít
-        celý výpis: plný rescan by jinak deaktivoval i inzeráty, ke kterým se scraper nedostal.
+        Běh nestihl projít celý výpis zdroje: runner po plném rescanu jeho neviděné inzeráty
+        NEdeaktivuje. Vrací počet aktivních inzerátů zdroje (do logu).
+
+        Do 6. 11. 2026 tahle metoda přepsala last_seen_at všem aktivním inzerátům zdroje. Bazoš
+        měl kvůli 429 neúplný výpis každou noc, takže smazané inzeráty byly navždy „viděné dnes“
+        a nedosáhla na ně ani kontrola mrtvých odkazů (bere jen inzeráty neviděné 2 dny).
         """
+        self._incomplete_sources.add(source_code)
         async with self.acquire() as conn:
-            status = await conn.execute(
-                "UPDATE re_realestate.listings SET last_seen_at = $2 WHERE source_code = $1 AND is_active",
-                source_code, datetime.utcnow(),
-            )
-        return int(status.split()[-1])
+            return int(await conn.fetchval(
+                "SELECT count(*) FROM re_realestate.listings WHERE source_code = $1 AND is_active",
+                source_code,
+            ))
+
+    def pop_incomplete_source(self, source_code: str) -> bool:
+        """True, pokud zdroj v tomto běhu hlásil neúplný výpis (a příznak smaže)."""
+        if source_code in self._incomplete_sources:
+            self._incomplete_sources.discard(source_code)
+            return True
+        return False
 
     _SCRAPE_RUNS_DDL = "ALTER TABLE re_realestate.scrape_runs ADD COLUMN IF NOT EXISTS full_rescan boolean NOT NULL DEFAULT false"
 
@@ -1105,6 +1118,35 @@ class DatabaseManager:
             logger.debug(f"Photo download failed for {photo_url}: {e}")
             return None
 
+    async def _drop_shared_photos(self, conn, listing_id: UUID, photo_urls: List[str]) -> List[str]:
+        """
+        Vynechá fotky, které už má 2+ jiných aktivních inzerátů téhož zdroje – portrét makléře,
+        logo kanceláře, placeholder portálu nebo náhledy „podobných nabídek“. Audit 6. 11. 2026:
+        Century 21 měl na 2. místě galerie portrét makléře u 70 inzerátů, iDNES „no-image-gallery.png“
+        u 20, Premia náhledy 306×172 cizích pozemků u 155 řádků. Dva inzeráty se stejnou fotkou
+        (tentýž dům inzerovaný dvakrát) jsou v pořádku.
+        """
+        if not photo_urls:
+            return photo_urls
+        rows = await conn.fetch(
+            """
+            SELECT p.original_url
+            FROM re_realestate.listing_photos p
+            JOIN re_realestate.listings l ON l.id = p.listing_id
+            WHERE p.original_url = ANY($2::text[])
+              AND l.id <> $1 AND l.is_active
+              AND l.source_id = (SELECT source_id FROM re_realestate.listings WHERE id = $1)
+            GROUP BY p.original_url
+            HAVING count(DISTINCT l.id) >= 2
+            """,
+            listing_id, photo_urls[:50],
+        )
+        shared = {r["original_url"] for r in rows}
+        if not shared:
+            return photo_urls
+        logger.info("Listing %s: vynechávám %s fotek sdílených s jinými inzeráty", listing_id, len(shared))
+        return [u for u in photo_urls if u not in shared]
+
     async def _upsert_photos(self, conn, listing_id: UUID, photo_urls: List[str]) -> None:
         """
         Upsert fotek pro listing. Nové fotky jsou ihned staženy inline (pokud je
@@ -1119,6 +1161,8 @@ class DatabaseManager:
 
         WICHTIG: Běží v transakci, aby byly operace atomické.
         """
+        photo_urls = await self._drop_shared_photos(conn, listing_id, photo_urls)
+
         # Pre-download nových fotek PŘED transakcí (HTTP I/O mimo transakci)
         new_urls_to_download: Dict[str, Optional[str]] = {}  # url → stored_url or None
         uploads_base = _get_uploads_base_path()

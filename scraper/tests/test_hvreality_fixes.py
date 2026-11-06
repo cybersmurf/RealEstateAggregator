@@ -163,3 +163,18 @@ class TestHvRealityRezervace:
         listing = HvRealityScraper()._parse_detail_page(html, item)
         assert listing["district"] == "Znojmo"
         assert listing["property_type"] == "Dům"
+
+
+def test_sablona_webu_neni_popis_a_obec_z_titulku():
+    """6. 11. 2026: nevyplněná nabídka HV uložila jako popis kontaktní výzvu webu (7 různých domů)."""
+    from core.scrapers.hvreality_scraper import HvRealityScraper
+    html = """<html><head><meta property="og:title" content="Prodej bytu 2+kk 46 m2 – Znojmo"></head><body>
+    <h1>Prodej bytu 2+kk 46 m2 – Znojmo</h1>
+    <div class="elementor-widget-text-editor"><p>Vážení klienti, pokud Vás tato nemovitost zaujala, můžete kontaktovat uvedeného makléře přímo.</p></div>
+    <div class="elementor-widget-text-editor"><p>Pravidelná dávka čerstvých nemovitostí, investičních příležitostí a zajímavých nabídek.</p></div>
+    </body></html>"""
+    url = "https://hvreality.cz/prodej-nemovitosti/prodej-bytu-2-kk-znojmo-okres-znojmo-prodej-bytu-2-kk-5060-m2-znojmo-1329/"
+    result = HvRealityScraper()._parse_detail_page(html, {"url": url})
+    assert result["description"] == ""
+    assert result["municipality"] == "Znojmo"
+    assert result["district"] == "Znojmo"

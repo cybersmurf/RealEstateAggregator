@@ -376,15 +376,30 @@ class MmRealityScraper:
                 break
         result["price"] = self._parse_price(price_text)
 
-        desc_el = soup.select_one(".description p, article p, main p")
-        result["description"] = desc_el.get_text(" ", strip=True) if desc_el else ""
+        ld_listing = self._extract_ld_listing(soup)
+        result["description"] = self._extract_description(soup, ld_listing)
 
         params = self._parse_params_rows(soup) or self._parse_params_section(soup)
         if not params:
             params = self._parse_params_fallback(soup)
+        ld_props = self._ld_properties(ld_listing)
 
+        is_land = result["property_type"] == "Pozemek"
         result["area_built_up"] = self._parse_area(params.get("Užitná plocha", ""))
         result["area_land"] = self._parse_area(params.get("Plocha parcely", ""))
+        # Záloha ze strukturovaných dat: u pozemku „Plocha" (výměra), u stavby floorSize
+        if is_land and result["area_land"] is None:
+            result["area_land"] = self._ld_number(ld_props.get("Plocha"))
+        elif not is_land and result["area_built_up"] is None:
+            floor_size = ((ld_listing.get("offers") or {}).get("itemOffered") or {}).get("floorSize")
+            result["area_built_up"] = self._ld_number(floor_size.get("value") if isinstance(floor_size, dict) else None)
+
+        # Stav: u stavby parametr „Stav nemovitosti" (Novostavba, Dobrý, Před rekonstrukcí…).
+        # U pozemku ho web vyplňuje taky („Velmi dobrý" u pole) – to stav stavby není.
+        if not is_land:
+            condition = (params.get("Stav nemovitosti") or ld_props.get("Stav nemovitosti") or "").strip()
+            if condition and condition.lower() != "neuvedeno":
+                result["condition"] = condition
         result["location_text"] = self._extract_location(soup) or list_item.get("img_alt", "")
 
         # Okres: z dat výpisu, jinak z URL výpisu, ze kterého inzerát pochází. Bez něj prošly
@@ -406,6 +421,66 @@ class MmRealityScraper:
             result["longitude"] = float(lng)
 
         return result
+
+    @staticmethod
+    def _extract_ld_listing(soup: BeautifulSoup) -> Dict[str, Any]:
+        """Uzel RealEstateListing ze schema.org ld+json (popis, cena, adresa, parametry), jinak {}."""
+        for script in soup.select('script[type="application/ld+json"]'):
+            try:
+                data = json.loads(script.string or script.get_text() or "")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            nodes = data.get("@graph", [data]) if isinstance(data, dict) else data
+            for node in nodes if isinstance(nodes, list) else []:
+                if isinstance(node, dict) and node.get("@type") == "RealEstateListing":
+                    return node
+        return {}
+
+    @staticmethod
+    def _ld_properties(ld_listing: Dict[str, Any]) -> Dict[str, Any]:
+        """additionalProperty z ld+json jako {název: hodnota} („Plocha", „Stav nemovitosti"…)."""
+        offers = ld_listing.get("offers")
+        item = offers.get("itemOffered") if isinstance(offers, dict) else None
+        props = item.get("additionalProperty") if isinstance(item, dict) else None
+        return {
+            str(p.get("name")): p.get("value")
+            for p in props or []
+            if isinstance(p, dict) and p.get("name") and p.get("value") is not None
+        }
+
+    @staticmethod
+    def _ld_number(value: Any) -> Optional[int]:
+        """Kladné číslo z ld+json (1245, 1245.0, "1245") jako int, jinak None."""
+        try:
+            number = round(float(value))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return number if number > 0 else None
+
+    @staticmethod
+    def _clean_description(text: str) -> str:
+        """Odstavce zachová, zruší \\r, tabulátory, neviditelné znaky a prázdné řádky navíc."""
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = re.sub("[\u200b\u200c\u200d\ufeff]", "", text)
+        lines = [" ".join(line.split()) for line in text.split("\n")]
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+    def _extract_description(self, soup: BeautifulSoup, ld_listing: Dict[str, Any]) -> str:
+        """
+        Text inzerátu: ld+json „description", záloha odstavec p.tw-typo-lg v bloku s cenou.
+
+        Do 6. 11. 2026 se bral první <p> v <main> – stránka má ale dva <main> a v prvním je
+        mobilní menu, takže všech 104 aktivních inzerátů mělo popis „Naše produkty". Volné
+        „article p" by zase chytilo pracovní dobu z kontaktního formuláře makléře.
+        """
+        description = ld_listing.get("description")
+        if isinstance(description, str) and description.strip():
+            return self._clean_description(description)
+        paragraphs = soup.select(".rds-property-detail-info p.tw-typo-lg") or soup.select("p.tw-typo-lg")
+        if paragraphs:
+            return self._clean_description("\n\n".join(p.get_text() for p in paragraphs))
+        meta = soup.select_one('meta[property="og:description"]')
+        return self._clean_description(meta.get("content", "")) if meta else ""
 
     @staticmethod
     def district_from_config(config: Dict[str, Any]) -> Optional[str]:

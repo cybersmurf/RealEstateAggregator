@@ -1158,35 +1158,51 @@ SellerName = sellerName,
         var cutoff = DateTimeOffset.UtcNow.AddDays(-daysOld);
 
         var candidates = await _dbContext.Listings
+            .AsNoTracking()
             .Where(l => l.IsActive && l.LastSeenAt < cutoff && l.Url != null && l.Url != string.Empty)
-            .Select(l => new { l.Id, l.Url })
+            .Select(l => new { l.Id, l.Url, l.ExternalId })
             .ToListAsync(cancellationToken);
 
         if (candidates.Count == 0)
             return new DeactivateDeadResult(0, 0);
 
-        using var httpClient = new HttpClient();
-        httpClient.Timeout = TimeSpan.FromSeconds(10);
+        // GET, ne HEAD: smazaný inzerát často vrací 200 se štítkem nebo přesměruje na výpis (DeadListingDetector).
+        using var httpClient = new HttpClient(new HttpClientHandler { AllowAutoRedirect = true, MaxAutomaticRedirections = 5 });
+        httpClient.Timeout = TimeSpan.FromSeconds(20);
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "Mozilla/5.0 (compatible; RealEstateBot/1.0)");
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+        httpClient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("cs-CZ,cs;q=0.9");
 
-        var semaphore = new SemaphoreSlim(10);
+        // Nejvýš 2 souběžné dotazy na jeden web – 800 zatuchlých inzerátů jednoho zdroje nesmí vyvolat 429.
+        var hostLimits = new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>();
         var toDeactivate = new System.Collections.Concurrent.ConcurrentBag<Guid>();
 
-        await Parallel.ForEachAsync(candidates, cancellationToken, async (item, ct) =>
+        await Parallel.ForEachAsync(candidates, new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = cancellationToken }, async (item, ct) =>
         {
-            await semaphore.WaitAsync(ct);
+            if (!Uri.TryCreate(item.Url, UriKind.Absolute, out var uri))
+                return;
+            var hostLimit = hostLimits.GetOrAdd(uri.Host, _ => new SemaphoreSlim(2));
+            await hostLimit.WaitAsync(ct);
             try
             {
-                using var req = new HttpRequestMessage(HttpMethod.Head, item.Url);
-                using var resp = await httpClient.SendAsync(req,
-                    HttpCompletionOption.ResponseHeadersRead, ct);
-
-                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound ||
-                    resp.StatusCode == System.Net.HttpStatusCode.Gone)
+                using var resp = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+                string? body = null;
+                if (resp.StatusCode == System.Net.HttpStatusCode.OK)
                 {
-                    toDeactivate.Add(item.Id);
+                    await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+                    using var reader = new StreamReader(stream);
+                    var buffer = new char[512 * 1024];
+                    var read = await reader.ReadBlockAsync(buffer.AsMemory(), ct);
+                    body = new string(buffer, 0, read);
                 }
+                var finalUrl = resp.RequestMessage?.RequestUri?.ToString();
+                if (DeadListingDetector.IsDead(resp.StatusCode, item.Url, finalUrl, item.ExternalId, body))
+                    toDeactivate.Add(item.Id);
+                await Task.Delay(300, ct);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch
             {
@@ -1194,7 +1210,7 @@ SellerName = sellerName,
             }
             finally
             {
-                semaphore.Release();
+                hostLimit.Release();
             }
         });
 

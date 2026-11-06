@@ -3,6 +3,8 @@ Job runner for scraping tasks.
 Orchestrates individual scrapers and manages job lifecycle.
 """
 import asyncio
+import sys
+import json
 import logging
 import os
 
@@ -321,6 +323,7 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             for (source_name, _), result in zip(tasks, results):
                 if isinstance(result, Exception):
                     logger.error(f"Job {job_id}: {source_name} scraper failed: {result}")
+                    db_manager.pop_incomplete_source(source_name)
                 else:
                     total_scraped += result
                     logger.info(f"Job {job_id}: {source_name} scraped {result} listings")
@@ -328,7 +331,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
                     # ⚠️ OCHRANA: deaktivuj POUZE pokud scraper vrátil alespoň 1 inzerát.
                     # Pokud vrátí 0 (síťová chyba, timeout), NESMÍME deaktivovat stávající
                     # inzeráty – způsobilo by to falešnou masovou deaktivaci celé DB.
-                    if request.full_rescan and result > 0:
+                    # Příznak neúplného výpisu se vybírá vždy – z inkrementálního běhu nesmí přežít do plného
+                    incomplete = db_manager.pop_incomplete_source(source_name)
+                    if request.full_rescan and incomplete:
+                        logger.warning(f"Job {job_id}: {source_name} did not finish its lists – skipping deactivation")
+                    elif request.full_rescan and result > 0:
                         # ⚠️ OCHRANA 2: částečně rozbitý parser (vrátí 2 ze 100) by prošel
                         # podmínkou result > 0 a deaktivoval zbytek. Proto nedeaktivuj víc
                         # inzerátů, než kolik jich scraper v tomhle běhu viděl (result počítá
@@ -413,6 +420,11 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
                 anomalies=anomalies,
             )
 
+            # Denní audit kvality dat (runs, zatuchlé inzeráty, vyplněnost, šablony, typy, živý vzorek
+            # webu a fotek) – jen po plném nočním běhu. Výsledek čte ráno /scraper-doctor.
+            if request.full_rescan:
+                await _run_quality_audit(job_id)
+
             # Update status na Succeeded
             await db_manager.update_scrape_job(
                 job_id=job_id,
@@ -439,6 +451,35 @@ async def run_scrape_job(job_id: UUID, request: ScrapeTriggerRequest) -> None:
             error_message=str(exc),
             finished_at=datetime.utcnow()
         )
+
+
+async def _run_quality_audit(job_id: UUID) -> None:
+    """Spustí scripts/quality_audit.py a chyby (🔴) i varování (🟡) pošle na Slack.
+
+    Audit 6. 11. 2026: Reality Čechy padal 3 týdny, Bazoš ukládal zahrady jako byty, M&M měl
+    místo popisu „Naše produkty“ – nic z toho běžné hlídání (počty, selhání) nepoznalo.
+    """
+    script = Path(__file__).resolve().parent.parent / "scripts" / "quality_audit.py"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(script), "--json",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=600)
+        report = json.loads(out.decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 – audit je best-effort, job už uspěl
+        logger.warning("Job %s: Quality audit failed: %r", job_id, exc)
+        return
+    lines = []
+    for code, src in report.get("sources", {}).items():
+        for issue in src.get("issues", []):
+            if issue["level"] in ("red", "yellow"):
+                icon = "🔴" if issue["level"] == "red" else "🟡"
+                lines.append(f"{icon} *{code}* [{issue['check']}] {issue['message']}")
+    logger.info("Job %s: Quality audit %s – %s nálezů", job_id, report.get("level"), len(lines))
+    if lines and report.get("level") == "red":
+        await notifications.send_text(
+            "Audit kvality scraperů – nálezy (opraví /scraper-doctor):\n" + "\n".join(lines[:40]))
 
 
 def _api_key_headers() -> Dict[str, str]:

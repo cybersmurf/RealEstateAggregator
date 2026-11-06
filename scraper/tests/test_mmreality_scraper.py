@@ -1,4 +1,5 @@
 """MM Reality (core/scrapers/mmreality_scraper.py) nad uloženými stránkami v tests/fixtures/mmreality – bez HTTP a DB."""
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -134,6 +135,92 @@ class TestMmRealityDetail:
         # "Horní Loučky" samo o sobě geografickým filtrem neprojde – okres ano
         assert FilterManager().passes_search_filters(result) is True
         assert FilterManager().passes_search_filters(dict(result, district=None)) is False
+
+
+CONFIG_POZEMKY_BRNO_VENKOV: Dict[str, Any] = {
+    "url": "https://www.mmreality.cz/nemovitosti/prodej/pozemky/brno-venkov/",
+    "offer_type": "Prodej",
+    "property_type": "Pozemek",
+}
+
+
+def _item(external_id: str) -> Dict[str, Any]:
+    return {"external_id": external_id, "detail_url": f"https://www.mmreality.cz/nemovitosti/{external_id}"}
+
+
+def _bez_ld_json(html: str) -> str:
+    return re.sub(r'<script type="application/ld\+json">.*?</script>', "", html, flags=re.S)
+
+
+class TestMmRealityPopisAParametry:
+    """6. 11. 2026: všech 104 aktivních inzerátů mělo popis „Naše produkty" – první <p> v <main>
+    patřil mobilnímu menu (stránka má dva <main>). Stav nemovitosti se z parametrů nečetl vůbec."""
+
+    def test_popis_domu_je_text_inzeratu_ne_menu(self, scraper):
+        result = scraper._parse_detail_page(
+            _load("detail_dum_vemyslice_954644.html"), _item("954644"), CONFIG_DOMY_ZNOJMO
+        )
+        description = result["description"]
+        assert "Naše produkty" not in description
+        assert description.startswith("Nabízíme k prodeji jedinečný prostorný rodinný dům, v obci Vémyslice")
+        assert description.endswith("s financováním rádi pomůžeme.")
+        assert "\n\n" in description  # odstavce zůstanou
+        assert "\r" not in description and "\t" not in description
+
+    def test_popis_zahrady_bez_neviditelnych_znaku(self, scraper):
+        result = scraper._parse_detail_page(
+            _load("detail_zahrada_slapanice_957051.html"), _item("957051"), CONFIG_POZEMKY_BRNO_VENKOV
+        )
+        description = result["description"]
+        assert description.startswith("Ve výhradním zastoupení majitele Vám nabízíme zahradu o výměře 1245 m2")
+        assert description.endswith("určenou k rekreaci a pěstování zeleniny.")
+        assert "\u200c" not in description and "\r" not in description
+
+    def test_bez_ld_json_popis_z_odstavce_u_ceny_ne_z_kontaktu_maklere(self, scraper):
+        html = _bez_ld_json(_load("detail_dum_vemyslice_954644.html"))
+        assert "8:00 - 20:00" in html  # pracovní doba v <article> kontaktního formuláře
+        result = scraper._parse_detail_page(html, _item("954644"), CONFIG_DOMY_ZNOJMO)
+        assert result["description"].startswith("Nabízíme k prodeji jedinečný prostorný rodinný dům")
+        assert "Naše produkty" not in result["description"]
+        assert "8:00" not in result["description"]
+
+    def test_dum_ma_stav_a_plochy_z_parametru(self, scraper):
+        result = scraper._parse_detail_page(
+            _load("detail_dum_vemyslice_954644.html"), _item("954644"), CONFIG_DOMY_ZNOJMO
+        )
+        assert result["condition"] == "Dobrý"
+        assert result["area_built_up"] == 179
+        assert result["area_land"] == 1269
+        assert result["price"] == 7390000
+
+    def test_pozemek_nema_stav_ani_uzitnou_plochu(self, scraper):
+        # Web u zahrady uvádí „Stav nemovitosti: Dobrý" – stav stavby to není
+        result = scraper._parse_detail_page(
+            _load("detail_zahrada_slapanice_957051.html"), _item("957051"), CONFIG_POZEMKY_BRNO_VENKOV
+        )
+        assert "condition" not in result
+        assert result["area_built_up"] is None
+        assert result["area_land"] == 1245
+        assert result["price"] == 911500
+
+    def test_plocha_ze_strukturovanych_dat_kdyz_parametr_chybi(self, scraper):
+        ld = (
+            '{"@context":"https://schema.org","@graph":[{"@type":"RealEstateListing","description":"Dům.",'
+            '"offers":{"@type":"Offer","itemOffered":{"@type":"House","floorSize":{"value":179,"unitCode":"MTK"},'
+            '"additionalProperty":[{"name":"Stav nemovitosti","value":"novostavba"}]}}}]}'
+        )
+        html = f'<html><head><script type="application/ld+json">{ld}</script></head><body><h2>Dům</h2></body></html>'
+        result = scraper._parse_detail_page(html, _item("1"), CONFIG_DOMY_ZNOJMO)
+        assert result["area_built_up"] == 179
+        assert result["condition"] == "novostavba"  # upsert ho sjednotí na „Novostavba"
+        assert result["description"] == "Dům."
+
+    def test_stav_neuvedeno_se_neuklada(self, scraper):
+        html = _load("detail_dum_bozice.html").replace(
+            '<div class="rds-property-params-value">Dobrý</div>', '<div class="rds-property-params-value">Neuvedeno</div>'
+        )
+        result = scraper._parse_detail_page(html, _item("956928"), CONFIG_DOMY_ZNOJMO)
+        assert "condition" not in result
 
 
 class _FakeMmReality(MmRealityScraper):

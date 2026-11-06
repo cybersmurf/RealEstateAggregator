@@ -3,11 +3,14 @@ Unit testy parseru RealityMIX.cz nad uloženými fixturami (bez HTTP a DB).
 """
 import sys
 from pathlib import Path
+from typing import Any, Dict, List
 
+import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.scrapers import realitymix_scraper
 from core.scrapers.realitymix_scraper import RealityMixScraper
 
 FIXTURES = Path(__file__).parent / "fixtures" / "realitymix"
@@ -241,3 +244,90 @@ class TestRealitymixHelpers:
         assert d["disposition"] == "2+kk"
         assert d["area_built_up"] == 45.0
         assert d["photos"] == []
+
+
+class TestRealitymixStazenyInzerat:
+    """6. 11. 2026: detail staženého inzerátu vrací HTTP 200 s výpisem „podobných nemovitostí“."""
+
+    def test_hlaska_o_stazenem_inzeratu(self):
+        assert RealityMixScraper.is_gone_detail(_load("detail_neni_v_databazi_8282543.html")) is True
+
+    @pytest.mark.parametrize("name", [
+        "detail_dum_8709111.html", "detail_byt_8689753.html", "detail_pozemek_8710173.html",
+        "detail_drazba_bez_fotek_8694091.html", "list_domy_znojmo.html",
+    ])
+    def test_zivy_detail_ani_vypis_nejsou_stazene(self, name):
+        assert RealityMixScraper.is_gone_detail(_load(name)) is False
+
+    def test_stranka_bez_detailu_se_neparsuje(self):
+        item = {"url": "https://realitymix.cz/detail/brod-nad-dyji/prodej-rodinneho-domu-64-m-brod-nad-dyji-8282543.html",
+                "external_id": "8282543", "address": "Brod nad Dyjí, okr. Břeclav", "price_text": "2 890 000 Kč"}
+        # dřív by z výpisu podobných vznikl inzerát s titulkem „Rodinné domy a vily - Břeclav | RealityMIX“
+        with pytest.raises(ValueError):
+            RealityMixScraper().parse_detail_page(_load("detail_neni_v_databazi_8282543.html"), item,
+                                                  "Dům", "Prodej", "Břeclav")
+
+
+GONE_ID = "8709787"       # detail hlásí „již není v naší databázi“
+NOT_FOUND_ID = "8707929"  # detail vrací 404
+
+
+class _FakeRealityMix(RealityMixScraper):
+    """Jeden výpis (fixtura), detaily z fixtur; žádné HTTP, žádná DB."""
+
+    def __init__(self, gone_ids: tuple = (GONE_ID,), not_found_ids: tuple = (NOT_FOUND_ID,)) -> None:
+        super().__init__(lists=[("/reality/domy/prodej/jihomoravsky/znojmo", "Dům", "Prodej", "Znojmo")])
+        self.gone = set(gone_ids)
+        self.not_found = set(not_found_ids)
+        self.saved: List[Dict[str, Any]] = []
+        self.deactivated: List[str] = []
+
+    async def _fetch(self, url: str) -> str:
+        if "/reality/" in url:
+            return _load("list_domy_znojmo.html")
+        external_id = url.rsplit("-", 1)[1].split(".")[0]
+        if external_id in self.not_found:
+            request = httpx.Request("GET", url)
+            raise httpx.HTTPStatusError("404", request=request, response=httpx.Response(404, request=request))
+        if external_id in self.gone:
+            return _load("detail_neni_v_databazi_8282543.html")
+        return _load("detail_dum_8709111.html")
+
+    async def _save_listing(self, listing: Dict[str, Any]) -> None:
+        self.saved.append(listing)
+
+    async def _deactivate_listing(self, external_id: str) -> bool:
+        self.deactivated.append(external_id)
+        return True
+
+
+@pytest.fixture
+def _bez_cekani(monkeypatch):
+    async def _no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(realitymix_scraper.asyncio, "sleep", _no_sleep)
+
+
+@pytest.mark.usefixtures("_bez_cekani")
+class TestRealitymixBehStazene:
+
+    async def test_stazeny_inzerat_se_neulozi_a_deaktivuje(self):
+        scraper = _FakeRealityMix()
+        total = await scraper.scrape(max_pages=1)
+        saved_ids = {listing["external_id"] for listing in scraper.saved}
+        assert GONE_ID not in saved_ids and NOT_FOUND_ID not in saved_ids
+        assert total == len(scraper.saved) == 19
+        assert sorted(scraper.deactivated) == sorted([GONE_ID, NOT_FOUND_ID])
+
+    async def test_bez_stazenych_nic_nedeaktivuje(self):
+        scraper = _FakeRealityMix(gone_ids=(), not_found_ids=())
+        assert await scraper.scrape(max_pages=1) == 21
+        assert scraper.deactivated == []
+
+    async def test_pojistka_kdyz_jsou_stazene_skoro_vsechny(self):
+        # 20 z 21 detailů „staženo“ = spíš změna webu než vlna stahování → nedeaktivovat nic
+        ids = RealityMixScraper().parse_list_page(_load("list_domy_znojmo.html"))[0]
+        scraper = _FakeRealityMix(gone_ids=tuple(i["external_id"] for i in ids[1:]), not_found_ids=())
+        assert await scraper.scrape(max_pages=1) == 1
+        assert scraper.deactivated == []

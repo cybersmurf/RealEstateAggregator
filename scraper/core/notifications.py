@@ -44,6 +44,11 @@ async def _send(payload: dict[str, Any]) -> bool:
         return False
 
 
+async def send_text(text: str) -> bool:
+    """Prostá textová zpráva do Slacku (audit kvality dat)."""
+    return await _send({"text": text})
+
+
 DROP_RATIO = 0.6          # pod 60 % obvyklého počtu = propad
 DROP_MIN_MEDIAN = 20      # u malých zdrojů kolísání nehlásíme
 

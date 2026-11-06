@@ -85,6 +85,9 @@ _CATEGORY_MAP: Dict[str, str] = {
     "byty": "Byt",
     "pozemek": "Pozemek",
     "pozemky": "Pozemek",
+    "zahrada": "Pozemek",
+    "zahrady": "Pozemek",
+    "podnajem": "Byt",  # podnájem = pokoj nebo byt
     "chata": "Chata",
     "chaty": "Chata",
     "chalupa": "Chata",
@@ -241,7 +244,7 @@ class BazosScraper:
             try:
                 with timer(f"Bazos list {category or 'vse'} page {page}", logging.DEBUG):
                     start = time.perf_counter()
-                    html = await self._fetch(url)
+                    html = await self._fetch_list(url)
                     metrics.record_fetch(time.perf_counter() - start)
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 404:
@@ -259,7 +262,7 @@ class BazosScraper:
             collected.extend(page_items)
             if raw_count < 20:
                 break
-            await asyncio.sleep(1.0)  # zdvořilé crawlování
+            await asyncio.sleep(self.LIST_DELAY_SECONDS)  # zdvořilé crawlování
 
         logger.info("Bazos search %s%s+%skm: %s listings in target districts",
                     category, postcode, radius, len(collected))
@@ -272,6 +275,25 @@ class BazosScraper:
         response = await self._http_client.get(url)
         response.raise_for_status()
         return response.text
+
+    # Bazoš po ~3 minutách výpisů vrací 429 (6. 11. 2026: posledních 5 hledání padlo, výpis byl
+    # „neúplný" a nic se nedeaktivovalo). Celý běh trvá 8 minut, rozpočet je 36 – čekat se vyplatí.
+    LIST_DELAY_SECONDS = 2.0
+    _RATE_LIMIT_WAITS = (30, 60, 120)
+
+    async def _fetch_list(self, url: str) -> str:
+        """Stránka výpisu; na 429 počká (Retry-After, jinak 30/60/120 s) a zkusí znovu."""
+        for wait in (*self._RATE_LIMIT_WAITS, None):
+            try:
+                return await self._fetch(url)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 429 or wait is None:
+                    raise
+                retry_after = exc.response.headers.get("Retry-After", "")
+                delay = int(retry_after) if retry_after.isdigit() else wait
+                logger.warning("Bazos: 429 on list page, waiting %s s", delay)
+                await asyncio.sleep(min(delay, 300))
+        raise RuntimeError("unreachable")
 
     # ── List page ──────────────────────────────────────────────────────────────
 
@@ -397,32 +419,30 @@ class BazosScraper:
             "photos": photos,
         }
 
+    # Rubrika v drobečkové navigaci: „…/prodam/zahrada/" nebo „…/pronajmu/byt/"
+    _RUBRIC_RE = re.compile(r"/(prodam|pronajmu|pronajem)/([a-z]+)/?$")
+
     def _infer_types(
         self, soup: BeautifulSoup, title: str, detail_url: str
     ) -> Tuple[str, str]:
-        """Určí offer_type (Prodej/Pronájem) a property_type z odkazů breadcrumbu."""
+        """Určí offer_type (Prodej/Pronájem) a property_type z rubriky v drobečkové navigaci.
+
+        Jen z <div class="drobky">: do 6. 11. 2026 se procházely všechny odkazy stránky, takže
+        rubrika, kterou mapa neznala (zahrada), propadla na první odkaz levého menu „/prodam/byt/" –
+        810 zahrad a pozemků i rodinné domy byly „byt". Pronájem Bazoš píše „/pronajmu/", ne
+        „/pronajem/", takže pronájmy z rubriky byly prodej (byt 1+kk za 12 000 Kč).
+        """
         offer_type = "Prodej"
         property_type = "Ostatní"
 
-        # Projdi všechny <a> tagy – breadcrumb obsahuje kanonické URL vzory
-        # např. https://reality.bazos.cz/prodam/dum/ nebo /pronajem/byt/
-        for a in soup.find_all("a", href=True):
-            href = str(a.get("href", "")).lower()
-
-            # Detekce pronájmu
-            if "/pronajem/" in href:
+        crumbs = soup.select("div.drobky a[href]")
+        for a in crumbs:
+            m = self._RUBRIC_RE.search(str(a.get("href", "")).lower().split("?")[0])
+            if not m:
+                continue
+            if m.group(1) in ("pronajmu", "pronajem"):
                 offer_type = "Pronájem"
-
-            # Detekce kategorie
-            if property_type == "Ostatní":
-                for key, pt in _CATEGORY_MAP.items():
-                    if f"/{key}/" in href or href.endswith(f"/{key}"):
-                        property_type = pt
-                        break
-
-            # Jakmile máme obojí, můžeme skončit (breadcrumb je na začátku stránky)
-            if property_type != "Ostatní" and offer_type != "Prodej":
-                break
+            property_type = _CATEGORY_MAP.get(m.group(2), property_type)
 
         # Fallback: infer z titulku
         if property_type == "Ostatní":

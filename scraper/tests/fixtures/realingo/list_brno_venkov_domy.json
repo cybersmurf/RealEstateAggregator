@@ -1,0 +1,155 @@
+{
+ "props": {
+  "pageProps": {
+   "store": {
+    "offer": {
+     "list": {
+      "data": [
+       {
+        "id": "24777513",
+        "url": "/prodej/dum-rodinny-chudcice-okres-brno-venkov/24777513",
+        "purpose": "SELL",
+        "property": "HOUSE",
+        "visited": false,
+        "liked": null,
+        "reserved": false,
+        "createdAt": "2026-11-06T15:09:20.382Z",
+        "category": "HOUSE_FAMILY",
+        "isLocked": true,
+        "photosCount": 13,
+        "price": {
+         "type": "FIXED",
+         "total": null,
+         "canonical": null,
+         "squareMeter": null,
+         "squareMeterCanonical": null,
+         "currency": null
+        },
+        "area": {
+         "main": null,
+         "plot": null
+        },
+        "photos": {
+         "main": null,
+         "list": []
+        },
+        "location": {
+         "address": "Chudčice",
+         "addressUrl": "Chudčice",
+         "locationPrecision": "STREET",
+         "latitude": 49.29,
+         "longitude": 16.45
+        },
+        "priceTier": 1
+       },
+       {
+        "id": "24774684",
+        "url": "/prodej/dum-rodinny-ve-dvore-predklasteri-okres-brno-venkov/24774684",
+        "purpose": "SELL",
+        "property": "HOUSE",
+        "visited": false,
+        "liked": null,
+        "reserved": false,
+        "createdAt": "2026-11-04T20:57:37.455Z",
+        "category": "HOUSE_FAMILY",
+        "isLocked": false,
+        "photosCount": 22,
+        "price": {
+         "type": "FIXED",
+         "total": 5990000,
+         "canonical": 5990000,
+         "squareMeter": null,
+         "squareMeterCanonical": 47165.355,
+         "currency": "CZK"
+        },
+        "area": {
+         "main": 127,
+         "plot": 708
+        },
+        "photos": {
+         "main": "offer/xte/xte5dtnpw9-1500x1000x907030",
+         "list": [
+          "offer/pvd/pvdtp7bbq3-1500x1000xf0f0f0",
+          "offer/u2r/u2rk8zej7g-1500x1000xf0d0d0",
+          "offer/528/5287zhtq9g-1500x1000xf0d0d0",
+          "offer/n58/n58rz3h8jw-1236x762xd0b0b0",
+          "offer/2nc/2ncvnp3644-1500x1000xf0d0d0",
+          "offer/96y/96y417p4sg-1500x1000xf0f0f0",
+          "offer/hzz/hzzgwz4e7n-1500x1000xf0f0f0",
+          "offer/k7p/k7p2keqr5y-1500x1000xf0f0d0",
+          "offer/mey/meysg84t7y-1500x1000xf0d0d0",
+          "offer/xy3/xy3fzhb3mw-1500x1000xd0d0d0",
+          "offer/9gt/9gt53edk6j-1500x1000xf0d0d0",
+          "offer/tk2/tk2xkpy68y-1500x1000xf0d0b0",
+          "offer/cht/cht5mnkac6-1500x1000xf0d0d0",
+          "offer/zcq/zcqadkxftb-1500x1000xd0d0d0",
+          "offer/2q6/2q61jk2xa3-1500x1000xf0f0f0",
+          "offer/f1j/f1jhjn219t-1500x1000x505030",
+          "offer/e7a/e7ap1jwbbq-1500x1000x907030",
+          "offer/baq/baqjhxxtgj-1500x1000x705030",
+          "offer/n3q/n3qx7tvkdb-1500x1000x907030",
+          "offer/kuw/kuwuujzw5y-1500x1000x907030",
+          "offer/zzc/zzc5qx3t7u-1500x1000xb09050"
+         ]
+        },
+        "location": {
+         "address": "Ve dvoře 1185, Předklášteří",
+         "addressUrl": "Ve_dvoře,Předklášteří",
+         "locationPrecision": "STREET",
+         "latitude": 49.356295555556,
+         "longitude": 16.403121666667
+        },
+        "priceTier": null
+       },
+       {
+        "id": "24772219",
+        "url": "/prodej/dum-cinzovni-oslavany-okres-brno-venkov/24772219",
+        "purpose": "SELL",
+        "property": "HOUSE",
+        "visited": false,
+        "liked": null,
+        "reserved": false,
+        "createdAt": "2026-11-03T07:45:44.603Z",
+        "category": "HOUSE_APARTMENT",
+        "isLocked": false,
+        "photosCount": 6,
+        "price": {
+         "type": "NEGOTIABLE",
+         "total": null,
+         "canonical": null,
+         "squareMeter": null,
+         "squareMeterCanonical": null,
+         "currency": "CZK"
+        },
+        "area": {
+         "main": 1588,
+         "plot": null
+        },
+        "photos": {
+         "main": "offer/j1k/j1kdsvuzds-1333x1000x909090",
+         "list": [
+          "offer/7va/7vaazj19pr-1333x1000x909090",
+          "offer/9rm/9rmh2jvdt3-1333x1000x909090",
+          "offer/c5y/c5yvvj27kd-1333x1000x505030",
+          "offer/vgj/vgj6qsjxf4-1333x1000x909090",
+          "offer/52g/52gf3uppf5-1333x1000x303030"
+         ]
+        },
+        "location": {
+         "address": "Oslavany, okres Brno-venkov",
+         "addressUrl": "Komenského,Oslavany",
+         "locationPrecision": "STREET",
+         "latitude": 49.12334598604268,
+         "longitude": 16.336527841620686
+        },
+        "priceTier": null
+       }
+      ],
+      "total": 460,
+      "lockedOffersCount": 9
+     }
+    }
+   }
+  }
+ }
+}

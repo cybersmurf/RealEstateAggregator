@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import pytest
+from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -187,6 +188,79 @@ class TestRemaxDetail:
     ])
     def test_typ_nemovitosti(self, title, type_param, hint, expected):
         assert RemaxScraper._infer_property_type(title, type_param, hint) == expected
+
+
+def _bez_parametru(html: str, label: str) -> str:
+    """Stránka bez řádku parametru (např. „Celková plocha:")."""
+    soup = BeautifulSoup(html, "html.parser")
+    for row in soup.select(".pd-detail-info__row"):
+        label_el = row.select_one(".pd-detail-info__label")
+        if label_el and label_el.get_text(strip=True) == label:
+            row.decompose()
+    return str(soup)
+
+
+class TestRemaxCena:
+    """6. 11. 2026: „5 326,60 Kč (za m²)" se uložilo jako 60 Kč, „4 369 000,02 Kč" jako 2 Kč
+    a další tři pozemky s cenou za m² měly jednotkovou cenu místo celkové."""
+
+    def test_cena_za_m2_u_pozemku_se_prepocte_vymerou(self, scraper):
+        result = scraper._parse_detail_page(
+            _load("detail_pozemek_za_m2_dolni_vestonice_451334.html"),
+            _item(external_id="451334", district="Břeclav", property_type_hint="Pozemek"),
+        )
+        assert result["property_type"] == "Pozemek"
+        assert result["area_land"] == 750.0  # pozemek má výměru jen jako „Celková plocha"
+        assert result["price"] == 3_994_950.0  # 5 326,60 × 750
+        assert result["price_note"] == "5 326,60 Kč/m²"
+
+    def test_cena_za_m2_bez_vymery_neni_cena_jen_poznamka(self, scraper):
+        html = _bez_parametru(_load("detail_pozemek_za_m2_dolni_vestonice_451334.html"), "Celková plocha:")
+        result = scraper._parse_detail_page(html, _item(external_id="451334", property_type_hint="Pozemek"))
+        assert "area_land" not in result
+        assert result.get("price") is None
+        assert result["price_note"] == "5 326,60 Kč/m²"
+
+    def test_cena_s_halermi_za_desetinnou_carkou(self, scraper):
+        result = scraper._parse_detail_page(
+            _load("detail_byt_cena_s_halermi_opatovice_451809.html"),
+            _item(external_id="451809", district="Brno-venkov", property_type_hint="Byt"),
+        )
+        assert result["price"] == 4_369_000.0  # na webu „4 369 000,02 Kč"
+        assert "price_note" not in result
+        assert result["area_built_up"] == 41.0
+        assert "area_land" not in result  # „Celková plocha" bytu není pozemek
+
+    def test_cena_z_hlavicky_ne_z_kalkulacky_ani_podobnych_nemovitosti(self, scraper):
+        html = _load("detail_dum_dolni_loucky_443823.html")
+        # Stránka nese i ceny podobných nemovitostí a splátku z kalkulačky hypotéky
+        for other in ("7\xa0490\xa0000\xa0Kč", "9\xa0900\xa0000\xa0Kč", "260 990 Kč"):
+            assert other in html
+        result = scraper._parse_detail_page(html, _item(external_id="443823", district="Brno-venkov"))
+        assert result["price"] == 8_490_000.0
+        assert "price_note" not in result
+        assert result["area_built_up"] == 218.0
+        assert result["area_land"] == 1054.0
+
+    @pytest.mark.parametrize("text, expected", [
+        ("8\xa0490\xa0000\xa0Kč (\t\t\t\tza nemovitost) G Mimořádně nehospodárná", (8_490_000.0, False)),
+        ("5\xa0326,60\xa0Kč (\t\t\t\tza m²)", (5326.6, True)),
+        ("4\xa0369\xa0000,02\xa0Kč (za nemovitost)", (4_369_000.02, False)),
+        ("995 Kč (za m²)", (995.0, True)),
+        ("2 500 Kč/m2", (2500.0, True)),
+        ("12 000 Kč za měsíc", (12_000.0, False)),
+        ("8490000 Kč", (8_490_000.0, False)),
+        ("Cena na vyžádání v kanceláři", (None, False)),
+        ("Prodáno", (None, False)),
+    ])
+    def test_castka_a_jednotka_z_textu_ceny(self, text, expected):
+        assert RemaxScraper._parse_price_text(text) == expected
+
+    @pytest.mark.parametrize("amount, text", [
+        (5326.6, "5 326,60"), (2500.0, "2 500"), (995.0, "995"), (1234567.5, "1 234 567,50"),
+    ])
+    def test_jednotkova_cena_v_poznamce_cesky(self, amount, text):
+        assert RemaxScraper._format_czk(amount) == text
 
 
 class _FakeRemax(RemaxScraper):

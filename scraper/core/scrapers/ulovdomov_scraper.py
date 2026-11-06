@@ -28,7 +28,12 @@ Omezení, o kterých je dobré vědět:
   filtruje až po stažení detailu. Jeden inzerát = jeden požadavek.
 - `publishedAt` v detailu není datum zveřejnění, ale „volné od" ve formátu
   MM.DD.RRRR (bývá i v budoucnosti) – jako `date_created_source` ho nepoužíváme.
-- Stažený inzerát vrací HTTP 200 se `status` ≠ `ACTIVE` (např. `IMPORT_IGNORED`).
+- Stažený inzerát vrací HTTP 200 se `status` ≠ `ACTIVE` (např. `IMPORT_IGNORED`),
+  nebo HTTP 404 se stránkou Next.js „Tady nikdo nebydlí“ (`"page": "/404"`), a sitemap
+  ho nese dál až do příštího nasazení portálu. Takový inzerát se neuloží (last_seen_at
+  se neposune) a na konci běhu se deaktivuje – nečeká se na plný rescan.
+  Plný běh stahuje detail každého kandidáta (~630/noc), známé inzeráty se bez detailu
+  jako viděné neoznačují.
 - Telefon a e-mail jsou sice v `__NEXT_DATA__`, ale web je ukáže až po kliknutí
   na „Kontaktovat" – neukládáme je. Jméno a firma inzerenta jsou na stránce vidět.
 """
@@ -52,6 +57,9 @@ BASE_URL = "https://www.ulovdomov.cz"
 SITEMAP_URL = f"{BASE_URL}/sitemap-offers.xml"
 MAX_PHOTOS = 20
 REQUEST_DELAY = 1.0          # vteřin mezi detaily (max ~1 požadavek/s)
+# Pojistka jako v runneru: víc stažených než max(10, uložených) v jednom běhu ukazuje
+# spíš na výpadek/změnu webu než na vlnu stahování – pak se nedeaktivuje nic.
+GONE_GUARD_MIN = 10
 INCREMENTAL_MAX_DETAILS = 60  # inkrementální běh: jen N nejnovějších (nejvyšší id)
 
 DEFAULT_HEADERS = {
@@ -119,6 +127,7 @@ class UlovDomovScraper:
         self._municipality_slugs: List[str] = sorted(slugs, key=len, reverse=True)
         self.scraped_count = 0
         self.skipped: Dict[str, int] = {}
+        self.gone_ids: List[str] = []
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
@@ -148,7 +157,9 @@ class UlovDomovScraper:
                     logger.error("UlovDomov scraper failed: %s", exc)
                     metrics.increment_failed()
         self._http_client = None
-        logger.info("UlovDomov scraper done. Scraped %s, skipped %s", self.scraped_count, self.skipped)
+        deactivated = await self._deactivate_gone()
+        logger.info("UlovDomov scraper done. Scraped %s, skipped %s, deactivated %s",
+                    self.scraped_count, self.skipped, deactivated)
         return self.scraped_count
 
     async def _scrape_detail(self, entry: Dict[str, str], metrics: Any) -> None:
@@ -156,24 +167,54 @@ class UlovDomovScraper:
             start = time.perf_counter()
             html = await self._fetch(entry["url"])
             metrics.record_fetch(time.perf_counter() - start)
+            if self.is_not_found_page(html):
+                self._skip(entry, "not_found_page", gone=True)
+                return
             offer = self.parse_detail_page(html)
             reason = self.skip_reason(offer)
             if reason:
-                self.skipped[reason] = self.skipped.get(reason, 0) + 1
-                logger.debug("Skipping %s: %s", entry["url"], reason)
+                # Nabídka s jiným stavem než ACTIVE je stažená; jiný okres či kategorie ne
+                self._skip(entry, reason, gone=reason.startswith("status_"))
                 return
             await self._save_listing(self.normalize_offer(offer or {}))
             self.scraped_count += 1
             metrics.increment_scraped()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in (404, 410):
-                self.skipped["http_404"] = self.skipped.get("http_404", 0) + 1
+                self._skip(entry, "http_404", gone=True)
                 return
             logger.error("HTTP error for %s: %s", entry["url"], exc)
             metrics.increment_failed()
         except Exception as exc:
             logger.error("Error processing offer %s: %s", entry.get("external_id"), exc)
             metrics.increment_failed()
+
+    def _skip(self, entry: Dict[str, str], reason: str, gone: bool = False) -> None:
+        self.skipped[reason] = self.skipped.get(reason, 0) + 1
+        logger.debug("Skipping %s: %s", entry.get("url"), reason)
+        if gone and entry.get("external_id"):
+            self.gone_ids.append(entry["external_id"])
+
+    async def _deactivate_gone(self) -> int:
+        """Deaktivuje inzeráty, jejichž detail vrátil 404 nebo stav ≠ ACTIVE."""
+        gone = list(dict.fromkeys(self.gone_ids))
+        if not gone:
+            return 0
+        if len(gone) > max(GONE_GUARD_MIN, self.scraped_count):
+            logger.warning("UlovDomov: %s detailů hlásí stažený inzerát, uloženo jen %s – "
+                           "nedeaktivuji nic (výpadek webu?)", len(gone), self.scraped_count)
+            return 0
+        deactivated = 0
+        for external_id in gone:
+            try:
+                if await self._deactivate_listing(external_id):
+                    deactivated += 1
+            except Exception as exc:
+                logger.error("UlovDomov: deaktivace %s selhala: %s", external_id, exc)
+        return deactivated
+
+    async def _deactivate_listing(self, external_id: str) -> bool:
+        return await get_db_manager().deactivate_listing(self.SOURCE_CODE, external_id)
 
     @http_retry
     async def _fetch(self, url: str) -> str:
@@ -220,12 +261,25 @@ class UlovDomovScraper:
         return candidates
 
     @staticmethod
-    def parse_detail_page(html: str) -> Optional[Dict[str, Any]]:
-        """SSR detail → `props.pageProps.offer.data` (None, když stránka nabídku nenese)."""
+    def _next_data(html: str) -> Dict[str, Any]:
         match = _RE_NEXT_DATA.search(html or "")
         if not match:
             raise ValueError("__NEXT_DATA__ not found (změnil se web?)")
         data = json.loads(match.group(1))
+        return data if isinstance(data, dict) else {}
+
+    @classmethod
+    def is_not_found_page(cls, html: str) -> bool:
+        """Stránka Next.js 404 (stažený inzerát) – portál ji může poslat i s HTTP 200."""
+        try:
+            return cls._next_data(html).get("page") == "/404"
+        except ValueError:
+            return False
+
+    @classmethod
+    def parse_detail_page(cls, html: str) -> Optional[Dict[str, Any]]:
+        """SSR detail → `props.pageProps.offer.data` (None, když stránka nabídku nenese)."""
+        data = cls._next_data(html)
         offer = ((data.get("props") or {}).get("pageProps") or {}).get("offer") or {}
         if not isinstance(offer, dict):
             return None

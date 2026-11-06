@@ -1,0 +1,84 @@
+{
+ "props": {
+  "pageProps": {
+   "store": {
+    "offer": {
+     "details": {
+      "24777513": {
+       "offer": {
+        "id": "24777513",
+        "preview": false,
+        "offer": {
+         "id": "24777513",
+         "url": "/prodej/dum-rodinny-chudcice-okres-brno-venkov/24777513",
+         "purpose": "SELL",
+         "property": "HOUSE",
+         "visited": false,
+         "liked": null,
+         "reserved": false,
+         "createdAt": "2026-11-06T15:09:20.382Z",
+         "category": "HOUSE_FAMILY",
+         "isLocked": true,
+         "photosCount": 13,
+         "price": {
+          "type": "FIXED",
+          "total": null,
+          "canonical": null,
+          "squareMeter": null,
+          "squareMeterCanonical": null,
+          "currency": null,
+          "vat": null,
+          "energyBillingMethod": null,
+          "energyCharges": null,
+          "energyChargesPerPerson": null,
+          "charges": null,
+          "chargesPerPerson": null,
+          "note": null
+         },
+         "area": {
+          "main": null,
+          "plot": null,
+          "floor": null,
+          "built": null,
+          "garden": null,
+          "office": null,
+          "production": null,
+          "nonresidential": null,
+          "shop": null,
+          "store": null,
+          "basin": null,
+          "cellar": null,
+          "balcony": null,
+          "terrace": null,
+          "loggia": null
+         },
+         "photos": {
+          "main": null,
+          "list": []
+         },
+         "location": {
+          "address": "Chudčice",
+          "addressUrl": "Chudčice",
+          "locationPrecision": "STREET",
+          "latitude": 49.29,
+          "longitude": 16.45
+         },
+         "deleted": false,
+         "soldOrRented": false,
+         "inCzechRepublic": true,
+         "adId": null,
+         "updatedAt": "2026-11-06T15:09:20.382Z",
+         "deletedAt": null,
+         "priceTier": 1
+        },
+        "detail": null,
+        "location": null,
+        "deleted": null
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

@@ -6,15 +6,28 @@ prodej-bytu/, prodej-pozemku/) umí filtrovat po okresech přes query parametr
 `okresy_id[0]=<id>` (ID = kraj 2002 + kód okresu: Znojmo 20023713,
 Brno-venkov 20023703, Brno-město 20023702; zjištěno z odkazu
 „/hledat/nabidky?okresy_id…“ na stránce /nemovitosti/okres/<slug>).
-Stránkování `?vp-page=N`, 24 karet `div.nem-item[id]` na stránku, celkový
-počet v `.pocet-inzeratu .cislo`. Ve výpisu je i ld+json ItemList (záloha).
+Stránkování `?vp-page=N`. Od redesignu (zjištěno 6. 11. 2026) má stránka 20 karet
+`article.rc-card[data-id]` (cena `.rc-card__price`, obec `.rc-card__loc`) a celkový
+počet v `.rc-toolbar__count` („200 výsledků“); stránka za poslední vrací znovu
+poslední stránku. Původní značkování (24 karet `div.nem-item[id]`, počet
+v `.pocet-inzeratu .cislo`) a ld+json ItemList (jen URL + název) zůstávají jako záloha.
+
+Dvoufázový běh (jako iDNES): napřed všechny stránky všech 12 výpisů (114 stránek
+na ~2 140 nabídek, ~4 min), známé inzeráty se jen označí jako viděné
+(`touch_listings`), detail se stahuje jen u nových a u těch, jejichž cena ve výpisu
+se liší od uložené – v časovém rozpočtu. Do 6. 11. 2026 se stahoval detail
+u každé položky (~2 100 detailů), plný běh přetahoval 45min limit úlohy, runner
+ho zrušil a nic se nedeaktivovalo (od 15. 10. 2026 43 % aktivních inzerátů neviděno).
 
 Detail: h1.entry-title, h2.mesto-ulice, tabulky „Adresa“ (Obec/Okres/Kraj)
 a „Informace“ (Cena, Stav, Druh, Typ, Zastavěná plocha, Výměra pozemku,
 Užitná/Obytná plocha, Postaveno z), popis p.realita-popis, galerie
-li[data-fancybox] data-src=/foto/hq/…webp (plná velikost, 200), GPS ve
+li[data-fancybox] data-src=/foto/hq/<bucket>/<id>/<id>_NN.webp (plná velikost), GPS ve
 skriptu `var x = lat; var y = lon;` (bývá střed obce). ld+json
 RealEstateListing má jen zkrácený popis a mq fotky – používáme jako zálohu.
+Smazaný inzerát vrací 200: blok `.smazany_inzerat` („Nemovitost již není v nabídce“)
+a pod ním karty `.rc-card` CIZÍCH podobných nabídek – takový detail se neukládá,
+inzerát se deaktivuje.
 
 Proč: 30. 9. 2026 hlásil RealityCechy 871 rodinných domů v JMK (170 domů,
 74 bytů a 143 pozemků v okrese Znojmo); inzerují sem i menší RK bez Sreality.
@@ -24,6 +37,7 @@ robots.txt povoluje /nemovitosti/ i /nemovitost/ pro běžné klienty
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -34,6 +48,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..filters import get_filter_manager
 from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
@@ -62,7 +77,11 @@ DEFAULT_LISTS: List[Tuple[str, str, str, str, int]] = [
     for path, ptype, otype in TYPE_PATHS
 ]
 
-PAGE_SIZE = 24
+LIST_DELAY_SECONDS = 1.0
+DETAIL_DELAY_SECONDS = 0.4
+# Úplný výpis musí ukázat aspoň tolik z počtu, který portál hlásí; méně = stránkování se rozbilo
+# (posun nabídek během procházení vysvětlí jednotky, ne desítky procent)
+MIN_LIST_COVERAGE = 0.9
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -89,6 +108,9 @@ KIND_MAP: List[Tuple[str, str]] = [
 DISPOSITION_RE = re.compile(r"(\d)\s*\+\s*(kk|\d)", re.I)
 GPS_RE = re.compile(r"var x = ([\d.]+);\s*var y = ([\d.]+);")
 UNSET_VALUES = {"", "neuvedeno", "neuvedena", "nezadána", "nezadáno", "-"}
+COTTAGE_RE = re.compile(r"chat|chalup", re.I)
+DELETED_SELECTOR = ".smazany_inzerat, .smazany_inzerat_cena, .smazany_inzerat_popis"
+DELETED_TEXT = "nemovitost již není v nabídce"
 
 
 class RealityCechyScraper:
@@ -96,25 +118,184 @@ class RealityCechyScraper:
 
     SOURCE_CODE = "REALITYCECHY"
 
+    # Nejdelší výpis (byty Brno-město, 503 nabídek) má 26 stránek; strop je jen pojistka.
+    # Do 6. 11. 2026 byl plný běh omezen na 20 stránek – zbytek výpisu by se deaktivoval.
+    MAX_LIST_PAGES = 100
+    INCREMENTAL_LIST_PAGES = 3      # inkrementální běh: jen první (nejnovější) stránky
+    # Limit úlohy v runneru je 45 min (asyncio.wait_for); kdo ho přetáhne, je zrušen a po
+    # plném běhu se nic nedeaktivuje. Výpisy trvají ~4 min, detail ~1 s.
+    TIME_BUDGET_SECONDS = 36 * 60
+
     def __init__(self, lists: Optional[List[Tuple[str, str, str, str, int]]] = None) -> None:
         self.lists = lists or DEFAULT_LISTS
         self.scraped_count = 0
+        # False = některý výpis se nepodařilo projít celý; co jsme neviděli, nemusí být stažené
+        self.lists_complete = True
+        self.deleted_count = 0
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
-        max_pages = 20 if full_rescan else 3
+        """
+        Vstup z runneru. Vrací počet inzerátů viděných ve výpisech (známé obnovené + nově
+        uložené) – runner po plném běhu deaktivuje neviděné jen tehdy, když je číslo > 0
+        a neviděných není víc než viděných.
+        """
+        max_pages = self.MAX_LIST_PAGES if full_rescan else self.INCREMENTAL_LIST_PAGES
         return await self.scrape(max_pages=max_pages)
 
-    async def scrape(self, max_pages: int = 3) -> int:
+    async def scrape(self, max_pages: int = INCREMENTAL_LIST_PAGES) -> int:
         logger.info("Starting RealityCechy scraper (max_pages=%s, lists=%s)", max_pages, len(self.lists))
+        started = time.monotonic()
+        self.scraped_count = 0
+        self.deleted_count = 0
+        self.lists_complete = True
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
                 self._http_client = client
-                for path, property_type, offer_type, district, okres_id in self.lists:
-                    await self._scrape_list(path, property_type, offer_type, district, okres_id, max_pages, metrics)
-        self._http_client = None
-        logger.info("RealityCechy scraper done. Scraped %s", self.scraped_count)
+                try:
+                    self.scraped_count = await self._scrape_two_phase(max_pages, started, metrics)
+                except Exception as exc:
+                    logger.error("RealityCechy scraping failed: %r", exc)
+                    metrics.increment_failed()
+                finally:
+                    self._http_client = None
+        logger.info("RealityCechy scraper done. Seen %s listings", self.scraped_count)
         return self.scraped_count
+
+    async def _scrape_two_phase(self, max_pages: int, started: float, metrics: Any) -> int:
+        db = get_db_manager()
+        known = await db.get_known_prices(self.SOURCE_CODE)
+
+        # 1. fáze: všechny stránky výpisů (levné)
+        with timer("Fetch RealityCechy lists"):
+            items = await self._crawl_lists(max_pages, started, metrics)
+        if not items:
+            logger.warning("No listings found in RealityCechy lists")
+            return 0
+
+        # Známé inzeráty stačí „vidět" (a doplnit jim obec a okres z výpisu, kde chybí)
+        touched = await db.touch_listings(
+            self.SOURCE_CODE,
+            [(i["external_id"], i["municipality"] or None, i["district"]) for i in items if i["external_id"] in known],
+        )
+
+        # Neúplný výpis: runner po plném běhu deaktivuje vše, co jsme „neviděli" –
+        # aktivní inzeráty proto necháme viděné a o stažení rozhodne až úplný běh.
+        if not self.lists_complete:
+            kept = await db.mark_active_seen(self.SOURCE_CODE)
+            logger.warning("RealityCechy lists incomplete – %s active listings kept as seen, nothing will be deactivated", kept)
+
+        # 2. fáze: detail jen u nových a u změněné ceny, v časovém rozpočtu. Co se nestihne, je
+        # nové (v DB není, nemá co deaktivovat) nebo známé a už obnovené – další běh pokračuje.
+        details = [i for i in self.select_for_detail(items, known) if self.passes_filters(i)]
+        logger.info(
+            "RealityCechy lists: %s listings, %s known refreshed, %s need detail",
+            len(items), touched, len(details),
+        )
+
+        saved_new = 0
+        for idx, item in enumerate(details):
+            if self.out_of_time(started, time.monotonic()):
+                logger.info("RealityCechy time budget used up after %s details – %s left for the next run",
+                            idx, len(details) - idx)
+                break
+            try:
+                start = time.perf_counter()
+                html = await self._fetch(item["url"])
+                metrics.record_fetch(time.perf_counter() - start)
+                if self.is_deleted_page(html):
+                    self.deleted_count += 1
+                    if item["external_id"] in known:
+                        await db.deactivate_listing(self.SOURCE_CODE, item["external_id"])
+                    logger.info("RealityCechy listing %s is no longer offered – not saved", item["url"])
+                else:
+                    normalized = self.parse_detail_page(html, item, item["property_type"], item["offer_type"], item["district"])
+                    if normalized:
+                        await self._save_listing(normalized)
+                        metrics.increment_scraped()
+                        if item["external_id"] not in known:
+                            saved_new += 1
+            except Exception as exc:
+                logger.error("Error processing %s: %s", item.get("url"), exc)
+                metrics.increment_failed()
+            await asyncio.sleep(DETAIL_DELAY_SECONDS)
+
+        logger.info("RealityCechy details: %s new saved, %s deleted on the portal", saved_new, self.deleted_count)
+        return touched + saved_new
+
+    async def _crawl_lists(self, max_pages: int, started: float, metrics: Any) -> List[Dict[str, Any]]:
+        """Projde všechny výpisy a vrátí položky bez duplicit, každou s typem, nabídkou a okresem výpisu."""
+        items: List[Dict[str, Any]] = []
+        seen: set = set()
+        for path, property_type, offer_type, district, okres_id in self.lists:
+            if self.out_of_time(started, time.monotonic()):
+                logger.warning("RealityCechy time budget used up while crawling lists")
+                self.lists_complete = False
+                break
+            list_items = await self._crawl_list(path, property_type, offer_type, district, okres_id,
+                                                max_pages, started, metrics)
+            for item in list_items:
+                if item["external_id"] not in seen:
+                    seen.add(item["external_id"])
+                    items.append(item)
+        return items
+
+    async def _crawl_list(self, path: str, property_type: str, offer_type: str, district: str, okres_id: int,
+                          max_pages: int, started: float, metrics: Any) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
+        list_seen: set = set()
+        total = 0
+        last_page = max_pages
+        whole_list = False   # podle počtu z 1. stránky máme projít celý výpis (ne jen první stránky)
+        complete = True
+        page = 1
+        while page <= last_page:
+            if page > 1 and self.out_of_time(started, time.monotonic()):
+                complete = False
+                break
+            url = self.build_list_url(path, okres_id, page)
+            try:
+                start = time.perf_counter()
+                html = await self._fetch(url)
+                metrics.record_fetch(time.perf_counter() - start)
+            except Exception as exc:
+                # nedostupná stránka nesmí shodit běh, ale co je za ní, jsme neviděli
+                logger.error("RealityCechy list %s failed: %r", url, exc)
+                metrics.increment_failed()
+                complete = False
+                break
+
+            page_items, page_total, has_next = self.parse_list_page(html, page)
+            if page == 1:
+                total = page_total
+                needed = self.pages_needed(total, len(page_items))
+                if needed:
+                    last_page = min(needed, max_pages)
+                    whole_list = needed <= max_pages
+                    if needed > max_pages and max_pages >= self.MAX_LIST_PAGES:
+                        complete = False
+                elif not page_items and "rc-toolbar__count" not in html and "pocet-inzeratu" not in html:
+                    complete = False   # ani karty, ani počet: neznámá stránka, ne prázdný výpis
+
+            fresh = [i for i in page_items if i["external_id"] not in list_seen]
+            if not fresh:
+                break   # za poslední stránkou portál vrací znovu poslední stránku
+            for item in fresh:
+                list_seen.add(item["external_id"])
+                item.update(property_type=property_type, offer_type=offer_type, district=district)
+                items.append(item)
+            if not total and not has_next:
+                break
+            page += 1
+            await asyncio.sleep(LIST_DELAY_SECONDS)
+
+        if whole_list and len(list_seen) < total * MIN_LIST_COVERAGE:
+            complete = False   # stránkování nevrátilo, co portál hlásí (např. ignoruje vp-page)
+        if not complete:
+            self.lists_complete = False
+            logger.warning("RealityCechy list %s %s incomplete: %s of %s listings", path, district, len(list_seen), total)
+        logger.info("RealityCechy %s %s: %s listings (portal says %s)", path, district, len(list_seen), total)
+        return items
 
     @staticmethod
     def build_list_url(path: str, okres_id: int, page: int = 1) -> str:
@@ -123,44 +304,6 @@ class RealityCechyScraper:
             query = f"vp-page={page}&{query}"
         return f"{urljoin(BASE_URL, path)}?{query}"
 
-    async def _scrape_list(self, path: str, property_type: str, offer_type: str, district: str,
-                           okres_id: int, max_pages: int, metrics: Any) -> None:
-        page = 1
-        while page <= max_pages:
-            url = self.build_list_url(path, okres_id, page)
-            try:
-                with timer(f"Fetch list {path} {district} page {page}"):
-                    start = time.perf_counter()
-                    html = await self._fetch(url)
-                    metrics.record_fetch(time.perf_counter() - start)
-                items, total, has_next = self.parse_list_page(html, page)
-                if not items:
-                    logger.info("No items on %s (%s) page %s, stopping", path, district, page)
-                    break
-                logger.info("%s %s page %s: %s listings (total %s)", path, district, page, len(items), total)
-                for item in items:
-                    try:
-                        detail_html = await self._fetch(item["url"])
-                        normalized = self.parse_detail_page(detail_html, item, property_type, offer_type, district)
-                        await self._save_listing(normalized)
-                        self.scraped_count += 1
-                        metrics.increment_scraped()
-                        await asyncio.sleep(0.4)
-                    except Exception as exc:
-                        logger.error("Error processing %s: %s", item.get("url"), exc)
-                        metrics.increment_failed()
-                if not has_next or (total and page * PAGE_SIZE >= total):
-                    break
-                page += 1
-                await asyncio.sleep(1.0)
-            except httpx.HTTPStatusError as exc:
-                logger.error("HTTP error %s page %s: %s", path, page, exc)
-                break
-            except Exception as exc:
-                logger.error("Error %s page %s: %s", path, page, exc)
-                metrics.increment_failed()
-                break
-
     @http_retry
     async def _fetch(self, url: str) -> str:
         if self._http_client is None:
@@ -168,6 +311,76 @@ class RealityCechyScraper:
         response = await self._http_client.get(url)
         response.raise_for_status()
         return response.text
+
+    # ── rozhodování o běhu (čisté funkce, bez HTTP a DB) ─────────────────────
+
+    @classmethod
+    def out_of_time(cls, started: float, now: float) -> bool:
+        """Vyčerpal běh časový rozpočet? (čas od startu včetně procházení výpisů)"""
+        return now - started >= cls.TIME_BUDGET_SECONDS
+
+    @staticmethod
+    def pages_needed(total: int, per_page: int) -> int:
+        """Kolik stránek má výpis s `total` nabídkami při `per_page` kartách na stránku (0 = neznámo)."""
+        if total <= 0 or per_page <= 0:
+            return 0
+        return max(1, math.ceil(total / per_page))
+
+    @staticmethod
+    def select_for_detail(items: List[Dict[str, Any]], known: Dict[str, Optional[float]]) -> List[Dict[str, Any]]:
+        """
+        Které položky potřebují detail: napřed známé se změněnou cenou (ať se zapíše do historie),
+        potom nové. Známé se stejnou cenou nebo bez ceny ve výpisu („cena v RK") detail nepotřebují.
+        """
+        changed: List[Dict[str, Any]] = []
+        new: List[Dict[str, Any]] = []
+        for item in items:
+            if item["external_id"] not in known:
+                new.append(item)
+                continue
+            old_price, list_price = known[item["external_id"]], item.get("price")
+            if list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5):
+                changed.append(item)
+        return changed + new
+
+    @staticmethod
+    def passes_filters(item: Dict[str, Any]) -> bool:
+        """
+        Projde položka výpisu cenovými, typovými a místními filtry (settings.yaml)? Co by upsert
+        stejně zahodil (dům nad limit, obec okresu Břeclav mimo Pálavu), nemá smysl stahovat –
+        a stahovalo by se každou noc znovu, protože se to nikdy neuloží. Chata ve výpisu domů
+        (typ se pozná až z detailu) nemá cenový limit, proto se pozná už z titulku.
+        """
+        property_type = item.get("property_type") or ""
+        if property_type == "Dům" and COTTAGE_RE.search(item.get("title") or ""):
+            property_type = "Chata"
+        municipality = item.get("municipality") or ""
+        district = item.get("district") or ""
+        location = ", ".join(p for p in (municipality, f"okres {district}" if district else "") if p)
+        return get_filter_manager().passes_search_filters({
+            "property_type": property_type,
+            "offer_type": item.get("offer_type") or "Prodej",
+            "price": item.get("price"),
+            "location_text": location,
+            "municipality": municipality,
+            "district": district,
+        })
+
+    @staticmethod
+    def _is_deleted(soup: BeautifulSoup) -> bool:
+        if soup.select_one(DELETED_SELECTOR) is not None:
+            return True
+        return DELETED_TEXT in re.sub(r"\s+", " ", soup.get_text(" ")).lower()
+
+    @classmethod
+    def is_deleted_page(cls, html: str) -> bool:
+        """
+        Smazaný inzerát: portál vrací 200 s blokem „Nemovitost již není v nabídce“ a pod ním
+        karty podobných (cizích) nabídek. Takovou stránku nesmíme uložit jako inzerát.
+        """
+        if "smazany_inzerat" not in html and "nabídce" not in html:
+            return False   # rychlá cesta: živý detail nemá ani třídu, ani text
+        return cls._is_deleted(BeautifulSoup(html, "html.parser"))
 
     # ── parsování (čisté metody, testovatelné na uloženém HTML) ──────────────
 
@@ -215,31 +428,69 @@ class RealityCechyScraper:
             text = text.split(",")[-1]
         return text.strip()
 
+    @staticmethod
+    def _price_text(el: Optional[Tag]) -> str:
+        """Text ceny bez přeškrtnuté původní ceny (<del>), kdyby ji portál u slevy ukázal."""
+        if el is None:
+            return ""
+        for old in el.select("del, s, strike"):
+            old.decompose()
+        return re.sub(r"\s+", " ", el.get_text(" ", strip=True)).strip()
+
     def parse_list_page(self, html: str, page: int = 1) -> Tuple[List[Dict[str, Any]], int, bool]:
+        """
+        Stránka výpisu → (položky, celkový počet nabídek podle portálu, existuje další stránka).
+        Položka: external_id, url, title, municipality, price_text, price, status, thumb.
+        """
         soup = BeautifulSoup(html, "html.parser")
         results: List[Dict[str, Any]] = []
         seen: set = set()
-        for card in soup.select("div.nem-item[id]"):
-            external_id = (card.get("id") or "").strip()
-            link = card.select_one(".nem-headline a[href]") or card.select_one("a[href*='/nemovitost/']")
-            if not external_id.isdigit() or not link:
-                continue
-            if external_id in seen:
+
+        # redesign (11/2026): article.rc-card v kontejneru [data-rc-cards]
+        container = soup.select_one("[data-rc-cards]") or soup
+        for card in container.select("article.rc-card[data-id]"):
+            external_id = (card.get("data-id") or "").strip()
+            link = card.select_one(".rc-card__title a[href]") or card.select_one("a[href*='/nemovitost/']")
+            if not external_id.isdigit() or not link or external_id in seen:
                 continue
             seen.add(external_id)
-            addr = card.select_one(".nem-ulice-mesto")
-            price_el = card.select_one(".nem-cena-nemovitosti")
-            status_el = card.select_one(".nem-novinka")
-            thumb = card.select_one(".nem-gallery-photo img[src]")
+            loc = card.select_one(".rc-card__loc")
+            img = card.select_one(".rc-card__slide img")
+            thumb = (img.get("src") or img.get("data-src") or "") if img else ""
+            price_text = self._price_text(card.select_one(".rc-card__price"))
             results.append({
                 "external_id": external_id,
                 "url": urljoin(BASE_URL, link.get("href", "")),
                 "title": self._text_with_sup(link)[:200],
-                "municipality": self._clean_municipality(addr.get_text(" ", strip=True))[:100] if addr else "",
-                "price_text": price_el.get_text(" ", strip=True) if price_el else "",
-                "status": status_el.get_text(" ", strip=True).lower() if status_el else "",
-                "thumb": urljoin(BASE_URL, thumb["src"]) if thumb else "",
+                "municipality": self._clean_municipality(loc.get_text(" ", strip=True))[:100] if loc else "",
+                "price_text": price_text,
+                "price": self._parse_number(price_text),
+                "status": "",
+                "thumb": urljoin(BASE_URL, thumb) if thumb else "",
             })
+
+        # původní značkování (do 10/2026)
+        if not results:
+            for card in soup.select("div.nem-item[id]"):
+                external_id = (card.get("id") or "").strip()
+                link = card.select_one(".nem-headline a[href]") or card.select_one("a[href*='/nemovitost/']")
+                if not external_id.isdigit() or not link or external_id in seen:
+                    continue
+                seen.add(external_id)
+                addr = card.select_one(".nem-ulice-mesto")
+                status_el = card.select_one(".nem-novinka")
+                thumb_el = card.select_one(".nem-gallery-photo img[src]")
+                price_text = self._price_text(card.select_one(".nem-cena-nemovitosti"))
+                results.append({
+                    "external_id": external_id,
+                    "url": urljoin(BASE_URL, link.get("href", "")),
+                    "title": self._text_with_sup(link)[:200],
+                    "municipality": self._clean_municipality(addr.get_text(" ", strip=True))[:100] if addr else "",
+                    "price_text": price_text,
+                    "price": self._parse_number(price_text),
+                    "status": status_el.get_text(" ", strip=True).lower() if status_el else "",
+                    "thumb": urljoin(BASE_URL, thumb_el["src"]) if thumb_el else "",
+                })
 
         if not results:
             # záloha: ld+json ItemList (jen URL + název)
@@ -253,9 +504,9 @@ class RealityCechyScraper:
                         continue
                     seen.add(m.group(1))
                     results.append({"external_id": m.group(1), "url": url, "title": (el.get("name") or "")[:200],
-                                    "municipality": "", "price_text": "", "status": "", "thumb": ""})
+                                    "municipality": "", "price_text": "", "price": None, "status": "", "thumb": ""})
 
-        total_el = soup.select_one(".pocet-inzeratu .cislo")
+        total_el = soup.select_one(".rc-toolbar__count") or soup.select_one(".pocet-inzeratu .cislo")
         total = int(self._parse_number(total_el.get_text()) or 0) if total_el else 0
         has_next = soup.select_one("a.paginator__next") is not None or any(
             f"vp-page={page + 1}" in (a.get("href") or "") for a in soup.select("a[href*='vp-page=']"))
@@ -318,10 +569,29 @@ class RealityCechyScraper:
             "seller_company": rk_name or None,
         }
 
+    @staticmethod
+    def _own_photo(src: str, external_id: str) -> bool:
+        """Fotka patří inzerátu: /foto/<velikost>/<bucket>/<id>/<id>_NN.webp s jeho vlastním id."""
+        if "/foto/" not in src:
+            return False
+        return not external_id.isdigit() or f"/{external_id}/" in src
+
     def parse_detail_page(self, html: str, item: Dict[str, Any], property_type: str, offer_type: str,
-                          district: str) -> Dict[str, Any]:
+                          district: str) -> Optional[Dict[str, Any]]:
+        """
+        Detail → normalizovaný inzerát; None, když portál inzerát smazal (stránka pak ukazuje
+        jen „již není v nabídce“ a karty cizích podobných nabídek).
+        """
         soup = BeautifulSoup(html, "html.parser")
+        if self._is_deleted(soup):
+            return None
         ld_listing = next((o for o in self._ld_json(soup) if o.get("@type") == "RealEstateListing"), {})
+
+        external_id = str(item.get("external_id") or "")
+        if not external_id:
+            hid = soup.select_one("input#realita_id[value]")
+            external_id = hid["value"] if hid else re.sub(r".*/(\d+)/?$", r"\1", item.get("url", ""))
+        external_id = str(external_id)
 
         h1 = soup.select_one("h1.entry-title") or soup.find("h1")
         title = self._text_with_sup(h1) if h1 else (ld_listing.get("name") or item.get("title") or "")
@@ -419,22 +689,29 @@ class RealityCechyScraper:
             description = (description + "\n\n" + "\n".join(extras)).strip()
 
         # ── fotky ──
+        # Jen vlastní galerie (li[data-fancybox], desktop i mobilní verze se stejnými soubory)
+        # a jen soubory s id tohoto inzerátu – karty „Podobné nemovitosti“ (.rc-card) pod
+        # detailem nesou fotky cizích nabídek.
         photos: List[str] = []
         for li in soup.select("li[data-fancybox][data-src]"):
             src = li.get("data-src") or ""
-            if "/foto/" not in src:
+            if not self._own_photo(src, external_id):
                 continue
             full = urljoin(BASE_URL, src)
             if full not in photos:
                 photos.append(full)
         if not photos:
-            for src in ld_listing.get("image") or []:
+            images = ld_listing.get("image") or []
+            for src in [images] if isinstance(images, str) else images:
+                if not isinstance(src, str) or not self._own_photo(src, external_id):
+                    continue
                 full = urljoin(BASE_URL, src)
                 if full not in photos:
                     photos.append(full)
         # inzerát bez fotek má ve výpisu zástupný obrázek portálu (default_foto.jpg)
-        if not photos and item.get("thumb") and "default_foto" not in item["thumb"]:
-            photos.append(item["thumb"])
+        thumb = item.get("thumb") or ""
+        if not photos and thumb and "default_foto" not in thumb and self._own_photo(thumb, external_id):
+            photos.append(thumb)
 
         # ── stav / konstrukce ──
         condition = params.get("stav") or ""
@@ -442,14 +719,9 @@ class RealityCechyScraper:
         construction = params.get("postaveno z") or ""
         construction = construction[:1].upper() + construction[1:] if construction.lower() not in UNSET_VALUES else None
 
-        external_id = item.get("external_id") or ""
-        if not external_id:
-            hid = soup.select_one("input#realita_id[value]")
-            external_id = hid["value"] if hid else re.sub(r".*/(\d+)/?$", r"\1", item.get("url", ""))
-
         result: Dict[str, Any] = {
             "source_code": self.SOURCE_CODE,
-            "external_id": str(external_id),
+            "external_id": external_id,
             "url": item.get("url") or ld_listing.get("url") or "",
             "title": title,
             "description": description[:5000],

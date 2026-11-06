@@ -1,0 +1,162 @@
+{
+ "props": {
+  "pageProps": {
+   "store": {
+    "offer": {
+     "details": {
+      "24755406": {
+       "offer": {
+        "id": "24755406",
+        "preview": false,
+        "offer": {
+         "id": "24755406",
+         "url": "/prodej/dum-rodinny-borac-podoli-u-borace-jihomoravsky-kraj/24755406",
+         "purpose": "SELL",
+         "property": "HOUSE",
+         "visited": false,
+         "liked": null,
+         "reserved": false,
+         "createdAt": "2026-10-20T05:51:04.703Z",
+         "category": "HOUSE_FAMILY",
+         "isLocked": false,
+         "photosCount": 20,
+         "price": {
+          "type": "FIXED",
+          "total": 22500000,
+          "canonical": 22500000,
+          "squareMeter": null,
+          "squareMeterCanonical": 37500,
+          "currency": "CZK",
+          "vat": null,
+          "energyBillingMethod": null,
+          "energyCharges": null,
+          "energyChargesPerPerson": null,
+          "charges": null,
+          "chargesPerPerson": null,
+          "note": "bez poplatků"
+         },
+         "area": {
+          "main": 600,
+          "plot": 1800,
+          "floor": null,
+          "built": null,
+          "garden": null,
+          "office": null,
+          "production": null,
+          "nonresidential": null,
+          "shop": null,
+          "store": null,
+          "basin": null,
+          "cellar": null,
+          "balcony": null,
+          "terrace": null,
+          "loggia": null
+         },
+         "photos": {
+          "main": "offer/kaq/kaqdmthrda-1125x744xd0d0d0",
+          "list": [
+           "offer/bmw/bmwaar6bh1-1264x843xd0d0d0",
+           "offer/pvc/pvcenza24e-1264x843xd0d0b0",
+           "offer/x8c/x8cs5wde6r-1264x843xb0b0b0",
+           "offer/tkv/tkv7bkbf2n-1195x896x707050",
+           "offer/21j/21j39c124v-1125x735xf0f0f0",
+           "offer/cjt/cjtg22hpj1-1264x843xd0b090",
+           "offer/8ts/8tsr92at4z-1264x843xd0d0d0",
+           "offer/8uu/8uu1cyq882-1264x843xf0f0f0",
+           "offer/54v/54vjp9hsbg-1125x750xf0f0f0",
+           "offer/8hc/8hcm7f213w-1264x843xd0d0d0",
+           "offer/bb6/bb66g6yy9y-1264x843xd0d0d0",
+           "offer/8hu/8hutxwwxtm-1125x737xf0f0f0",
+           "offer/ke2/ke2gchrfqm-1119x738xd0d0d0",
+           "offer/hs1/hs1vrzbwtu-1125x746xd0b090",
+           "offer/522/52291vu9hx-900x1200xb0b0b0",
+           "offer/6hd/6hd2yc7674-1600x1200x707050",
+           "offer/rx7/rx7nhe3uer-900x1200x707050",
+           "offer/xaj/xajt4rrzhx-1600x1200x707050",
+           "offer/2qd/2qdrvvskyg-900x1200x505050"
+          ]
+         },
+         "location": {
+          "address": "Borač Podolí",
+          "addressUrl": "Podolí,Borač",
+          "locationPrecision": "TOWN",
+          "latitude": 49.400655833333,
+          "longitude": 16.365490833333
+         },
+         "deleted": false,
+         "soldOrRented": false,
+         "inCzechRepublic": true,
+         "adId": "1080312",
+         "updatedAt": "2026-10-23T06:28:37.884Z",
+         "deletedAt": null,
+         "priceTier": null
+        },
+        "detail": {
+         "id": "24755406",
+         "externalUrl": "https://jiho.moravskereality.cz/prodej/rodinne-domy/rodinne-domy/borac/prodej-rodinneho-domu-600-m2-3930504.html",
+         "description": "Nabízím výjimečnou, víceúčelovou, prvorepublikovou vilu po kompletní rekonstrukci s dobrou dojezdovou vzdáleností do města Brna. Nemovitost se nachází v obci Borač, místní část Podolí v kouzelném údolí řeky Svratky a Svratecké hornatiny s množstvím zajímavých lokalit. Dům má tři bytové jednotky, je vhodný jak pro bydlení tak i podnikání (ordinace, kancelář, zázemí firmy, pronájem bytů....), je celý podsklepený, v přízemí je sauna, relaxační místnost, prádelna, kotelna, dílna, technické a skladovací prostory. V prvním patře jsou dvě bytové jednotky 3 + kk, vždy s prostornou koupelnou a WC, vstu",
+         "descriptionLanguage": null,
+         "buildingType": "BRICK",
+         "buildingStatus": "VERY_GOOD",
+         "buildingPosition": null,
+         "houseType": null,
+         "ownership": null,
+         "furniture": null,
+         "floor": null,
+         "floorUnderground": null,
+         "floorTotal": null,
+         "yearBuild": null,
+         "yearReconstructed": null,
+         "parking": null,
+         "parkingPlaces": null,
+         "garages": null,
+         "energyPerformance": "C_EFFICIENT",
+         "energyPerformanceValue": null,
+         "energyPerformanceLawRequirement": null,
+         "availableFromDate": null,
+         "ceilingHeight": null,
+         "roomCount": null,
+         "flatCount": null,
+         "flatClass": null,
+         "gully": null,
+         "heating": null,
+         "telecommunication": null,
+         "electricity": null,
+         "waterSupply": null,
+         "gas": null,
+         "balcony": null,
+         "loggia": null,
+         "terrace": null,
+         "lift": null,
+         "cellar": true,
+         "isBarrierFree": null,
+         "isAuction": null,
+         "garret": null,
+         "basin": null,
+         "floodRisk": null,
+         "floodActiveZone": null
+        },
+        "location": {
+         "id": "20204",
+         "url": "Podolí,Borač",
+         "name": "Podolí, Borač",
+         "breadcrumbs": [
+          {
+           "url": "Okres_Brno-venkov",
+           "name": "Okres Brno-venkov"
+          },
+          {
+           "url": "Borač",
+           "name": "Borač"
+          }
+         ]
+        },
+        "deleted": null
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}
