@@ -61,7 +61,7 @@ async def main() -> int:
                         break
                     logger.warning("429 – čekám %s s", wait)
                     await asyncio.sleep(wait)
-                if resp.status_code == 404 or "/inzerat/" not in str(resp.url):
+                if resp.status_code in (404, 410) or "/inzerat/" not in str(resp.url):
                     await db.deactivate_listing("BAZOS", r["external_id"])
                     gone += 1
                     continue
