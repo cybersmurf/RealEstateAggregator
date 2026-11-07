@@ -44,6 +44,24 @@ public class GroupPhotoOwnerTests
     }
 
     [Fact]
+    public void Tasovice_ActiveListingWithFourPhotos_BeatsInactiveMemberWithTwentyFive()
+    {
+        // 7. 11. 2026: skupina míchala domy developera a detail ukazoval 25 fotek staženého domu 130/918 m²
+        var current = Guid.NewGuid();
+        var bazosPrimary = Guid.NewGuid();
+        var gone918 = Guid.NewGuid();
+        var gone594 = Guid.NewGuid();
+        var members = new[]
+        {
+            Member(current, "SREALITY", 4), Member(bazosPrimary, "BAZOS", 4),
+            Member(gone918, "SREALITY", 25, daysOld: 200, active: false), Member(gone594, "SREALITY", 12, daysOld: 200, active: false),
+        };
+
+        Assert.Equal(current, ChoosePhotoOwner(current, bazosPrimary, members));
+        Assert.Equal(bazosPrimary, ChoosePhotoOwner(bazosPrimary, bazosPrimary, members));
+    }
+
+    [Fact]
     public void NoPhotosAnywhere_ReturnsListingItself()
     {
         var members = new[] { Member(Sreality, "SREALITY", 0), Member(Bazos, "BAZOS", 0) };

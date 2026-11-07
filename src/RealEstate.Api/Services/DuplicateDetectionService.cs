@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using RealEstate.Api.Contracts.Listings;
 using RealEstate.Domain.Enums;
@@ -11,6 +12,9 @@ namespace RealEstate.Api.Services;
 /// <summary>
 /// Projekce inzerátu pro párování duplikátů – jen skalární pole, žádné navigace.
 /// Public kvůli unit testům čisté párovací logiky.
+/// <para><see cref="SharedGps"/>, <see cref="TemplateTitle"/> a <see cref="TemplateDescription"/> doplňuje
+/// <see cref="DuplicateDetectionService.ComputeMapping"/> z celé sady kandidátů (špendlík / text
+/// sdílený víc jednotkami jednoho zdroje); <see cref="LastSeenAt"/> = konec běhu inzerátu.</para>
 /// </summary>
 public sealed record DuplicateCandidate(
     Guid Id,
@@ -29,7 +33,11 @@ public sealed record DuplicateCandidate(
     string? Title = null,
     string? Disposition = null,
     string? Description = null,
-    bool IsActive = true);
+    bool IsActive = true,
+    DateTime? LastSeenAt = null,
+    bool SharedGps = false,
+    bool TemplateDescription = false,
+    bool TemplateTitle = false);
 
 public sealed class DuplicateDetectionService(
     RealEstateDbContext ctx,
@@ -93,6 +101,26 @@ public sealed class DuplicateDetectionService(
     /// <summary>Kratší popis („Prodej bytu, volejte") nic nedokazuje.</summary>
     private const int DescriptionMinShingles = 40;
 
+    /// <summary>
+    /// Jak dlouho smí nový inzerát v témže zdroji běžet vedle starého, aby to ještě bylo přeinzerování
+    /// téhož domu: starý visí, než ho portál stáhne (Kratochvilka 6,5 dne, Strachotín 8 dní, Bazoš
+    /// Šatov se slevou 3,79 → 3,64 mil. 21 dní). Déle souběžně = dvě různé jednotky (Tasovice, Bílé
+    /// domy: domy developera běžely vedle sebe od února do října).
+    /// </summary>
+    private const int RelistOverlapDays = 30;
+
+    /// <summary>Body blíž než tohle jsou tentýž špendlík (obec ze Sreality, místo developera).</summary>
+    private const double SharedPinMeters = 5;
+
+    /// <summary>Nový inzerát s opravenou plochou musí přijít do týdne od konce starého.</summary>
+    private const int CorrectedAreaRelistDays = 7;
+
+    /// <summary>Plochy přeinzerovaného domu v témže zdroji se musí shodovat na metr.</summary>
+    private const double RelistAreaToleranceM2 = 1;
+
+    /// <summary>Počet min-hashů pro hledání stejných popisů v rámci zdroje (šablony developera).</summary>
+    private const int TemplateMinHashes = 6;
+
     private static readonly ConditionalWeakTable<string, HashSet<int>> DescriptionShingleCache = new();
 
     /// <summary>
@@ -139,15 +167,12 @@ public sealed class DuplicateDetectionService(
                 l.GeocodeSource != "nominatim" && !ApproxGpsSources.Contains(l.SourceCode),
                 l.District, l.Title, l.Disposition,
                 l.Price >= ExactPriceEvidenceMin || l.Price == null ? l.Description : null,
-                l.IsActive))
+                l.IsActive,
+                l.LastSeenAt))
             .ToListAsync(cancellationToken);
 
-        var candidates = all.Where(c => c.IsActive).ToList();
-        var mapping = BuildClusters(candidates); // dupId -> primaryId
-
-        var remembered = AttachRemembered(candidates, all.Where(c => !c.IsActive).ToList(), mapping);
-        foreach (var (rememberedId, primaryId) in remembered)
-            mapping[rememberedId] = primaryId;
+        var mapping = ComputeMapping(all, out var rememberedCount);
+        var activeCount = all.Count(c => c.IsActive);
 
         // Reset všech vazeb (i u neaktivních – primární inzerát mohl mezitím zmizet
         // a vazba na neaktivní primár by aktivní duplikát schovala z vyhledávání).
@@ -168,9 +193,29 @@ public sealed class DuplicateDetectionService(
         var clusters = mapping.Values.Distinct().Count();
         logger.LogInformation(
             "Detekce duplikátů: {Active} aktivních inzerátů, {Clusters} skupin, {Dups} označených duplikátů, {Remembered} stažených se záznamem připojeno k živé kopii",
-            candidates.Count, clusters, mapping.Count, remembered.Count);
+            activeCount, clusters, mapping.Count, rememberedCount);
 
-        return new DuplicateScanResultDto(candidates.Count, clusters, mapping.Count);
+        return new DuplicateScanResultDto(activeCount, clusters, mapping.Count);
+    }
+
+    /// <summary>
+    /// Celé párování nad načtenými kandidáty (aktivní + stažené): mapa duplikát → primár.
+    /// Nejdřív se z celé sady (i stažených) označí špendlíky a popisy, které sdílí víc různých
+    /// jednotek jednoho zdroje – ty nejsou důkazem, že jde o tentýž dům. Pak se shlukují aktivní
+    /// (<see cref="BuildClusters"/>) a stažené se připojí k živé kopii (<see cref="AttachRemembered"/>).
+    /// </summary>
+    public static Dictionary<Guid, Guid> ComputeMapping(IReadOnlyList<DuplicateCandidate> all, out int rememberedCount)
+    {
+        all = MarkSharedEvidence(all);
+        var candidates = all.Where(c => c.IsActive).ToList();
+        var mapping = BuildClusters(candidates); // dupId -> primaryId
+
+        var remembered = AttachRemembered(candidates, all.Where(c => !c.IsActive).ToList(), mapping);
+        foreach (var (rememberedId, primaryId) in remembered)
+            mapping[rememberedId] = primaryId;
+
+        rememberedCount = remembered.Count;
+        return mapping;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -180,13 +225,16 @@ public sealed class DuplicateDetectionService(
     /// <summary>
     /// Rozhodne, zda dva inzeráty popisují tutéž nemovitost.
     /// Nutné podmínky: jiný zdroj, stejný typ nemovitosti i nabídky, cena v toleranci 2 %.
-    /// Plus jedna z evidencí: stejná cena na korunu a stejný dlouhý titulek nebo popis, NEBO
-    /// přesná GPS obou do 300 m, NEBO (bez přesné GPS) stejná cena
-    /// na korunu + plochy bez rozporu + (GPS do 300 m, NEBO shodná plocha a GPS do 5 km či stejná obec).
+    /// Plus jedna z evidencí: stejná cena na korunu a stejný dlouhý titulek nebo popis (ne šablona
+    /// developera), NEBO přesná GPS obou do 300 m (sdílený špendlík jen se shodnými plochami a
+    /// dispozicí), NEBO (bez přesné GPS) stejná cena na korunu + plochy bez rozporu + (GPS do 300 m,
+    /// NEBO shodná plocha a GPS do 5 km či stejná obec).
+    /// Opakování a přeinzerování v jednom zdroji řeší <see cref="IsSameSourceRepeat"/> a
+    /// <see cref="IsSameSourceRelisting"/>.
     /// </summary>
-    public static bool IsDuplicatePair(DuplicateCandidate a, DuplicateCandidate b, bool allowSameSource = false)
+    public static bool IsDuplicatePair(DuplicateCandidate a, DuplicateCandidate b)
     {
-        if (a.SourceId == b.SourceId && !allowSameSource) return false;  // opakování v jednom zdroji řeší IsSameSourceRepeat
+        if (a.SourceId == b.SourceId) return false;
         if (!TypesCompatible(a.PropertyType, b.PropertyType)) return false;
         if (a.OfferType != b.OfferType) return false;
 
@@ -210,29 +258,37 @@ public sealed class DuplicateDetectionService(
         // Evidence 0: stejný dlouhý titulek a cena na korunu – realitka exportuje tentýž inzerát
         // na svůj web i na Bazoš („Prodej dvougeneračního rodinného domu s výhledem na…").
         // Platí i když Bazoš vytáhl z popisu jinou výměru; okresy se nesmí lišit.
-        if (priceDiff == 0 && a.Price >= ExactPriceEvidenceMin && TitlesMatch(a.Title, b.Title)
+        if (priceDiff == 0 && a.Price >= ExactPriceEvidenceMin && OwnTitlesMatch(a, b)
             && !DistrictsDiffer(a.District, b.District))
             return true;
 
         // Evidence 0b: stejný popis a cena na korunu – realitka vloží tentýž text na Sreality i Bazoš
         // pod jiným titulkem a Bazoš z něj vytáhne jiné výměry (Prosiměřice: 237/929 vs. 207/722 m²).
+        // Šablona, kterou zdroj použil pro víc různých jednotek, nedokazuje nic (Tasovice, Bílé domy).
         if (priceDiff == 0 && a.Price >= ExactPriceEvidenceMin && !DistrictsDiffer(a.District, b.District)
-            && DescriptionsMatch(a.Description, b.Description))
+            && OwnDescriptionsMatch(a, b))
             return true;
 
         // Evidence 1: přesná GPS od zdroje u obou. Do 300 m je to tentýž dům, nad 1,5 km určitě ne
         // (dva inzeráty 2 km od sebe nejsou tentýž dům, ani když sedí cena, obec i plocha).
         // Mezi tím rozhodují přísnější důkazy níž – špendlík realitky bývá o stovky metrů vedle.
-        if (distance is not null && a.PreciseGps && b.PreciseGps)
+        var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
+        var land = CompareAreas(a.AreaLand, b.AreaLand);
+        if (distance <= GpsMaxMeters && a.PreciseGps && b.PreciseGps)
         {
-            if (distance <= GpsMaxMeters) return true;
+            if (!a.SharedGps && !b.SharedGps) return true;
+
+            // Evidence 1b: sdílený špendlík (obec bez adresy, místo developera, dům s víc byty) říká
+            // jen „někde tady". S cenou v toleranci platí, jen když sedí plochy (aspoň jedna, žádná
+            // v rozporu) i dispozice – jinak by se slily domy jednoho projektu (Tasovice: 100 vs. 129 m²,
+            // pozemek 594 vs. 918 m², 3+kk vs. 4+kk na témže bodě).
+            if (UnitDataAgree(a, b))
+                return true;
         }
 
         // Evidence 2 (GPS chybí, nebo je jen geokódovaná z obce/PSČ): cena na korunu stejná
         // a plochy si neodporují. Přísnější než GPS větev, protože „7 490 000 Kč ve Znojmě"
         // můžou být dva různé domy.
-        var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
-        var land = CompareAreas(a.AreaLand, b.AreaLand);
         if (priceDiff != 0 || builtUp == false || land == false)
             return false;
 
@@ -292,7 +348,81 @@ public sealed class DuplicateDetectionService(
         if (builtUp == false || land == false) return false;
         if (builtUp != true && land != true && !DispositionsMatch(a.Disposition, b.Disposition)) return false;
 
-        return TitlesMatch(a.Title, b.Title) || DescriptionsMatch(a.Description, b.Description);
+        return OwnTitlesMatch(a, b) || OwnDescriptionsMatch(a, b);
+    }
+
+    /// <summary>
+    /// Stejný dlouhý titulek. Šablona (titulek, pod kterým zdroj vedl víc různých jednotek – Těšetice:
+    /// „Patrová novostavba 4+kk 125 m², pozemek 395 m²" u domů s pozemkem 367 i 395 m²) platí, jen když
+    /// k ní sedí plochy, nebo je cena na korunu nekulatá.
+    /// </summary>
+    private static bool OwnTitlesMatch(DuplicateCandidate a, DuplicateCandidate b)
+        => TitlesMatch(a.Title, b.Title)
+           && (!a.TemplateTitle && !b.TemplateTitle || UnitDataAgree(a, b));
+
+    /// <summary>
+    /// Stejný popis. Šablona developera (tentýž text u víc různých jednotek – Tasovice: domy s pozemkem
+    /// 594 i 600 m²) platí, jen když k ní sedí plochy, nebo je cena na korunu nekulatá.
+    /// </summary>
+    private static bool OwnDescriptionsMatch(DuplicateCandidate a, DuplicateCandidate b)
+        => DescriptionsMatch(a.Description, b.Description)
+           && (!a.TemplateDescription && !b.TemplateDescription || UnitDataAgree(a, b));
+
+    /// <summary>
+    /// Data jednotky si odpovídají – to, co musí doplnit sdílený špendlík nebo text sdílený víc jednotkami:
+    /// plochy bez rozporu (aspoň jedna shodná) a dispozice bez rozporu, nebo nekulatá cena na korunu
+    /// (8 870 803 Kč – cena spočítaná z metrů jednotky). Užitnou plochu, kterou jeden portál sečetl
+    /// i s terasou (RealityMIX: 165 m² u „2+kk 40 m² + 125 m² zahrada"), nebo kterou nevyplnil, doplní
+    /// plocha uvedená v titulku druhého inzerátu.
+    /// </summary>
+    private static bool UnitDataAgree(DuplicateCandidate a, DuplicateCandidate b)
+    {
+        if (a.Price is > 0 && a.Price == b.Price && a.Price % 1000 != 0) return true;
+        var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
+        if (builtUp != true && (TitleNamesArea(a.Title, b.AreaBuiltUp) || TitleNamesArea(b.Title, a.AreaBuiltUp)))
+            builtUp = true;
+        var land = CompareAreas(a.AreaLand, b.AreaLand);
+        return builtUp != false && land != false && (builtUp == true || land == true)
+               && !DispositionsConflict(a.Disposition, b.Disposition);
+    }
+
+    /// <summary>
+    /// Stažená kopie z jiného portálu si s živou nesmí odporovat: aspoň jedna plocha shodná, nebo žádná
+    /// v rozporu; jiná dispozice jen s plochou shodnou na metr (různé portály píšou dispozici domu různě,
+    /// 5+2 vs. 2+1 u téhož domu). Aktivní dvojice hlídá jednoznačnost v cizím zdroji, staženou ne – bez
+    /// toho se k živému bytu za 22 500 Kč připojily stažené byty 40 i 78 m² do 300 m. Tentýž text
+    /// (ne šablona) s cenou na korunu platí i přes rozpor ploch – Bazoš výměry z textu vytahuje špatně.
+    /// </summary>
+    private static bool GoneCopyFits(DuplicateCandidate gone, DuplicateCandidate live)
+    {
+        if (gone.Price is >= ExactPriceEvidenceMin && gone.Price == live.Price
+            && !DistrictsDiffer(gone.District, live.District)
+            && (OwnTitlesMatch(gone, live) || OwnDescriptionsMatch(gone, live)))
+            return true;
+
+        var builtUp = CompareAreas(gone.AreaBuiltUp, live.AreaBuiltUp);
+        if (builtUp != true && (TitleNamesArea(gone.Title, live.AreaBuiltUp) || TitleNamesArea(live.Title, gone.AreaBuiltUp)))
+            builtUp = true;
+        var land = CompareAreas(gone.AreaLand, live.AreaLand);
+        var exactArea = AreasEqualToMeter(gone.AreaBuiltUp, live.AreaBuiltUp) == true
+                        || AreasEqualToMeter(gone.AreaLand, live.AreaLand) == true;
+        if (DispositionsConflict(gone.Disposition, live.Disposition) && !exactArea) return false;
+        return builtUp == true || land == true || (builtUp != false && land != false);
+    }
+
+    private static readonly Regex TitleAreaPattern = new(@"(\d+(?:[,.]\d+)?)\s*m(?:²|2)(?![\p{L}\d])", RegexOptions.Compiled);
+
+    /// <summary>Titulek uvádí plochu v toleranci 5 % („Prodej bytu 1+kk 35,3 m² + 7,49 m² balkón" → 35,3).</summary>
+    private static bool TitleNamesArea(string? title, double? area)
+    {
+        if (string.IsNullOrWhiteSpace(title) || area is not > 0) return false;
+        foreach (Match match in TitleAreaPattern.Matches(title.Replace("\u00A0", " ")))
+        {
+            if (double.TryParse(match.Groups[1].Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                && CompareAreas(value, area) == true)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -328,7 +458,7 @@ public sealed class DuplicateDetectionService(
         if (a.Price is not > 0 || b.Price is not > 0 || a.Price != b.Price) return false;
 
         // Znovu vložený inzerát (Bazoš): stejný dlouhý titulek a cena, i když parser vytáhl jinou výměru
-        if (a.Price >= ExactPriceEvidenceMin && TitlesMatch(a.Title, b.Title))
+        if (a.Price >= ExactPriceEvidenceMin && OwnTitlesMatch(a, b))
             return true;
 
         var builtUp = CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp);
@@ -340,10 +470,122 @@ public sealed class DuplicateDetectionService(
             && a.Latitude is not null && a.Longitude is not null
             && b.Latitude is not null && b.Longitude is not null;
         if (bothPreciseGps)
+        {
+            // Na sdíleném špendlíku (dům s víc jednotkami, místo developera) stojí i sousední jednotky
+            // téže ceny – opakování tam chce plochy na metr (pozemek 594 vs. 600 m² jsou dva domy).
+            if ((a.SharedGps || b.SharedGps)
+                && (AreasEqualToMeter(a.AreaBuiltUp, b.AreaBuiltUp) == false || AreasEqualToMeter(a.AreaLand, b.AreaLand) == false))
+                return false;
             return GpsDistanceMeters(a.Latitude!.Value, a.Longitude!.Value, b.Latitude!.Value, b.Longitude!.Value) <= RepeatGpsMaxMeters;
+        }
 
         return builtUp == true && land == true && MunicipalityMatches(a.Municipality, b.Municipality);
     }
+
+    /// <summary>
+    /// Stažený inzerát a novější inzerát téhož zdroje jsou přeinzerovaný dům (Kubšice: Sreality 5,7 mil.
+    /// naposledy 8. 10., od 12. 10. znovu za 5,4 mil. a místo 3+1 jako 4+1). Opakování
+    /// (<see cref="IsSameSourceRepeat"/>) chce cenu na korunu, přeinzerování ale bývá se slevou, proto
+    /// tu platí cena do 10 % – a za to přísně všechno ostatní:
+    /// <list type="bullet">
+    /// <item>starý skončil dřív, než nový začal (souběh nejvýš 30 dní) – dva inzeráty jednoho zdroje
+    /// běžící vedle sebe déle jsou dvě jednotky (Tasovice, Bílé domy: pět domů jednoho developera);</item>
+    /// <item>plochy na metr: žádná v rozporu, aspoň jedna známá u obou (100 vs. 129 m² ani pozemek
+    /// 594 vs. 918 m² projít nesmí);</item>
+    /// <item>dispozice stejná; jinou (makléř přepsal 3+1 na 4+1) unesou jen obě plochy na metr;</item>
+    /// <item>poloha: přesná GPS obou (ne sdílený špendlík) do 100 m; bez ní stejný dlouhý titulek (Bazoš
+    /// vkládá inzerát znovu), nebo stejná obec a k tomu obě plochy na metr, či cena na korunu a dispozice.</item>
+    /// </list>
+    /// Jedinou výjimkou z ploch je oprava překlepu (<see cref="IsCorrectedAreaRelisting"/>).
+    /// </summary>
+    public static bool IsSameSourceRelisting(DuplicateCandidate gone, DuplicateCandidate live)
+    {
+        if (gone.SourceId != live.SourceId || gone.Id == live.Id) return false;
+        if (!TypesCompatible(gone.PropertyType, live.PropertyType) || gone.OfferType != live.OfferType) return false;
+        if (gone.Price is not > 0 || live.Price is not > 0) return false;
+        if (ActiveUntil(gone) > live.FirstSeenAt.AddDays(RelistOverlapDays)) return false;
+
+        var maxPrice = (double)Math.Max(gone.Price.Value, live.Price.Value);
+        if ((double)Math.Abs(gone.Price.Value - live.Price.Value) > maxPrice * LaggingPriceTolerance) return false;
+
+        var builtUp = AreasEqualToMeter(gone.AreaBuiltUp, live.AreaBuiltUp);
+        var land = AreasEqualToMeter(gone.AreaLand, live.AreaLand);
+        if (builtUp == false || land == false) return IsCorrectedAreaRelisting(gone, live, builtUp, land);
+        if (builtUp != true && land != true) return false;
+        var bothAreas = builtUp == true && land == true;
+        if (DispositionsConflict(gone.Disposition, live.Disposition) && !bothAreas) return false;
+
+        if (HousePreciseGps(gone, live) is { } distance)
+            return distance <= RepeatGpsMaxMeters;
+
+        // Bez přesné polohy: znovu vložený inzerát se stejným dlouhým titulkem (Bazoš), nebo stejná obec
+        // a k ní obě plochy na metr (dům), případně cena na korunu a stejná dispozice (byt nemá pozemek).
+        if (OwnTitlesMatch(gone, live) && !DistrictsDiffer(gone.District, live.District))
+            return true;
+        if (!MunicipalityMatches(gone.Municipality, live.Municipality))
+            return false;
+        return bothAreas || (gone.Price == live.Price && DispositionsMatch(gone.Disposition, live.Disposition));
+    }
+
+    /// <summary>
+    /// Makléř stáhl inzerát a hned ho vložil znovu s opravenou jednou plochou (Pozořice: „289 m², pozemek
+    /// 289 m²" do 15. 9., od 16. 9. „210 m², pozemek 289 m²" – cena, GPS, dispozice i popis stejné).
+    /// Platí jen bez známek developerského projektu: cena na korunu, druhá plocha na metr, nový inzerát do
+    /// týdne, žádný sdílený špendlík ani šablona popisu, a přesná GPS do 100 m nebo stejná obec i popis.
+    /// Tasovice (129 → 100 m² se stejným pozemkem a cenou) tak zůstanou dva domy – leží na špendlíku
+    /// developera a mají jeho šablonu textu.
+    /// </summary>
+    private static bool IsCorrectedAreaRelisting(DuplicateCandidate gone, DuplicateCandidate live, bool? builtUp, bool? land)
+    {
+        if ((builtUp == false) == (land == false)) return false;  // přesně jedna plocha opravená…
+        if (builtUp != true && land != true) return false;         // …a druhá na metr stejná
+        if (gone.Price != live.Price) return false;
+        var gap = live.FirstSeenAt - ActiveUntil(gone);
+        if (gap > TimeSpan.FromDays(CorrectedAreaRelistDays) || gap < -TimeSpan.FromDays(CorrectedAreaRelistDays)) return false;
+        if (gone.SharedGps || live.SharedGps || gone.TemplateDescription || live.TemplateDescription) return false;
+        if (DispositionsConflict(gone.Disposition, live.Disposition)) return false;
+
+        if (HousePreciseGps(gone, live) is { } distance)
+            return distance <= RepeatGpsMaxMeters;
+        return MunicipalityMatches(gone.Municipality, live.Municipality) && DescriptionsMatch(gone.Description, live.Description);
+    }
+
+    /// <summary>Vzdálenost dvou přesných GPS, které nejsou sdíleným špendlíkem; jinak null.</summary>
+    private static double? HousePreciseGps(DuplicateCandidate a, DuplicateCandidate b)
+        => a.PreciseGps && b.PreciseGps && !a.SharedGps && !b.SharedGps
+           && a.Latitude is not null && a.Longitude is not null && b.Latitude is not null && b.Longitude is not null
+            ? GpsDistanceMeters(a.Latitude.Value, a.Longitude.Value, b.Latitude.Value, b.Longitude.Value)
+            : null;
+
+    /// <summary>
+    /// Dva inzeráty jednoho zdroje běžely vedle sebe déle než 30 dní a nejde o totéž (cena, plochy,
+    /// dispozice) – jsou to dvě různé jednotky, ne přeinzerování ani opakování téhož domu.
+    /// </summary>
+    public static bool RanSideBySide(DuplicateCandidate a, DuplicateCandidate b)
+        => a.SourceId == b.SourceId && a.Id != b.Id
+           && Overlap(a, b) > TimeSpan.FromDays(RelistOverlapDays)
+           && !SameUnitData(a, b);
+
+    /// <summary>Totožná data jednotky: cena na korunu, plochy bez rozporu, dispozice bez rozporu.</summary>
+    private static bool SameUnitData(DuplicateCandidate a, DuplicateCandidate b)
+        => a.Price == b.Price
+           && CompareAreas(a.AreaBuiltUp, b.AreaBuiltUp) != false
+           && CompareAreas(a.AreaLand, b.AreaLand) != false
+           && !DispositionsConflict(a.Disposition, b.Disposition);
+
+    private static DateTime ActiveUntil(DuplicateCandidate c) => c.LastSeenAt ?? c.FirstSeenAt;
+
+    private static TimeSpan Overlap(DuplicateCandidate a, DuplicateCandidate b)
+    {
+        var start = a.FirstSeenAt > b.FirstSeenAt ? a.FirstSeenAt : b.FirstSeenAt;
+        var endA = ActiveUntil(a);
+        var endB = ActiveUntil(b);
+        return (endA < endB ? endA : endB) - start;
+    }
+
+    /// <summary>true = shoda na metr, false = rozpor, null = u jednoho chybí.</summary>
+    private static bool? AreasEqualToMeter(double? a, double? b)
+        => a is > 0 && b is > 0 ? Math.Abs(a.Value - b.Value) <= RelistAreaToleranceM2 : null;
 
     public static bool TypesCompatible(PropertyType a, PropertyType b)
         => a == b || CompatibleTypes.Contains((a, b));
@@ -367,8 +609,13 @@ public sealed class DuplicateDetectionService(
     public static bool DescriptionsMatch(string? a, string? b)
     {
         if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
-        var sa = DescriptionShingleCache.GetValue(a, DescriptionShingles);
-        var sb = DescriptionShingleCache.GetValue(b, DescriptionShingles);
+        return ShinglesMatch(
+            DescriptionShingleCache.GetValue(a, DescriptionShingles),
+            DescriptionShingleCache.GetValue(b, DescriptionShingles));
+    }
+
+    private static bool ShinglesMatch(HashSet<int> sa, HashSet<int> sb)
+    {
         if (sa.Count < DescriptionMinShingles || sb.Count < DescriptionMinShingles) return false;
         var (smaller, larger) = sa.Count <= sb.Count ? (sa, sb) : (sb, sa);
         var common = smaller.Count(larger.Contains);
@@ -397,6 +644,10 @@ public sealed class DuplicateDetectionService(
     public static bool DispositionsMatch(string? a, string? b)
         => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
            && string.Equals(a.Replace(" ", ""), b.Replace(" ", ""), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Obě dispozice známé a jiné (3+kk vs. 4+kk); chybějící není rozpor.</summary>
+    private static bool DispositionsConflict(string? a, string? b)
+        => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b) && !DispositionsMatch(a, b);
 
     private static bool DistrictsDiffer(string? a, string? b)
         => !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b) && NormalizeText(a) != NormalizeText(b);
@@ -562,6 +813,11 @@ public sealed class DuplicateDetectionService(
     /// skupiny, do které patří jeho aktivní protějšek (jiný portál, nebo znovu vložený inzerát téhož
     /// zdroje). Jen při jednoznačné shodě – když protějšky vedou do dvou různých skupin, nepřipojí se nic.
     /// Aktivní párování se tím nemění; běží nad hotovou mapou z <see cref="BuildClusters"/>.
+    /// <para>V témže zdroji platí jen opakování (<see cref="IsSameSourceRepeat"/>) a přeinzerování
+    /// (<see cref="IsSameSourceRelisting"/>), ne volnější pravidla pro kopie napříč portály. Skupina
+    /// navíc nesmí dostat dva inzeráty jednoho zdroje, které běžely vedle sebe (<see cref="RanSideBySide"/>)
+    /// – Tasovice: tři stažené domy developera se připojily k jednomu živému a detail ukazoval fotky
+    /// i historii ceny cizích domů. Při takovém rozporu se stažený nepřipojí vůbec.</para>
     /// </summary>
     public static Dictionary<Guid, Guid> AttachRemembered(
         IReadOnlyList<DuplicateCandidate> active,
@@ -570,6 +826,8 @@ public sealed class DuplicateDetectionService(
     {
         var result = new Dictionary<Guid, Guid>();
         if (remembered.Count == 0) return result;
+
+        Guid GroupOf(Guid id) => mapping.TryGetValue(id, out var primaryId) ? primaryId : id;
 
         var activeByOffer = active.Where(c => c.Price is > 0).ToLookup(c => c.OfferType);
         foreach (var gone in remembered.Where(c => c.Price is > 0))
@@ -580,16 +838,217 @@ public sealed class DuplicateDetectionService(
             {
                 var livePrice = (double)live.Price!.Value;
                 if (Math.Abs(livePrice - price) > Math.Max(livePrice, price) * LaggingPriceTolerance) continue;
-                // Stažený inzerát se s živým nemůže „opakovat" vedle sebe – v témže zdroji jde o přeinzerování,
-                // typicky s novou (nižší) cenou, proto tu platí i volnější pravidlo pro kopie napříč portály.
-                if (IsDuplicatePair(gone, live, allowSameSource: true) || IsSameSourceRepeat(gone, live))
-                    groups.Add(mapping.TryGetValue(live.Id, out var primaryId) ? primaryId : live.Id);
+                var match = gone.SourceId == live.SourceId
+                    ? IsSameSourceRepeat(gone, live) || IsSameSourceRelisting(gone, live)
+                    : IsDuplicatePair(gone, live) && GoneCopyFits(gone, live);
+                if (match)
+                    groups.Add(GroupOf(live.Id));
             }
 
             if (groups.Count == 1)
                 result[gone.Id] = groups.First();
         }
+
+        if (result.Count == 0) return result;
+
+        // Skupina = živí členové + připojení stažení. Dva inzeráty jednoho zdroje, které běžely vedle sebe,
+        // nejsou tentýž dům – takový stažený do skupiny nepatří (nevíme, který z nich je ten pravý).
+        var goneById = remembered.ToDictionary(c => c.Id);
+        var targeted = result.Values.ToHashSet();
+        var liveMembers = active
+            .Where(c => targeted.Contains(GroupOf(c.Id)))
+            .ToLookup(c => GroupOf(c.Id));
+        var attachedMembers = result.ToLookup(kv => kv.Value, kv => goneById[kv.Key]);
+
+        var conflicted = result
+            .Where(kv =>
+            {
+                var gone = goneById[kv.Key];
+                return liveMembers[kv.Value].Concat(attachedMembers[kv.Value]).Any(m => RanSideBySide(gone, m));
+            })
+            .Select(kv => kv.Key)
+            .ToList();
+        foreach (var id in conflicted)
+            result.Remove(id);
+
         return result;
+    }
+
+    /// <summary>
+    /// Označí kandidáty, jejichž GPS, popis nebo titulek sdílí víc různých jednotek jednoho zdroje – takový
+    /// údaj neidentifikuje dům, jen místo nebo developera (<see cref="FindSharedPins"/>,
+    /// <see cref="FindTemplateDescriptions"/>, <see cref="FindTemplateTitles"/>). Špendlík zůstává polohou
+    /// (dvě přesné GPS nad 1,5 km shodu dál vylučují), jen přestane sám o sobě dokazovat tentýž dům;
+    /// šablona textu platí jen spolu se shodnými daty jednotky.
+    /// </summary>
+    public static IReadOnlyList<DuplicateCandidate> MarkSharedEvidence(IReadOnlyList<DuplicateCandidate> all)
+    {
+        var pins = FindSharedPins(all);
+        var descriptions = FindTemplateDescriptions(all);
+        var titles = FindTemplateTitles(all);
+        if (pins.Count == 0 && descriptions.Count == 0 && titles.Count == 0) return all;
+
+        return all
+            .Select(c =>
+            {
+                var pin = pins.Contains(c.Id);
+                var description = descriptions.Contains(c.Id);
+                var title = titles.Contains(c.Id);
+                return pin || description || title
+                    ? c with
+                    {
+                        SharedGps = c.SharedGps || pin,
+                        TemplateDescription = c.TemplateDescription || description,
+                        TemplateTitle = c.TemplateTitle || title,
+                    }
+                    : c;
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Přesné GPS body, na kterých jeden zdroj vedl déle než 30 dní současně dvě různé jednotky
+    /// (jiná cena, plochy nebo dispozice). Takový bod je střed obce (Sreality u inzerátu bez adresy dává
+    /// <c>entity_type = municipality</c>) nebo místo developera (Tasovice, Bílé domy: 48,83610 N
+    /// 16,15558 E pro všechny domy i pozemky v obci) – o shodě domu neříká nic. Vrací všechny inzeráty
+    /// s přesnou GPS do 5 m od takového bodu, z kteréhokoli zdroje.
+    /// </summary>
+    public static HashSet<Guid> FindSharedPins(IReadOnlyList<DuplicateCandidate> all)
+    {
+        const double cellDegrees = 0.0001; // ~11 m × 7 m – víc než SharedPinMeters, stačí sousední buňky
+        static (long, long) Cell(double lat, double lon) => ((long)Math.Floor(lat / cellDegrees), (long)Math.Floor(lon / cellDegrees));
+
+        var located = all.Where(c => c.PreciseGps && c.Latitude is not null && c.Longitude is not null).ToList();
+        var grid = located
+            .GroupBy(c => Cell(c.Latitude!.Value, c.Longitude!.Value))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        IEnumerable<DuplicateCandidate> Near(DuplicateCandidate c)
+        {
+            var (cy, cx) = Cell(c.Latitude!.Value, c.Longitude!.Value);
+            for (var dy = -1; dy <= 1; dy++)
+                for (var dx = -1; dx <= 1; dx++)
+                    if (grid.TryGetValue((cy + dy, cx + dx), out var cell))
+                        foreach (var other in cell)
+                            if (other.Id != c.Id && GpsDistanceMeters(c.Latitude!.Value, c.Longitude!.Value,
+                                    other.Latitude!.Value, other.Longitude!.Value) <= SharedPinMeters)
+                                yield return other;
+        }
+
+        var shared = new HashSet<Guid>();
+        foreach (var a in located)
+        {
+            if (shared.Contains(a.Id)) continue;
+            if (!Near(a).Any(b => RanSideBySide(a, b))) continue;
+            shared.Add(a.Id);
+            foreach (var other in Near(a))
+                shared.Add(other.Id);
+        }
+        return shared;
+    }
+
+    /// <summary>
+    /// Popisy, které jeden zdroj použil pro víc různých jednotek běžících vedle sebe – šablona developera
+    /// („Nabízíme k prodeji rodinný dům 4+kk v obci Tasovice… hrubá stavba", tentýž text u domů s pozemkem
+    /// 594 i 600 m² a u nového inzerátu se 100 m²). Shoda takového textu na jiném portálu nedokazuje, že jde
+    /// o tentýž dům. Stejné popisy se hledají přes min-hash pětic slov (jen v rámci zdroje), označí se celá
+    /// komponenta textů, ve které se aspoň dvě různé jednotky potkaly v čase.
+    /// </summary>
+    public static HashSet<Guid> FindTemplateDescriptions(IReadOnlyList<DuplicateCandidate> all)
+    {
+        var texts = all
+            .Where(c => !string.IsNullOrWhiteSpace(c.Description))
+            .Select(c => (Candidate: c, Shingles: DescriptionShingleCache.GetValue(c.Description!, DescriptionShingles)))
+            .Where(t => t.Shingles.Count >= DescriptionMinShingles)
+            .ToList();
+
+        var parent = Enumerable.Range(0, texts.Count).ToArray();
+        int Find(int x)
+        {
+            while (parent[x] != x) x = parent[x] = parent[parent[x]];
+            return x;
+        }
+
+        var buckets = new Dictionary<(Guid Source, int Seed, uint Min), List<int>>();
+        for (var i = 0; i < texts.Count; i++)
+        {
+            for (var seed = 0; seed < TemplateMinHashes; seed++)
+            {
+                var min = uint.MaxValue;
+                foreach (var shingle in texts[i].Shingles)
+                    min = Math.Min(min, MixHash((uint)shingle, (uint)seed));
+                var key = (texts[i].Candidate.SourceId, seed, min);
+                if (!buckets.TryGetValue(key, out var list)) buckets[key] = list = [];
+                list.Add(i);
+            }
+        }
+
+        var compared = new HashSet<(int, int)>();
+        var templateRoots = new List<int>();
+        foreach (var list in buckets.Values)
+        {
+            for (var p = 0; p < list.Count; p++)
+                for (var q = p + 1; q < list.Count; q++)
+                {
+                    var (x, y) = (list[p], list[q]);
+                    if (!compared.Add((x, y))) continue;
+                    if (!ShinglesMatch(texts[x].Shingles, texts[y].Shingles)) continue;
+                    parent[Find(y)] = Find(x);
+                    if (RanSideBySide(texts[x].Candidate, texts[y].Candidate))
+                        templateRoots.Add(x);
+                }
+        }
+
+        var templateComponents = templateRoots.Select(Find).ToHashSet();
+        var result = new HashSet<Guid>();
+        for (var i = 0; i < texts.Count; i++)
+            if (templateComponents.Contains(Find(i)))
+                result.Add(texts[i].Candidate.Id);
+        return result;
+    }
+
+    /// <summary>
+    /// Titulky, pod kterými jeden zdroj vedl vedle sebe víc různých jednotek: automatické titulky Sreality
+    /// („Prodej rodinného domu 128 m², pozemek 600 m²") a titulky developera (Těšetice, Century 21:
+    /// „Patrová novostavba 4+kk 125 m², pozemek 395 m²" u domů s pozemkem 367 i 395 m²). Titulek je
+    /// šablona pro všechny zdroje, které ho použijí – Reality Čechy ho od Century 21 převzaly doslova.
+    /// </summary>
+    public static HashSet<Guid> FindTemplateTitles(IReadOnlyList<DuplicateCandidate> all)
+    {
+        var result = new HashSet<Guid>();
+        var byTitle = all
+            .Where(c => !string.IsNullOrWhiteSpace(c.Title))
+            .GroupBy(c => NormalizeText(c.Title!))
+            .Where(g => g.Key.Length >= TitleEvidenceMinLength);
+        foreach (var group in byTitle)
+        {
+            var members = group.ToList();
+            if (members.Count < 2) continue;
+            var template = members
+                .GroupBy(c => c.SourceId)
+                .Any(source =>
+                {
+                    var list = source.ToList();
+                    for (var i = 0; i < list.Count; i++)
+                        for (var j = i + 1; j < list.Count; j++)
+                            if (RanSideBySide(list[i], list[j])) return true;
+                    return false;
+                });
+            if (template)
+                result.UnionWith(members.Select(c => c.Id));
+        }
+        return result;
+    }
+
+    private static uint MixHash(uint value, uint seed)
+    {
+        var x = value ^ (seed * 0x9E3779B9u);
+        x ^= x >> 16;
+        x *= 0x85EBCA6Bu;
+        x ^= x >> 13;
+        x *= 0xC2B2AE35u;
+        x ^= x >> 16;
+        return x;
     }
 
     /// <summary>Mapa opakovaný inzerát → zástupce (nejstarší v rámci zdroje). Union-find nad IsSameSourceRepeat.</summary>
