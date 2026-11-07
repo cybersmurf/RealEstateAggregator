@@ -286,7 +286,7 @@ public sealed class HousePositionService(
         var candidate = await db.Listings.AsNoTracking()
             .Where(l => (l.Id == rootId || l.DuplicateOfListingId == rootId)
                         && l.Latitude != null && l.Longitude != null
-                        && l.GeocodeSource != "nominatim" && !approx.Contains(l.SourceCode))
+                        && l.GeocodeSource != GpsPrecision.Nominatim && l.GeocodeSource != GpsPrecision.SrealityArea && !approx.Contains(l.SourceCode))
             .OrderByDescending(l => l.Id == listingId)
             .ThenByDescending(l => l.IsActive)
             .Select(l => new { l.Latitude, l.Longitude })
@@ -298,7 +298,7 @@ public sealed class HousePositionService(
         var sharedWithOtherHouse = await db.Listings.AsNoTracking()
             .AnyAsync(l => l.Latitude == candidate.Latitude && l.Longitude == candidate.Longitude
                            && l.Id != rootId && l.DuplicateOfListingId != rootId
-                           && l.GeocodeSource != "nominatim", ct);
+                           && l.GeocodeSource != GpsPrecision.Nominatim && l.GeocodeSource != GpsPrecision.SrealityArea, ct);
         if (sharedWithOtherHouse)
         {
             logger.LogInformation("Poloha domu {ListingId}: GPS sdílí s jiným inzerátem – mapa se nepoužije", listingId);

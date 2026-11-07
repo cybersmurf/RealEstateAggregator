@@ -1352,3 +1352,13 @@ class TestIdnesGallery:
             "html.parser")
         assert IdnesRealityScraper.extract_gallery_photos(soup) == [
             "https://sta-reality2.1gr.cz/sta/compile/thumbs/a/b/c/d.jpg"]
+
+
+def test_sreality_bod_obce_je_priblizna_poloha():
+    """7. 11. 2026: inzerát bez adresy má bod obce – developer v Tasovicích měl pět domů na jednom bodě."""
+    from core.scrapers.sreality_scraper import gps_source
+    assert gps_source({"entity_type": "municipality"}) == "sreality-area"
+    assert gps_source({"entity_type": "ward"}) == "sreality-area"
+    assert gps_source({"entity_type": "address"}) == "scraper"
+    assert gps_source({"entity_type": "street"}) == "scraper"
+    assert gps_source({}) == "scraper"

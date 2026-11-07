@@ -86,6 +86,18 @@ DEFAULT_HEADERS = {
 }
 
 
+# Sreality u inzerátu bez adresy posílá bod obce (locality.entity_type = "municipality", část obce
+# „ward“/„quarter“). Uložit ho jako přesnou polohu znamenalo, že detekce duplicit slila domy
+# jednoho developera se stejným „špendlíkem“ (Tasovice, 7. 11. 2026) a poloha domu hledala dům
+# na návsi. Přibližné body nesou geocode_source „sreality-area“ – API je bere jako nominatim.
+_APPROX_ENTITY_TYPES = {"municipality", "ward", "quarter", "citypart", "district", "region", "country"}
+
+
+def gps_source(locality: Dict[str, Any]) -> str:
+    entity = str((locality or {}).get("entity_type") or "").lower()
+    return "sreality-area" if entity in _APPROX_ENTITY_TYPES else "scraper"
+
+
 class SrealityScraper:
     """Scraper for Sreality.cz using its JSON REST API."""
 
@@ -481,6 +493,7 @@ class SrealityScraper:
             "offer_type": offer_type,
             "latitude": gps_lat,
             "longitude": gps_lon,
+            "geocode_source": gps_source(locality_obj),
             "photos": photos[:50],
         }
 

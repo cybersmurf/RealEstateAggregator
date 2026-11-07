@@ -164,7 +164,7 @@ public sealed class DuplicateDetectionService(
                 l.Id, l.SourceId, l.PropertyType, l.OfferType,
                 l.Price, l.Latitude, l.Longitude,
                 l.Municipality, l.AreaBuiltUp, l.AreaLand, l.FirstSeenAt,
-                l.GeocodeSource != "nominatim" && !ApproxGpsSources.Contains(l.SourceCode),
+                l.GeocodeSource != GpsPrecision.Nominatim && l.GeocodeSource != GpsPrecision.SrealityArea && !ApproxGpsSources.Contains(l.SourceCode),
                 l.District, l.Title, l.Disposition,
                 l.Price >= ExactPriceEvidenceMin || l.Price == null ? l.Description : null,
                 l.IsActive,

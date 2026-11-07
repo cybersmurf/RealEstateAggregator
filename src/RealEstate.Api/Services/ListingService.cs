@@ -1131,7 +1131,7 @@ SellerName = sellerName,
     }
 
     private static bool IsPreciseGps(string sourceCode, string? geocodeSource)
-        => geocodeSource != "nominatim" && !DuplicateDetectionService.ApproxGpsSources.Contains(sourceCode);
+        => !GpsPrecision.IsApproximate(geocodeSource) && !DuplicateDetectionService.ApproxGpsSources.Contains(sourceCode);
 
     /// <summary>
     /// Poloha pro mapu v detailu. Bazoš, iDNES apod. mají jen geokódovaný střed obce – když tentýž dům
@@ -1149,7 +1149,7 @@ SellerName = sellerName,
         var better = await _dbContext.Listings
             .AsNoTracking()
             .Where(l => l.Id != entity.Id && (l.Id == primaryId || l.DuplicateOfListingId == primaryId))
-            .Where(l => l.Latitude != null && l.Longitude != null && l.GeocodeSource != "nominatim" && !approxSources.Contains(l.SourceCode))
+            .Where(l => l.Latitude != null && l.Longitude != null && l.GeocodeSource != GpsPrecision.Nominatim && l.GeocodeSource != GpsPrecision.SrealityArea && !approxSources.Contains(l.SourceCode))
             .OrderBy(l => l.SourceCode == "SREALITY" ? 0 : 1).ThenByDescending(l => l.IsActive)
             .Select(l => new { l.Latitude, l.Longitude, l.SourceCode })
             .FirstOrDefaultAsync(ct);
