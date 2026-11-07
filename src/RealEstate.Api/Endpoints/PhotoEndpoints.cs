@@ -30,8 +30,15 @@ public static class PhotoEndpoints
 
         group.MapPost("/detect-house-position", DetectHousePosition)
             .WithName("DetectHousePosition")
-            .WithSummary("Určí z venkovních a leteckých fotek polohu domu vůči sousedům (samostatný / přisazený / řadový / rohový).")
+            .WithSummary("Určí polohu domu vůči sousedům (samostatný / přisazený / řadový / rohový) z katastru, venkovních a leteckých fotek a údaje makléře.")
             .Produces<HousePositionResultDto>(200);
+
+        group.MapPost("/redetect-house-positions", RedetectHousePositions)
+            .WithName("RedetectHousePositions")
+            .WithSummary("Znovu určí polohu domů, kde uložený výsledek odporuje makléři (scope=contradicting), nebo všech určených před sladěním s katastrem (scope=unreconciled). dryRun=true jen vrátí seznam.")
+            .Produces<HousePositionRedetectResultDto>(200)
+            .Produces(202)
+            .Produces(400);
 
         // ── Mazání lokálních kopií (fotky zdrojů nesmí zůstat na veřejném webu) ──
         group.MapPost("/purge-stored", PurgeStored)
@@ -140,6 +147,40 @@ public static class PhotoEndpoints
         if (!wait)
             return Results.Accepted($"/api/jobs/{jobId}", new { jobId });
         var job = await jobs.WaitAsync(jobId, TimeSpan.FromMinutes(20), cancellationToken);
+        return Results.Ok(job.Result);
+    }
+
+    private static async Task<IResult> RedetectHousePositions(
+        [FromQuery] string scope = HousePositionService.ScopeContradicting,
+        [FromQuery] bool activeOnly = true,
+        [FromQuery] int limit = 200,
+        [FromQuery] bool dryRun = false,
+        [FromQuery] bool wait = false,
+        [FromServices] IHousePositionService service = default!,
+        [FromServices] RealEstate.Api.Services.Jobs.IBackgroundJobService jobs = default!,
+        CancellationToken cancellationToken = default)
+    {
+        if (scope is not (HousePositionService.ScopeContradicting or HousePositionService.ScopeUnreconciled))
+            return Results.Problem(
+                title: "Neplatný scope",
+                detail: $"scope musí být {HousePositionService.ScopeContradicting} nebo {HousePositionService.ScopeUnreconciled}.",
+                statusCode: StatusCodes.Status400BadRequest);
+        if (limit is < 1 or > 2000)
+            return Results.Problem(
+                title: "Neplatný limit",
+                detail: "limit musí být v rozmezí 1–2000 (každý dům = jeden až dva dotazy na obrazový model).",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        var listingIds = await service.FindForRedetectionAsync(scope, activeOnly, limit, cancellationToken);
+        if (dryRun)
+            return Results.Ok(new { count = listingIds.Count, listingIds });
+
+        // Jedna úloha na pozadí projde domy postupně – odchod ze stránky ani zrušený požadavek ji nezastaví
+        var jobId = jobs.Enqueue("house-position-redetect", null, async (sp, ct) =>
+            await sp.GetRequiredService<IHousePositionService>().RedetectAsync(listingIds, ct));
+        if (!wait)
+            return Results.Accepted($"/api/jobs/{jobId}", new { jobId, count = listingIds.Count });
+        var job = await jobs.WaitAsync(jobId, TimeSpan.FromHours(2), cancellationToken);
         return Results.Ok(job.Result);
     }
 

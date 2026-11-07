@@ -437,7 +437,7 @@ async def search_listings(
         rooms_min / rooms_max: počet pokojů
         conditions: stav, např. ["Po rekonstrukci", "Velmi dobrý", "Novostavba"]
         construction_types: např. ["Cihla", "Smíšená"]
-        house_positions: poloha domu určená z fotek – "samostatný" (detached),
+        house_positions: poloha domu (katastr + fotky + makléř) – "samostatný" (detached),
                "přisazený" (semi_detached), "řadový" (terraced), "rohový" (corner);
                dům bez určení (detect_house_position) filtr vyřadí
         sources: kódy zdrojů, např. ["SREALITY", "REMAX"]
@@ -1745,13 +1745,13 @@ async def compare_inspection_photos(listing_id: str, force: bool = False) -> str
 
 
 def _format_house_position(listing: dict) -> str | None:
-    """Řádek „Poloha domu" pro get_listing: určení z fotek + co uvádí makléř; None u bytů a pozemků."""
+    """Řádek „Poloha domu" pro get_listing: určení (katastr + fotky + makléř) + co uvádí makléř; None u bytů a pozemků."""
     if listing.get("propertyType") not in ("House", "Cottage"):
         return None
     label = listing.get("housePositionLabel")
     listed = listing.get("housePositionListed")
     if label:
-        line = f"**Poloha domu:** {label} (podle fotek: {listing.get('housePositionReason') or 'bez zdůvodnění'})"
+        line = f"**Poloha domu:** {label} ({listing.get('housePositionReason') or 'bez zdůvodnění'})"
     elif listing.get("housePosition") == "unknown":
         line = "**Poloha domu:** z fotek nejde určit"
     else:
@@ -1764,13 +1764,15 @@ def _format_house_position(listing: dict) -> str | None:
 @mcp.tool()
 async def detect_house_position(listing_id: str) -> str:
     """
-    🏘️ Určí z venkovních a leteckých fotek, jak dům stojí vůči sousedním stavbám:
-    samostatný / přisazený z jedné strany / řadový (sousedé z obou stran) / rohový.
+    🏘️ Určí, jak dům stojí vůči sousedním stavbám: samostatný / přisazený z jedné strany
+    (dvojdům) / řadový (sousedé z obou stran) / rohový (krajní dům řady).
 
     Použij vždy, když hodnotíš, jestli je dům samostatný – neodhaduj to z popisu ani z jedné
-    fotky z ulice. „Řadový" je jen dům se sousedy z OBOU stran; vesnický dům s vjezdem nebo
-    odstupem na jedné straně je „přisazený z jedné strany". Údaj makléře ze Sreality (pole
-    Poloha domu) bývá nepřesný a get_listing ho uvádí zvlášť jako „makléř uvádí".
+    fotky z ulice. Rozhodují tři zdroje: změřené společné zdi z půdorysů v katastru (ČÚZK),
+    obrazový model nad mapou, ortofotem a venkovními fotkami a údaj makléře ze Sreality (pole
+    Poloha domu). O samostatném × přistavěném rozhoduje shoda dvou ze tří, bez katastru makléř;
+    vedlejší stavba (garáž, stodola) u souseda dům přistavěným nedělá. Zdůvodnění říká, co
+    rozhodlo a kde se zdroje rozcházely.
 
     Výsledek se uloží k domu (všem kopiím inzerátu) a get_listing ho pak vrací v řádku
     „Poloha domu". Neklasifikovaná galerie se nejdřív klasifikuje (může trvat minutu až dvě).
@@ -1791,8 +1793,8 @@ async def detect_house_position(listing_id: str) -> str:
     if result.get("message"):
         return result["message"]
     if result.get("position") == "unknown":
-        return f"Z {result.get('photosUsed', 0)} venkovních fotek nejde polohu domu určit: {result.get('reason') or 'boky domu nejsou vidět'}"
-    return f"**Poloha domu:** {result.get('label')} (z {result.get('photosUsed', 0)} fotek) – {result.get('reason')}"
+        return f"Z {result.get('photosUsed', 0)} snímků nejde polohu domu určit: {result.get('reason') or 'boky domu nejsou vidět'}"
+    return f"**Poloha domu:** {result.get('label')} (z {result.get('photosUsed', 0)} snímků) – {result.get('reason')}"
 
 
 @mcp.tool()
