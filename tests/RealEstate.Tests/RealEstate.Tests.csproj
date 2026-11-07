@@ -20,6 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Uložené odpovědi veřejných služeb (ČÚZK WFS budov) pro testy bez sítě -->
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\RealEstate.Domain\RealEstate.Domain.csproj" />
     <ProjectReference Include="..\..\src\RealEstate.Infrastructure\RealEstate.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\RealEstate.Api\RealEstate.Api.csproj" />

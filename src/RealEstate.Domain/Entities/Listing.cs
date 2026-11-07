@@ -45,6 +45,10 @@ public class Listing
     public string? HousePositionReason { get; set; }
     public DateTime? HousePositionAt { get; set; }
     public string? HousePositionListed { get; set; }
+    /// <summary>Co rozhodlo HousePosition: cadastre / broker / vision; null = určeno před sladěním s katastrem a makléřem (7. 11. 2026).</summary>
+    public string? HousePositionSource { get; set; }
+    /// <summary>Poloha podle půdorysů budov v katastru (null = GPS neleží na obytné budově nebo bez přesné GPS).</summary>
+    public string? HousePositionCadastre { get; set; }
 
     public DateTime? CreatedAtSource { get; set; }
     public DateTime? UpdatedAtSource { get; set; }

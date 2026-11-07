@@ -40,6 +40,20 @@ public static class TargetProfile
 
     public static int Total => Labels.Length;
 
+    /// <summary>
+    /// „Samostatně stojící" (7. 11. 2026). Do té doby stačilo <c>HousePosition == detached</c> NEBO makléřovo
+    /// „Samostatný" – chybné „detached" obrazového modelu tak přebilo makléřovo „Řadový" (Kubšice, Únanov,
+    /// Břežany…). Teď platí pořadí důvěry: poloha, o které rozhodl katastr (ve shodě s dalším zdrojem,
+    /// <see cref="HousePositionService.Reconcile"/>) → údaj makléře na řádku → uložená poloha. Řádky určené
+    /// před sladěním (source NULL) tak řídí makléř, kde ho mají.
+    /// </summary>
+    public static bool IsDetached(string? housePosition, string? housePositionSource, string? housePositionListed)
+        => housePositionSource == HousePositionSources.Cadastre
+            ? housePosition == HousePositions.Detached
+            : housePositionListed is not null
+                ? housePositionListed.StartsWith("Samostatn", StringComparison.Ordinal)
+                : housePosition == HousePositions.Detached;
+
     /// <summary>Počet splněných kritérií jako SQL výraz (CASE WHEN … součet) – pro filtr a řazení přes LinqKit Invoke.</summary>
     public static readonly Expression<Func<Listing, int>> ScoreExpression = l =>
         (l.PropertyType == PropertyType.House && l.OfferType == OfferType.Sale ? 1 : 0)
@@ -48,7 +62,12 @@ public static class TargetProfile
         + (l.Rooms != null && l.Rooms >= MinRooms ? 1 : 0)
         + (l.District != null && Districts.Contains(l.District) ? 1 : 0)
         + ((l.AreaLand != null && l.AreaLand >= MinLandForGarden) || (l.SmartTags != null && l.SmartTags.Contains("Zahrada")) ? 1 : 0)
-        + (l.HousePosition == "detached" || (l.HousePositionListed != null && l.HousePositionListed.StartsWith("Samostatn")) ? 1 : 0)
+        // Totéž co IsDetached – výraz musí zůstat rozepsaný, aby se přeložil do SQL
+        + ((l.HousePositionSource == HousePositionSources.Cadastre
+               ? l.HousePosition == HousePositions.Detached
+               : l.HousePositionListed != null
+                   ? l.HousePositionListed.StartsWith("Samostatn")
+                   : l.HousePosition == HousePositions.Detached) ? 1 : 0)
         + (l.Condition == null || !BadConditions.Contains(l.Condition) ? 1 : 0);
 
     public sealed record Evaluation(int Met, int Total, List<string> Missing);
@@ -64,7 +83,7 @@ public static class TargetProfile
             l.Rooms is not null && l.Rooms >= MinRooms,
             l.District is not null && Districts.Contains(l.District),
             (l.AreaLand is not null && l.AreaLand >= MinLandForGarden) || (l.SmartTags is not null && l.SmartTags.Contains("Zahrada")),
-            l.HousePosition == "detached" || (l.HousePositionListed is not null && l.HousePositionListed.StartsWith("Samostatn")),
+            IsDetached(l.HousePosition, l.HousePositionSource, l.HousePositionListed),
             l.Condition is null || !BadConditions.Contains(l.Condition),
         ];
         var missing = Labels.Where((_, i) => !met[i]).ToList();

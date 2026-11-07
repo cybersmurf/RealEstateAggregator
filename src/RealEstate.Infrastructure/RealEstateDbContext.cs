@@ -138,6 +138,8 @@ public sealed class RealEstateDbContext : DbContext
             entity.Property(e => e.HousePositionReason).HasColumnName("house_position_reason");
             entity.Property(e => e.HousePositionAt).HasColumnName("house_position_at").HasColumnType("timestamptz");
             entity.Property(e => e.HousePositionListed).HasColumnName("house_position_listed");
+            entity.Property(e => e.HousePositionSource).HasColumnName("house_position_source");
+            entity.Property(e => e.HousePositionCadastre).HasColumnName("house_position_cadastre");
             entity.Property(e => e.Summary).HasColumnName("summary");
             entity.Property(e => e.SummaryAt).HasColumnName("summary_at").HasColumnType("timestamptz");
             entity.Property(e => e.DescriptionEmbedding).HasColumnName("description_embedding").HasColumnType("vector(768)");
