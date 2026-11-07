@@ -80,10 +80,19 @@ class Report:
 
 
 async def check_runs(conn, report: Report, sources: List[str]) -> None:
+    # Sreality zapisuje řádek za každou dvojici okres × kategorie (dražby pozemků mívají 0) –
+    # běh zdroje = všechny řádky se stejným started_at, sečtené.
     rows = await conn.fetch("""
-        SELECT source_code, status, started_at, total_seen, left(coalesce(error_message, ''), 120) AS err
-        FROM (SELECT *, row_number() OVER (PARTITION BY source_code ORDER BY started_at DESC) rn
-              FROM re_realestate.scrape_runs WHERE started_at > now() - interval '14 days') x
+        WITH runs AS (
+            SELECT source_code, started_at,
+                   CASE WHEN bool_and(status = 'Succeeded') THEN 'Succeeded'
+                        ELSE min(status) FILTER (WHERE status <> 'Succeeded') END AS status,
+                   sum(coalesce(total_seen, 0)) AS total_seen,
+                   left(coalesce(max(error_message), ''), 120) AS err
+            FROM re_realestate.scrape_runs WHERE started_at > now() - interval '14 days'
+            GROUP BY source_code, started_at)
+        SELECT source_code, status, started_at, total_seen, err
+        FROM (SELECT *, row_number() OVER (PARTITION BY source_code ORDER BY started_at DESC) rn FROM runs) x
         WHERE rn <= 5 ORDER BY source_code, started_at DESC""")
     by: Dict[str, List[Any]] = defaultdict(list)
     for r in rows:
