@@ -824,3 +824,368 @@ public class DuplicateDetectionPricelessTests
         Assert.DoesNotContain(realcity.Id, map.Values);
     }
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  Tasovice, Bílé domy (7. 11. 2026): jedna skupina duplicit míchala pět různých domů jednoho
+//  developera – všechny na témže špendlíku 48,83610 N 16,15558 E (obec bez adresy), se stejnou
+//  šablonou textu. Stažené domy se připojily k novému inzerátu přes „GPS do 300 m + cena ±2 %"
+//  a detail ukazoval cizí fotky i historii ceny. Přeinzerování téhož domu (Kubšice) musí dál projít.
+// ─────────────────────────────────────────────────────────────────
+public class DuplicateDetectionDevelopmentTests
+{
+    private static readonly Guid Sreality = Guid.NewGuid();
+    private static readonly Guid Bazos = Guid.NewGuid();
+    private static readonly Guid Idnes = Guid.NewGuid();
+    private static readonly Guid UlovDomov = Guid.NewGuid();
+
+    private const double PinLat = 48.836095077282;
+    private const double PinLon = 16.155584667625728;
+
+    private const string TasoviceText =
+        "Nabízíme k prodeji rodinný dům 4+kk v obci Tasovice. Tato nemovitost je ideální volbou pro ty, kteří si chtějí "
+        + "dotvořit svůj domov podle vlastních představ, jelikož se jedná o hrubou stavbu. Stavba domu je cihlová, což zajišťuje "
+        + "solidní a trvanlivou konstrukci. Dům je přízemní a nabízí prostorné 4 pokoje, které jsou dobrou volbou pro rodinu "
+        + "hledající pohodlí a dostatek místa pro všechny členy. Celková užitná plocha domu činí 129 m², což poskytuje dostatek "
+        + "prostoru pro vaše bydlení a případné úpravy interiéru. Pozemek má rozlohu 594 m² a poskytuje příjemný prostor pro "
+        + "venkovní aktivity, relaxaci či zahradničení. Součástí domu je také garáž, která nabízí možnost bezpečného parkování "
+        + "vašeho vozidla či úložné řešení pro vaše věci. Pokud Vás dům zaujal, neváhejte nás kontaktovat pro více informací.";
+
+    private static DuplicateCandidate Make(Guid source, decimal? price, double? builtUp, double? land, string? disposition,
+        DateTime firstSeen, DateTime lastSeen, bool active = true, double? lat = PinLat, double? lon = PinLon,
+        bool precise = true, string? municipality = "Tasovice", string? description = null, string? title = null,
+        PropertyType type = PropertyType.House, OfferType offer = OfferType.Sale)
+        => new(Guid.NewGuid(), source, type, offer, price, lat, lon, municipality, builtUp, land, firstSeen, precise,
+            "Znojmo", title ?? $"Prodej rodinného domu {builtUp} m², pozemek {land} m²", disposition, description, active, lastSeen);
+
+    private static DateTime D(int month, int day) => new(2026, month, day, 2, 0, 0, DateTimeKind.Utc);
+
+    private static Guid GroupOf(IReadOnlyDictionary<Guid, Guid> map, Guid id) => map.TryGetValue(id, out var primary) ? primary : id;
+
+    // Skutečné řádky produkce (zkrácené na to, co párování čte)
+    private static DuplicateCandidate CurrentRd03A() => Make(Sreality, 5_850_000m, 100, 594, "4+KK", D(11, 5), D(11, 6), description: TasoviceText);
+    private static DuplicateCandidate Gone594() => Make(Sreality, 5_850_000m, 129, 594, "4+KK", D(2, 23), D(11, 2), active: false, description: TasoviceText);
+    private static DuplicateCandidate Gone600() => Make(Sreality, 5_780_000m, 128, 600, "4+KK", D(2, 23), D(10, 21), active: false, description: TasoviceText);
+    private static DuplicateCandidate Gone918() => Make(Sreality, 5_950_000m, 130, 918, "3+KK", D(2, 23), D(9, 29), active: false);
+    private static DuplicateCandidate BazosRd3() => Make(Bazos, 5_850_000m, 129, null, "4+KK", D(9, 30), D(11, 6),
+        lat: null, lon: null, municipality: null, description: TasoviceText, title: "RD 3");
+
+    [Fact]
+    public void Tasovice_FiveHousesOfOneDeveloper_CurrentListingStaysAlone()
+    {
+        var current = CurrentRd03A();
+        var gone594 = Gone594();
+        var gone600 = Gone600();
+        var gone918 = Gone918();
+        var bazos = BazosRd3();
+        var otherHouse = Make(Sreality, 6_980_000m, 183, 790, "5+KK", D(11, 5), D(11, 6));
+
+        var map = DuplicateDetectionService.ComputeMapping([current, gone594, gone600, gone918, bazos, otherHouse], out _);
+
+        var group = GroupOf(map, current.Id);
+        Assert.All([gone594, gone600, gone918, bazos], c => Assert.NotEqual(group, GroupOf(map, c.Id)));
+    }
+
+    [Fact]
+    public void Tasovice_BazosCopyKeepsItsOwnHouse_The129m2One()
+    {
+        var gone594 = Gone594();
+        var bazos = BazosRd3();
+
+        var map = DuplicateDetectionService.ComputeMapping([CurrentRd03A(), gone594, Gone600(), Gone918(), bazos], out _);
+
+        Assert.Equal(GroupOf(map, bazos.Id), GroupOf(map, gone594.Id));
+    }
+
+    [Fact]
+    public void Kubsice_RelistedWithDiscountAndNewDisposition_AllCopiesInOneGroup()
+    {
+        // Sreality 5,7 mil. naposledy 8. 10., od 12. 10. znovu za 5,4 mil. jako 4+1; iDNES totéž
+        var srealityGone = Make(Sreality, 5_700_000m, 200, 1330, "3+1", D(6, 15), D(10, 8), active: false,
+            lat: 49.0001472222, lon: 16.4151186111, municipality: "Kubšice");
+        var srealityLive = Make(Sreality, 5_400_000m, 200, 1330, "4+1", D(10, 12), D(11, 6),
+            lat: 49.0001472222, lon: 16.4151186111, municipality: "Kubšice");
+        var idnesGone = Make(Idnes, 5_700_000m, 200, 1330, "3+1", D(10, 6), D(10, 8), active: false,
+            lat: null, lon: null, municipality: "Kubšice", title: "Prodej domu 200 m² s pozemkem 1 330 m²");
+        var idnesLive = Make(Idnes, 5_400_000m, 200, 1330, "4+1", D(10, 12), D(11, 6),
+            lat: 49.0006644, lon: 16.4130603, precise: false, municipality: "Kubšice", title: "Prodej domu 200 m² s pozemkem 1 330 m²");
+
+        var map = DuplicateDetectionService.ComputeMapping([srealityGone, srealityLive, idnesGone, idnesLive], out var remembered);
+
+        Assert.Equal(2, remembered);
+        Assert.Single(new[] { srealityGone, srealityLive, idnesGone, idnesLive }.Select(c => GroupOf(map, c.Id)).Distinct());
+    }
+
+    // ── Přeinzerování v jednom zdroji ────────────────────────────────
+
+    [Fact]
+    public void Relisting_DifferentBuiltUpArea_NotSameHouse()
+        => Assert.False(DuplicateDetectionService.IsSameSourceRelisting(Gone594() with { Price = 5_950_000m }, CurrentRd03A()));
+
+    [Fact]
+    public void Relisting_DifferentBothAreas_NotSameHouse()
+        => Assert.False(DuplicateDetectionService.IsSameSourceRelisting(Gone600(), CurrentRd03A()));
+
+    [Fact]
+    public void Relisting_DifferentLandAndDisposition_NotSameHouse()
+        => Assert.False(DuplicateDetectionService.IsSameSourceRelisting(Gone918(), CurrentRd03A()));
+
+    [Fact]
+    public void Relisting_RanSideBySideForMonths_NotSameHouse()
+    {
+        // Dva domy developera se stejnými plochami běžely vedle sebe – starý není přeinzerovaný nový
+        var gone = Make(Sreality, 5_850_000m, 129, 594, "4+KK", D(2, 23), D(11, 2), active: false, lat: 48.9, lon: 16.2);
+        var live = Make(Sreality, 5_780_000m, 129, 594, "4+KK", D(3, 1), D(11, 6), lat: 48.9, lon: 16.2);
+
+        Assert.False(DuplicateDetectionService.IsSameSourceRelisting(gone, live));
+    }
+
+    [Fact]
+    public void Relisting_ShortOverlapWithDiscount_SameHouse()
+    {
+        // Kratochvilka: nový inzerát za 3,39 mil. od 5. 10., starý za 3,68 mil. visel do 12. 10.
+        var gone = Make(Sreality, 3_680_000m, 55, 204, "1+1", D(9, 24), D(10, 12), active: false, lat: 48.95, lon: 16.4, municipality: "Kratochvilka");
+        var live = Make(Sreality, 3_390_000m, 55, 204, "1+1", D(10, 5), D(11, 6), lat: 48.95, lon: 16.4, municipality: "Kratochvilka");
+
+        Assert.True(DuplicateDetectionService.IsSameSourceRelisting(gone, live));
+    }
+
+    [Fact]
+    public void Relisting_OtherDispositionWithoutBothAreas_NotSameHouse()
+    {
+        var gone = Make(Sreality, 5_900_000m, 100, null, "3+KK", D(8, 1), D(9, 1), active: false, lat: 48.9, lon: 16.2, type: PropertyType.Apartment);
+        var live = Make(Sreality, 5_800_000m, 100, null, "4+KK", D(9, 3), D(11, 6), lat: 48.9, lon: 16.2, type: PropertyType.Apartment);
+
+        Assert.False(DuplicateDetectionService.IsSameSourceRelisting(gone, live));
+    }
+
+    [Fact]
+    public void Relisting_BazosRepostWithSameTitle_SameHouse()
+    {
+        // Bazoš nemá obec ani přesnou GPS – znovu vložený inzerát pozná podle titulku
+        var gone = Make(Bazos, 401_236m, null, 659_064, null, D(10, 6), D(11, 6), active: false, lat: null, lon: null,
+            municipality: null, title: "Les 659 064 m², Podíl 4 % o výměře 29 065 m²", type: PropertyType.Land);
+        var live = gone with { Id = Guid.NewGuid(), FirstSeenAt = D(10, 16), IsActive = true };
+
+        Assert.True(DuplicateDetectionService.IsSameSourceRelisting(gone, live));
+    }
+
+    [Fact]
+    public void Relisting_CorrectedTypoInArea_SameHouse()
+    {
+        // Pozořice: „289 m², pozemek 289 m²" do 15. 9., od 16. 9. „210 m², pozemek 289 m²", jinak vše stejné
+        var gone = Make(Sreality, 5_990_000m, 289, 289, "3+1", D(4, 27), D(9, 15), active: false, lat: 49.2103625, lon: 16.7935396, municipality: "Pozořice");
+        var live = Make(Sreality, 5_990_000m, 210, 289, "3+1", D(9, 16), D(11, 6), lat: 49.2103625, lon: 16.7935396, municipality: "Pozořice");
+
+        Assert.True(DuplicateDetectionService.IsSameSourceRelisting(gone, live));
+    }
+
+    [Fact]
+    public void Relisting_CorrectedAreaOnDeveloperPin_NotSameHouse()
+    {
+        // Tasovice vypadají stejně (129 → 100 m², pozemek i cena stejné, 3 dny), ale leží na špendlíku developera
+        var gone = Gone594() with { SharedGps = true, TemplateDescription = true };
+        var live = CurrentRd03A() with { SharedGps = true, TemplateDescription = true };
+
+        Assert.False(DuplicateDetectionService.IsSameSourceRelisting(gone, live));
+    }
+
+    // ── Sdílený špendlík ─────────────────────────────────────────────
+
+    [Fact]
+    public void FindSharedPins_TwoUnitsSideBySide_MarksEveryListingOnThePoint()
+    {
+        var unitA = Gone594();
+        var unitB = Gone600();
+        var newcomer = CurrentRd03A();
+        var otherPortal = Make(Idnes, 5_850_000m, 129, 594, "4+KK", D(10, 1), D(11, 6), lat: PinLat + 0.00002, lon: PinLon);
+        var house300mAway = Make(Sreality, 4_000_000m, 90, 500, "3+1", D(3, 1), D(11, 6), lat: PinLat + 0.0027, lon: PinLon);
+
+        var pins = DuplicateDetectionService.FindSharedPins([unitA, unitB, newcomer, otherPortal, house300mAway]);
+
+        Assert.Contains(unitA.Id, pins);
+        Assert.Contains(unitB.Id, pins);
+        Assert.Contains(newcomer.Id, pins);
+        Assert.Contains(otherPortal.Id, pins);
+        Assert.DoesNotContain(house300mAway.Id, pins);
+    }
+
+    [Fact]
+    public void FindSharedPins_SameHouseListedTwice_NotPin()
+    {
+        var first = Make(Sreality, 7_490_000m, 314, 673, "5+1", D(2, 23), D(11, 6), lat: 48.8555, lon: 16.0488);
+        var second = first with { Id = Guid.NewGuid(), FirstSeenAt = D(4, 1) };
+
+        Assert.Empty(DuplicateDetectionService.FindSharedPins([first, second]));
+    }
+
+    [Fact]
+    public void FindSharedPins_RelistingWithShortOverlap_NotPin()
+    {
+        var old = Make(Sreality, 3_680_000m, 55, 204, "1+1", D(9, 24), D(10, 12), active: false, lat: 48.95, lon: 16.4);
+        var relisted = Make(Sreality, 3_390_000m, 55, 204, "1+1", D(10, 5), D(11, 6), lat: 48.95, lon: 16.4);
+
+        Assert.Empty(DuplicateDetectionService.FindSharedPins([old, relisted]));
+    }
+
+    [Fact]
+    public void SharedPin_ConflictingAreas_NotDuplicate()
+    {
+        var sreality = CurrentRd03A() with { SharedGps = true };
+        var idnes = Make(Idnes, 5_900_000m, 129, 600, "4+KK", D(10, 1), D(11, 6), lat: PinLat + 0.0005, lon: PinLon) with { SharedGps = true };
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(sreality, idnes));
+        // Bez špendlíku platí přesná GPS do 300 m jako dřív
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(sreality with { SharedGps = false }, idnes with { SharedGps = false }));
+    }
+
+    [Fact]
+    public void SharedPin_MatchingAreas_StillDuplicate()
+    {
+        var sreality = Gone594() with { IsActive = true, SharedGps = true };
+        var idnes = Make(Idnes, 5_900_000m, 129, 594, "4+KK", D(10, 1), D(11, 6), lat: PinLat + 0.0005, lon: PinLon);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(sreality, idnes));
+    }
+
+    [Fact]
+    public void SharedPin_TwoKilometresApart_StillRejected()
+    {
+        var sreality = Gone594() with { IsActive = true, SharedGps = true };
+        var idnes = Make(Idnes, 5_850_000m, 129, 594, "4+KK", D(10, 1), D(11, 6), lat: PinLat + 0.018, lon: PinLon);
+
+        Assert.False(DuplicateDetectionService.IsDuplicatePair(sreality, idnes));
+    }
+
+    [Fact]
+    public void SharedPin_RepeatNeedsAreasToTheMeter()
+    {
+        // Sousední domy developera se stejnou cenou: pozemek 594 vs. 600 m² není opakování téhož inzerátu
+        var a = Make(Sreality, 8_850_000m, 128, 594, "4+KK", D(2, 23), D(11, 5), title: "Prodej rodinného domu 128 m², pozemek 594 m²");
+        var b = Make(Sreality, 8_850_000m, 128, 600, "4+KK", D(2, 23), D(10, 22), title: "Prodej rodinného domu 128 m², pozemek 600 m²");
+
+        Assert.True(DuplicateDetectionService.IsSameSourceRepeat(a, b));
+        Assert.False(DuplicateDetectionService.IsSameSourceRepeat(a with { SharedGps = true }, b with { SharedGps = true }));
+    }
+
+    // ── Šablona textu developera ─────────────────────────────────────
+
+    [Fact]
+    public void FindTemplateDescriptions_TextOfUnitsSideBySide_MarksWholeText()
+    {
+        var unitA = Gone594();
+        var unitB = Gone600();
+        var newcomer = CurrentRd03A();
+        var bazos = BazosRd3();
+
+        var templates = DuplicateDetectionService.FindTemplateDescriptions([unitA, unitB, newcomer, bazos]);
+
+        Assert.Contains(unitA.Id, templates);
+        Assert.Contains(unitB.Id, templates);
+        Assert.Contains(newcomer.Id, templates);
+        Assert.DoesNotContain(bazos.Id, templates);  // Bazoš ho má jen jednou
+    }
+
+    [Fact]
+    public void FindTemplateDescriptions_RepostOfSameHouse_NotTemplate()
+    {
+        var first = Gone594();
+        var repost = first with { Id = Guid.NewGuid(), FirstSeenAt = D(5, 1), IsActive = true, LastSeenAt = D(11, 6) };
+
+        Assert.Empty(DuplicateDetectionService.FindTemplateDescriptions([first, repost]));
+    }
+
+    [Fact]
+    public void TemplateDescription_ConflictingArea_NotDuplicate()
+        => Assert.False(DuplicateDetectionService.IsDuplicatePair(
+            BazosRd3() with { TemplateDescription = true },
+            CurrentRd03A() with { TemplateDescription = true, SharedGps = true }));
+
+    [Fact]
+    public void TemplateDescription_MatchingArea_StillDuplicate()
+        => Assert.True(DuplicateDetectionService.IsDuplicatePair(
+            BazosRd3() with { TemplateDescription = true },
+            Gone594() with { IsActive = true, TemplateDescription = true, SharedGps = true }));
+
+    [Fact]
+    public void NonTemplateDescription_ConflictingArea_StillDuplicate()
+        => Assert.True(DuplicateDetectionService.IsDuplicatePair(BazosRd3(), CurrentRd03A()));
+
+    [Fact]
+    public void TemplateDescription_UnroundExactPrice_StillDuplicate()
+    {
+        // Byt developera: cena spočítaná z metrů (8 870 803 Kč) je otisk jednotky, plochu RealityMIX počítá s terasou
+        var sreality = Make(Sreality, 8_870_803m, 103, null, "3+KK", D(9, 25), D(11, 6), municipality: "Znojmo",
+            description: TasoviceText, type: PropertyType.Apartment) with { TemplateDescription = true };
+        var realityMix = Make(Bazos, 8_870_803m, 94.3, null, "3+kk", D(9, 30), D(11, 6), lat: null, lon: null,
+            municipality: "Znojmo", description: TasoviceText, title: "Prodej moderního bytu s terasou", type: PropertyType.Apartment)
+            with { TemplateDescription = true };
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(sreality, realityMix));
+    }
+
+    // ── Šablona titulku (Těšetice: Century 21 vede pod stejným titulkem domy s pozemkem 367 i 395 m²) ──
+
+    [Fact]
+    public void TemplateTitle_SameSourceUnitsWithDifferentLand_NotRepeat()
+    {
+        const string title = "Patrová novostavba 4+kk 125 m², pozemek 395 m², Těšetice u Znojma";
+        var unit367 = Make(Bazos, 7_450_000m, 124, 367, "4+KK", D(9, 9), D(11, 6), lat: 48.8888441, lon: 16.1582019,
+            precise: false, municipality: "Těšetice", title: title);
+        var unit395 = Make(Bazos, 7_450_000m, 124, 395, "4+KK", D(9, 12), D(11, 6), lat: 48.8888441, lon: 16.1582019,
+            precise: false, municipality: "Těšetice", title: title);
+
+        var templates = DuplicateDetectionService.FindTemplateTitles([unit367, unit395]);
+
+        Assert.Equal(2, templates.Count);
+        Assert.False(DuplicateDetectionService.IsSameSourceRepeat(
+            unit367 with { TemplateTitle = true }, unit395 with { TemplateTitle = true }));
+    }
+
+    [Fact]
+    public void TemplateTitle_SrealityAutoTitleWithSameAreas_StillRepeat()
+    {
+        // Automatický titulek Sreality sdílí víc domů, opakování téhož domu (stejné plochy) ale projde
+        var a = Make(Sreality, 7_490_000m, 314, 673, "5+1", D(2, 23), D(11, 6), lat: 48.8555, lon: 16.0488) with { TemplateTitle = true };
+        var b = a with { Id = Guid.NewGuid(), Latitude = 48.8600, FirstSeenAt = D(5, 1) };
+
+        Assert.True(DuplicateDetectionService.IsSameSourceRepeat(a, b));
+    }
+
+    // ── Stažené inzeráty ve skupině ──────────────────────────────────
+
+    [Fact]
+    public void Remembered_TwoUnitsThatRanSideBySide_NeitherAttached()
+    {
+        // Oba stažené domy sedí na živou kopii, ale běžely vedle sebe – nevíme, který z nich to je
+        var live = Make(Idnes, 5_850_000m, 129, null, "4+KK", D(10, 1), D(11, 6), lat: null, lon: null);
+        var unitA = Make(Sreality, 5_850_000m, 129, 594, "4+KK", D(2, 23), D(11, 2), active: false, lat: 48.9, lon: 16.2);
+        var unitB = Make(Sreality, 5_850_000m, 129, 700, "4+KK", D(2, 23), D(10, 21), active: false, lat: 48.9, lon: 16.21);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(unitA, live));
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(unitB, live));
+        Assert.Empty(DuplicateDetectionService.AttachRemembered([live], [unitA, unitB], new Dictionary<Guid, Guid>()));
+    }
+
+    [Fact]
+    public void Remembered_GoneCopyContradictingLiveListing_NotAttached()
+    {
+        // Pronájem 22 500 Kč do 300 m: stažený byt 40 m² není živý byt 55 m²
+        var live = Make(UlovDomov, 22_500m, 55, null, "2+KK", D(9, 30), D(11, 6), lat: 49.2, lon: 16.6,
+            municipality: "Brno", type: PropertyType.Apartment, offer: OfferType.Rent);
+        var gone = Make(Sreality, 22_900m, 40, null, "2+KK", D(9, 25), D(10, 26), active: false, lat: 49.2005, lon: 16.6,
+            municipality: "Brno", type: PropertyType.Apartment, offer: OfferType.Rent);
+
+        Assert.True(DuplicateDetectionService.IsDuplicatePair(gone, live));
+        Assert.Empty(DuplicateDetectionService.AttachRemembered([live], [gone], new Dictionary<Guid, Guid>()));
+    }
+
+    [Fact]
+    public void Remembered_SameSourceOnlyThroughRelistingRules()
+    {
+        // Dřív se stažený inzerát téhož zdroje pároval i volnými pravidly pro cizí portály (GPS do 300 m + cena ±2 %)
+        var live = CurrentRd03A();
+        var gone = Gone918();
+
+        Assert.Empty(DuplicateDetectionService.AttachRemembered([live], [gone], new Dictionary<Guid, Guid>()));
+    }
+}
