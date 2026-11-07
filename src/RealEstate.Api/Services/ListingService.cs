@@ -261,14 +261,21 @@ public class ListingService : IListingService
 
         // Nejstarší spatření téhož domu ve skupině duplicit (Bazoš kopii vkládají znovu každých pár týdnů)
         var groupPrimaryId = entity.DuplicateOfListingId ?? entity.Id;
-        var oldest = await _dbContext.Listings
+        // Začátek = dřívější z našeho prvního spatření a data vložení u zdroje (Sreality „since“):
+        // dům, který na Sreality visí od června 2025, nesmí mít „26 dní na trhu“ jen proto, že jsme
+        // ho začali sledovat později (rozbor domů 7. 11. 2026, Suchohrdly).
+        var group = await _dbContext.Listings
             .AsNoTracking()
             .Where(l => l.Id == groupPrimaryId || l.DuplicateOfListingId == groupPrimaryId)
-            .OrderBy(l => l.FirstSeenAt)
-            .Select(l => new { l.Id, l.FirstSeenAt, l.SourceCode })
-            .FirstOrDefaultAsync(cancellationToken);
-        var marketFirstSeen = oldest is not null && oldest.FirstSeenAt < entity.FirstSeenAt ? oldest.FirstSeenAt : entity.FirstSeenAt;
-        var marketFirstSeenSource = oldest is not null && oldest.Id != entity.Id && oldest.FirstSeenAt < entity.FirstSeenAt ? oldest.SourceCode : null;
+            .Select(l => new { l.Id, l.FirstSeenAt, l.DateCreatedSource, l.SourceCode })
+            .ToListAsync(cancellationToken);
+        var oldest = group
+            .Select(l => new { l.Id, Start = MarketStart(l.FirstSeenAt, l.DateCreatedSource), l.SourceCode })
+            .OrderBy(l => l.Start)
+            .FirstOrDefault();
+        var ownStart = MarketStart(entity.FirstSeenAt, entity.DateCreatedSource);
+        var marketFirstSeen = oldest is not null && oldest.Start < ownStart ? oldest.Start : ownStart;
+        var marketFirstSeenSource = oldest is not null && oldest.Id != entity.Id && oldest.Start < ownStart ? oldest.SourceCode : null;
 
         // Kontakt na makléře: jen správci. Zdroj, který ho neumí (zatím vše kromě Sreality),
         // si ho půjčí od člena skupiny duplicit – stejný dům, stejný makléř.
@@ -1256,7 +1263,19 @@ SellerName = sellerName,
     }
 
     /// <summary>Doba na trhu ve dnech: aktivní = do teď, stažený = do deaktivace.</summary>
-    public static int DaysOnMarket(Listing l) => DaysOnMarket(l, l.FirstSeenAt);
+    public static int DaysOnMarket(Listing l) => DaysOnMarket(l, MarketStart(l.FirstSeenAt, l.DateCreatedSource));
+
+    /// <summary>Nejdřívější věrohodné datum, kdy byl inzerát na trhu: první spatření u nás, nebo dřívější
+    /// datum vložení u zdroje. Datum zdroje před rokem 2015 nebo v budoucnu se ignoruje (chybná data).</summary>
+    public static DateTime MarketStart(DateTime firstSeenAt, DateTimeOffset? dateCreatedSource)
+    {
+        if (dateCreatedSource is null)
+            return firstSeenAt;
+        var created = dateCreatedSource.Value.UtcDateTime;
+        if (created.Year < 2015 || created > DateTime.UtcNow)
+            return firstSeenAt;
+        return created < firstSeenAt ? created : firstSeenAt;
+    }
 
     /// <summary>Doba na trhu od zadaného prvního spatření (nejstarší člen skupiny duplicit).</summary>
     public static int DaysOnMarket(Listing l, DateTime firstSeenAt)

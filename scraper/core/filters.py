@@ -123,6 +123,12 @@ class FilterManager:
         "Prodej": "Sale", "Pronájem": "Rent", "Dražba": "Auction",
     }
 
+    # Okresy, ze kterých bereme inzeráty celé (target) nebo zčásti (partial_districts).
+    _SCOPE_DISTRICTS = ("Znojmo", "Brno-venkov", "Brno-město", "Brno")
+
+    def allowed_district_names(self) -> List[str]:
+        return list(self._SCOPE_DISTRICTS) + list((self.search_filters.get("partial_districts") or {}).keys())
+
     @staticmethod
     def _place_mentioned(name: str, text: str) -> bool:
         """
@@ -160,6 +166,16 @@ class FilterManager:
         # Obec z takového seznamu projde rovnou; cokoli jiného z toho okresu se zahodí,
         # i když by jinak prošlo přes „jihomoravsk" nebo přes název obce v target_districts.
         partial_districts = sf.get("partial_districts") or {}
+
+        # Vyplněný okres mimo zájmové okresy rozhoduje dřív než název obce v textu: Milovice
+        # (okres Nymburk), Sedlec-Prčice (Příbram) a Šumice (Uherské Hradiště) jinak prošly jako
+        # jmenovkyně obcí z partial_districts / koridoru (7. 11. 2026, 10 inzerátů Realinga).
+        district = (listing_data.get("district") or "").strip()
+        if district and "kraj" not in district.lower():
+            allowed = {normalize_place(d) for d in self.allowed_district_names()}
+            if normalize_place(district) not in allowed:
+                return (False, f"District {district} out of scope")
+
         partial_hit = any(
             self._place_mentioned(municipality, combined_location)
             for municipalities in partial_districts.values()

@@ -519,13 +519,26 @@ def _site(total: int, per_page: int = 20, prefix: str = "9", **card_kw: Any) -> 
 class _FakeDb:
     def __init__(self, known: Optional[Dict[str, Optional[float]]] = None) -> None:
         self.known = known or {}
+        self.types: Dict[str, str] = {}         # uložený typ z detailu (House, Commercial…)
+        self.inactive: set = set()               # stažené inzeráty
+        self.skips: Dict[str, str] = {}          # scrape_skips: external_id → důvod
         self.touched: List[Tuple[str, Optional[str], Optional[str]]] = []
         self.deactivated: List[str] = []
+        self.reasons: Dict[str, Optional[str]] = {}
+        self.remembered: List[Tuple[str, str]] = []
         self.kept_seen = 0
 
-    async def get_known_prices(self, source_code: str) -> Dict[str, Optional[float]]:
+    async def get_known_listings(self, source_code: str) -> Dict[str, Dict[str, Any]]:
         assert source_code == "REALITYCECHY"
-        return dict(self.known)
+        return {external_id: {"price": price, "property_type": self.types.get(external_id, "House"),
+                              "is_active": external_id not in self.inactive}
+                for external_id, price in self.known.items()}
+
+    async def get_skip_reasons(self, source_code: str) -> Dict[str, str]:
+        return dict(self.skips)
+
+    async def remember_skipped(self, source_code: str, external_ids: List[str], reason: str) -> None:
+        self.remembered.extend((external_id, reason) for external_id in external_ids)
 
     async def touch_listings(self, source_code: str, items: List[Tuple[str, Optional[str], Optional[str]]]) -> int:
         self.touched.extend(items)
@@ -535,8 +548,9 @@ class _FakeDb:
         self.kept_seen += 1
         return len(self.known)
 
-    async def deactivate_listing(self, source_code: str, external_id: str) -> bool:
+    async def deactivate_listing(self, source_code: str, external_id: str, reason: Optional[str] = None) -> bool:
         self.deactivated.append(external_id)
+        self.reasons[external_id] = reason
         return True
 
 
@@ -552,6 +566,7 @@ class _FakeRealityCechy(RealityCechyScraper):
         self.saved: List[Dict[str, Any]] = []
         self.detail_limit: Optional[int] = None    # „čas" vyprší po tolika detailech
         self.list_limit: Optional[int] = None      # … nebo po tolika stránkách výpisu
+        self.rejected: set = set()                 # external_id, které upsert vyřadí filtrem
 
     async def _fetch(self, url: str) -> str:
         self.requested.append(url)
@@ -569,8 +584,9 @@ class _FakeRealityCechy(RealityCechyScraper):
             return True
         return self.detail_limit is not None and len(self.detail_requests) >= self.detail_limit
 
-    async def _save_listing(self, listing: Dict[str, Any]) -> None:
+    async def _save_listing(self, listing: Dict[str, Any]) -> Optional[str]:
         self.saved.append(listing)
+        return None if listing["external_id"] in self.rejected else f"uuid-{listing['external_id']}"
 
     @property
     def list_requests(self) -> List[str]:
@@ -716,3 +732,111 @@ class TestRealityCechyBeh:
         scraper = _TwoLists(pages, lists=[BV_LIST, BRECLAV_LIST])
         await scraper.run(full_rescan=True)
         assert sorted(u.rsplit("/", 1)[-1] for u in scraper.detail_requests) == ["1", "3"]
+
+
+BV_LAND_LIST = ("/nemovitosti/prodej-pozemku/", "Pozemek", "Prodej", "Brno-venkov", DISTRICT_IDS["Brno-venkov"])
+
+
+class TestRealityCechyZnameMimoFiltry:
+    """7. 11. 2026: 35 známých inzerátů neprošlo filtry na kartě výpisu – každou noc se jen označily
+    jako viděné a zůstaly aktivní se starou cenou. 17 z nich byla skutečně mimo limit, 18 komerční
+    pozemky a rekreační objekt, které limit pozemků a domů nemají (typ určil detail)."""
+
+    async def test_znamy_nad_cenovy_limit_se_deaktivuje_bez_detailu(self, fake_db):
+        fake_db.known = {"1": None, "2": 5_000_000.0}
+        pages = {1: _list_html([_card("1", price="12 500 000 Kč"), _card("2")], total=2)}
+        scraper = _FakeRealityCechy(pages)
+        seen = await scraper.run(full_rescan=True)
+
+        assert fake_db.deactivated == ["1"]
+        assert fake_db.reasons["1"] == "out of search filters (list card)"
+        assert [t[0] for t in fake_db.touched] == ["2"]   # mimo filtry se jako viděný neoznačí
+        assert scraper.detail_requests == []
+        assert scraper.retired_count == 1
+        assert seen == 1
+
+    async def test_komercni_pozemek_ve_vypisu_pozemku_limit_nema(self, fake_db):
+        fake_db.known = {"1": 18_490_000.0, "2": 6_590_000.0}
+        fake_db.types = {"1": "Commercial", "2": "Land"}
+        pages = {1: _list_html([_card("1", title="Prodej stavebního pozemku", price="18 490 000 Kč"),
+                                _card("2", title="Stavební pozemek 608 m2", price="6 590 000 Kč")], total=2)}
+        scraper = _FakeRealityCechy(pages, lists=[BV_LAND_LIST])
+        await scraper.run(full_rescan=True)
+
+        assert [t[0] for t in fake_db.touched] == ["1"]
+        assert fake_db.deactivated == ["2"]
+
+    async def test_karta_bez_obce_znamy_breclav_nedeaktivuje(self, fake_db):
+        """Záloha ld+json (karty bez obce a ceny) nesmí shodit celý částečný okres Břeclav."""
+        fake_db.known = {"21075762": 7_662_900.0}
+        ld = ('<script type="application/ld+json">{"@graph": [{"@type": "ItemList", "itemListElement": '
+              '[{"url": "https://www.realitycechy.cz/nemovitost/prodej/dum/21075762", "name": "Prodej domu"}]}]}'
+              '</script>')
+        scraper = _FakeRealityCechy({1: f"<html><body>{ld}</body></html>"}, lists=[BRECLAV_LIST])
+        await scraper.run(full_rescan=True)
+
+        assert fake_db.deactivated == []
+        assert [t[0] for t in fake_db.touched] == ["21075762"]
+
+    async def test_detail_vyradi_filtrem_znamy_deaktivovat_oba_zapamatovat(self, fake_db):
+        fake_db.known = {"900001": 4_000_000.0}
+        scraper = _FakeRealityCechy(_site(2))
+        scraper.rejected = {"900001", "900002"}
+        seen = await scraper.run(full_rescan=True)
+
+        assert [s["external_id"] for s in scraper.saved] == ["900001", "900002"]
+        assert fake_db.deactivated == ["900001"]
+        assert fake_db.reasons["900001"] == "out of search filters (detail)"
+        assert fake_db.remembered == [("900001", realitycechy_scraper.SKIP_FILTERED),
+                                      ("900002", realitycechy_scraper.SKIP_FILTERED)]
+        assert seen == 1     # známý obnovený z výpisu; vyřazený nový se nepočítá
+
+    async def test_zapamatovany_vyrazeny_detail_se_nestahuje(self, fake_db):
+        fake_db.known = {"900001": 5_000_000.0}
+        fake_db.skips = {"900001": realitycechy_scraper.SKIP_FILTERED, "900002": realitycechy_scraper.SKIP_FILTERED}
+        scraper = _FakeRealityCechy(_site(3))
+        await scraper.run(full_rescan=True)
+
+        assert [u.rsplit("/", 1)[-1] for u in scraper.detail_requests] == ["900003"]
+        assert fake_db.touched == []
+        assert fake_db.deactivated == ["900001"]
+        assert fake_db.reasons["900001"] == realitycechy_scraper.SKIP_FILTERED
+
+    async def test_stazeny_znovu_ve_vypisu_dostane_detail_misto_videno(self, fake_db):
+        fake_db.known = {"900001": 5_000_000.0, "900002": 5_000_000.0}
+        fake_db.inactive = {"900001"}
+        scraper = _FakeRealityCechy(_site(2))
+        seen = await scraper.run(full_rescan=True)
+
+        assert [t[0] for t in fake_db.touched] == ["900002"]
+        assert [u.rsplit("/", 1)[-1] for u in scraper.detail_requests] == ["900001"]
+        assert [s["external_id"] for s in scraper.saved] == ["900001"]
+        assert seen == 2
+
+    async def test_smazany_ma_duvod_v_logu(self, fake_db):
+        fake_db.known = {"900001": 4_000_000.0}
+        scraper = _FakeRealityCechy(_site(1), details={"900001": _load("detail_smazany.html")})
+        await scraper.run(full_rescan=True)
+        assert fake_db.reasons == {"900001": "deleted on portal (soft 404)"}
+
+
+class TestRealityCechyRozdeleniPodleFiltru:
+    @staticmethod
+    def _item(external_id: str, **kw: Any) -> Dict[str, Any]:
+        base = {"external_id": external_id, "title": "Prodej pozemku", "municipality": "Kuřim",
+                "price": 17_800_000.0, "property_type": "Pozemek", "offer_type": "Prodej", "district": "Brno-venkov"}
+        base.update(kw)
+        return base
+
+    def test_ulozeny_typ_ma_prednost_pred_typem_vypisu(self):
+        items = [self._item("1"), self._item("2"), self._item("3")]
+        known = {"1": 17_800_000.0, "2": None}
+        in_scope, out = RealityCechyScraper.split_by_filters(items, known, {"1": "Commercial", "2": "Land"})
+        assert [i["external_id"] for i in in_scope] == ["1"]
+        assert [i["external_id"] for i in out] == ["2"]     # nový „3" mimo filtry nikam
+
+    def test_stazeny_se_znovu_overi_detailem(self):
+        items = [{"external_id": "1", "price": 5_000_000.0}, {"external_id": "2", "price": 5_000_000.0}]
+        known = {"1": 5_000_000.0, "2": 5_000_000.0}
+        selected = RealityCechyScraper.select_for_detail(items, known, revalidate={"2"})
+        assert [i["external_id"] for i in selected] == ["2"]

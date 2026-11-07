@@ -396,7 +396,7 @@ class PremiaRealityScraper:
                 src = href
             if not src:
                 continue
-            photo_url = self._fix_thumbs_url(urljoin(BASE_URL, src))
+            photo_url = self._original_url(urljoin(BASE_URL, src))
             if photo_url not in photo_urls:
                 photo_urls.append(photo_url)
 
@@ -406,6 +406,21 @@ class PremiaRealityScraper:
         if own or not from_gallery:
             return own[:50]
         return photo_urls[:50]
+
+    _THUMB_RE = re.compile(r"/thumbs_\d+_\d+/|_thumb\d+x\d+(?=\.[A-Za-z]+$)")
+
+    @classmethod
+    def _original_url(cls, url: str) -> str:
+        """
+        Originál fotky místo náhledu galerie (7. 11. 2026, Petr: větší fotky kvůli klasifikaci).
+
+        Vstup:  /files/importestate/{id}/thumbs_1300_866/1920x1920wm…-2751154822_thumb1300x866.jpg (1300×866)
+        Výstup: /files/importestate/{id}/1920x1920wm…-2751154822.jpg (originál 1756×1170)
+        Ověřeno na 40 náhodných fotkách aktivních nabídek – všechny originály vrací 200.
+        """
+        if "/importestate/" not in url:
+            return url
+        return cls._THUMB_RE.sub(lambda m: "/" if m.group(0).startswith("/") else "", url)
 
     @staticmethod
     def _fix_thumbs_url(url: str) -> str:

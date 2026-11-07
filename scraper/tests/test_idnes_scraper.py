@@ -1,4 +1,5 @@
 """iDNES – rotace detailů známých inzerátů a fotky jen z galerie (bez HTTP a DB)."""
+import asyncio
 import sys
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.scrapers import idnes_reality_scraper
 from core.scrapers.idnes_reality_scraper import IdnesRealityScraper
 
 THUMB = "https://sta-reality2.1gr.cz/sta/compile/thumbs"
@@ -133,3 +135,115 @@ class TestIdnesFotkyInzeratu:
         </head><body><div class="b-gallery"><a data-fancybox="images">
         <img src="https://sta-reality2.1gr.cz/ui/image/no-image-gallery.png"></a></div></body></html>"""
         assert IdnesRealityScraper.extract_gallery_photos(BeautifulSoup(html, "html.parser")) == []
+
+
+# ── celý běh s podvrženou DB a HTTP ──────────────────────────────────────────
+
+class _FakeDb:
+    def __init__(self, known: dict, rejected: set) -> None:
+        self.known, self.rejected = known, rejected
+        self.touched: list = []
+        self.deactivated: dict = {}
+        self.saved: list = []
+
+    async def get_known_prices(self, source_code):
+        assert source_code == "IDNES"
+        return dict(self.known)
+
+    async def touch_listings(self, source_code, items):
+        self.touched.extend(external_id for external_id, _, _ in items)
+        return len(items)
+
+    async def deactivate_listing(self, source_code, external_id, reason=None):
+        self.deactivated[external_id] = reason
+        return True
+
+    async def mark_active_seen(self, source_code):
+        return 0
+
+    async def upsert_listing(self, listing):
+        self.saved.append(listing["external_id"])
+        return None if listing["external_id"] in self.rejected else f"uuid-{listing['external_id']}"
+
+
+def _detail_html(price: str = "5 000 000 Kč") -> str:
+    return (f"<html><body><h1>Prodej domu 120 m²</h1><div class='b-detail__price'>{price}</div>"
+            f"<div class='b-detail__desc'>Popis domu</div></body></html>")
+
+
+class TestIdnesBehFiltry:
+    """7. 11. 2026: známý inzerát mimo filtry (ve výpisu i po čerstvém detailu) zůstával aktivní se
+    starými daty – výpis ho každou noc označil jako viděný."""
+
+    def _run(self, monkeypatch, items, known, rejected=frozenset(), details=None, budget=None):
+        db = _FakeDb(known, set(rejected))
+        monkeypatch.setattr(idnes_reality_scraper, "get_db_manager", lambda: db)
+
+        async def _no_sleep(_seconds):
+            return None
+
+        monkeypatch.setattr(idnes_reality_scraper.asyncio, "sleep", _no_sleep)
+        scraper = IdnesRealityScraper()
+        # Den, kdy žádný známý inzerát není v rotaci – výběr určují jen ceny
+        scraper.today = lambda: next(d for d in range(7) if not any(scraper.in_rotation(k, d) for k in known))
+        if budget is not None:
+            monkeypatch.setattr(IdnesRealityScraper, "TIME_BUDGET_SECONDS", budget)   # out_of_time je classmethod
+        fetched: list = []
+
+        async def fake_items(max_list_pages):
+            return [dict(i) for i in items]
+
+        async def fake_fetch(url):
+            fetched.append(url)
+            html = (details or {}).get(IdnesRealityScraper._extract_external_id(url), _detail_html())
+            if html is None:
+                raise RuntimeError("HTTP 503")
+            return html
+
+        scraper._fetch_district_items = fake_items
+        scraper._fetch_page = fake_fetch
+        result = asyncio.run(scraper.scrape(max_list_pages=1))
+        fetched_ids = [IdnesRealityScraper._extract_external_id(u) for u in fetched]
+        return scraper, db, fetched_ids, result
+
+    def test_znamy_nad_limit_ve_vypisu_se_deaktivuje_bez_detailu(self, monkeypatch):
+        items = [_item("a1", 12_500_000), _item("a2", 5_000_000), _item("a3", 13_000_000)]
+        scraper, db, fetched, result = self._run(monkeypatch, items, {"a1": 9_500_000.0, "a2": 5_000_000.0})
+
+        assert fetched == []                      # „a3" je nový mimo filtry, „a1" známý mimo filtry
+        assert db.deactivated == {"a1": "out of search filters (list)"}
+        assert db.touched == ["a2"]
+        assert (scraper.retired, result) == (1, 1)
+
+    def test_znamy_vyrazeny_detailem_se_deaktivuje_a_neoznaci(self, monkeypatch):
+        items = [_item("b1", 9_900_000), _item("b2", 4_000_000)]
+        details = {"b1": _detail_html("10 900 000 Kč")}
+        scraper, db, fetched, result = self._run(monkeypatch, items, {"b1": 9_000_000.0, "b2": 4_500_000.0},
+                                                 rejected={"b1"}, details=details)
+
+        assert fetched == ["b1", "b2"]
+        assert db.saved == ["b1", "b2"]
+        assert db.deactivated == {"b1": "out of search filters (detail)"}
+        assert db.touched == []                   # vybrané k detailu se předem neoznačují
+        assert result == 1
+
+    def test_nestihnute_nebo_chybne_detaily_zname_zustanou_videne(self, monkeypatch):
+        items = [_item("c1", 4_000_000), _item("c2", 3_000_000)]
+        scraper, db, fetched, result = self._run(monkeypatch, items, {"c1": 4_500_000.0, "c2": 3_500_000.0},
+                                                 details={"c1": None})
+        assert fetched == ["c1", "c2"]
+        assert db.touched == ["c1"]               # chyba detailu → označen na konci
+        assert db.deactivated == {}
+        assert result == 2
+
+        scraper, db, fetched, result = self._run(monkeypatch, items, {"c1": 4_500_000.0, "c2": 3_500_000.0},
+                                                 budget=0)
+        assert fetched == []
+        assert sorted(db.touched) == ["c1", "c2"]
+        assert result == 2
+
+    def test_novy_vyrazeny_detailem_se_nedeaktivuje(self, monkeypatch):
+        scraper, db, fetched, result = self._run(monkeypatch, [_item("d1", 5_000_000)], {}, rejected={"d1"})
+        assert fetched == ["d1"]
+        assert db.deactivated == {} and db.touched == []
+        assert result == 0

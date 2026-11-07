@@ -11,7 +11,7 @@ import asyncpg
 import httpx
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Mapping, Sequence, Tuple
+from typing import Optional, Dict, Any, List, Mapping, Sequence, Set, Tuple
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -702,10 +702,12 @@ class DatabaseManager:
             logger.debug(f"Upserted listing {final_listing_id} (external_id={external_id})")
             return final_listing_id
 
-    async def deactivate_listing(self, source_code: str, external_id: str) -> bool:
+    async def deactivate_listing(self, source_code: str, external_id: str, reason: Optional[str] = None) -> bool:
         """
         Okamžitě deaktivuje konkrétní inzerát (source_code + external_id).
-        Používá se při detekci "Prodáno"/"Rezervováno" na detail stránce scraperu.
+        Používá se při detekci "Prodáno"/"Rezervováno" na detail stránce scraperu, ale i u smazané
+        stránky, inzerátu převzatého z portálu, který bereme přímo, nebo inzerátu, který už
+        neprojde filtry. `reason` jde do logu (bez něj zůstává původní „sold/reserved“).
 
         Returns: True pokud byl inzerát nalezen a deaktivován, False pokud neexistoval.
         """
@@ -724,7 +726,10 @@ class DatabaseManager:
             )
             affected = int(status.split()[-1]) if status else 0
             if affected > 0:
-                logger.info(f"Deactivated sold/reserved listing: source={source_code} external_id={external_id}")
+                if reason:
+                    logger.info(f"Deactivated listing ({reason}): source={source_code} external_id={external_id}")
+                else:
+                    logger.info(f"Deactivated sold/reserved listing: source={source_code} external_id={external_id}")
             return affected > 0
 
     async def count_unseen_listings(self, source_code: str, seen_since: datetime) -> int:
@@ -835,6 +840,50 @@ class DatabaseManager:
                 source_code,
             )
         return {r["external_id"]: (float(r["price"]) if r["price"] is not None else None) for r in rows}
+
+    async def get_known_listings(self, source_code: str) -> Dict[str, Dict[str, Any]]:
+        """
+        external_id → {"price", "property_type", "is_active"} všech inzerátů zdroje (i stažených).
+        Pro dvoufázové scrapery, které o detailu rozhodují podle výpisu (Reality Čechy): typ
+        z detailu je přesnější než typ výpisu – komerční pozemek ve výpisu pozemků ani rekreační
+        objekt ve výpisu domů nemají cenový limit pozemků a domů – a stažený inzerát, který se
+        ve výpisu znovu objeví, si zaslouží čerstvý detail, ne jen „viděno“.
+        """
+        async with self.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT external_id, price, property_type, is_active FROM re_realestate.listings
+                WHERE source_code = $1 AND external_id IS NOT NULL
+                """,
+                source_code,
+            )
+        return {
+            r["external_id"]: {
+                "price": float(r["price"]) if r["price"] is not None else None,
+                "property_type": r["property_type"],
+                "is_active": bool(r["is_active"]),
+            }
+            for r in rows
+        }
+
+    async def get_stored_photo_urls(self, source_code: str) -> Dict[str, Set[str]]:
+        """
+        external_id → původní URL uložených fotek všech inzerátů zdroje. Scraper, jehož výpis nese
+        celou galerii (Realingo), podle toho pozná přenahranou galerii bez stahování detailu.
+        Inzerát bez uložených fotek ve slovníku není.
+        """
+        async with self.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT l.external_id, array_agg(p.original_url) AS urls
+                FROM re_realestate.listings l
+                JOIN re_realestate.listing_photos p ON p.listing_id = l.id
+                WHERE l.source_code = $1 AND l.external_id IS NOT NULL
+                GROUP BY l.external_id
+                """,
+                source_code,
+            )
+        return {r["external_id"]: set(r["urls"] or []) for r in rows}
 
     async def touch_listings(
         self, source_code: str, items: Sequence[Tuple[str, Optional[str], Optional[str]]]
@@ -970,6 +1019,10 @@ class DatabaseManager:
         původní inzerát je z portálu, který bereme přímo). Pamatujeme si je, aby se jejich detail
         nestahoval každou noc znovu; po 60 dnech se záznam zapomene a ověří znovu.
         """
+        return set(await self.get_skip_reasons(source_code))
+
+    async def get_skip_reasons(self, source_code: str) -> Dict[str, str]:
+        """Totéž co get_skipped_ids, ale external_id → důvod (do logu deaktivace)."""
         async with self.acquire() as conn:
             await conn.execute(self._SCRAPE_SKIPS_DDL)
             await conn.execute(
@@ -977,8 +1030,8 @@ class DatabaseManager:
                 self._SCRAPE_SKIPS_KEEP_DAYS,
             )
             rows = await conn.fetch(
-                "SELECT external_id FROM re_realestate.scrape_skips WHERE source_code = $1", source_code)
-        return {r["external_id"] for r in rows}
+                "SELECT external_id, reason FROM re_realestate.scrape_skips WHERE source_code = $1", source_code)
+        return {r["external_id"]: (r["reason"] or "") for r in rows}
 
     async def remember_skipped(self, source_code: str, external_ids: Sequence[str], reason: str) -> None:
         if not external_ids:

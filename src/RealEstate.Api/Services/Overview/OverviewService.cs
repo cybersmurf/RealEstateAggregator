@@ -265,7 +265,7 @@ public sealed class OverviewService(
             for (var i = priced.Count - 1; i > 0; i--)
                 if (priced[i].Price != priced[i - 1].Price) { card.LastPriceChangeAt = priced[i].RecordedAt.UtcDateTime; break; }
         }
-        var firstSeen = group.Min(l => l.FirstSeenAt);
+        var firstSeen = group.Min(l => ListingService.MarketStart(l.FirstSeenAt, l.DateCreatedSource));
         card.DaysOnMarket = ListingService.DaysOnMarket(shown, firstSeen);
         var hadDrop = priced.Zip(priced.Skip(1)).Any(p => p.Second.Price < p.First.Price);
         card.NegotiationRoom = shown.IsActive && card.DaysOnMarket >= NegotiationDays && !hadDrop;

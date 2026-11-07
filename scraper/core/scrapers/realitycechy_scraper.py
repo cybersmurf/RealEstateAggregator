@@ -19,6 +19,13 @@ se liší od uložené – v časovém rozpočtu. Do 6. 11. 2026 se stahoval det
 u každé položky (~2 100 detailů), plný běh přetahoval 45min limit úlohy, runner
 ho zrušil a nic se nedeaktivovalo (od 15. 10. 2026 43 % aktivních inzerátů neviděno).
 
+Filtry (od 7. 11. 2026): karta výpisu, která neprojde filtry (cena nad limit, obec okresu
+Břeclav mimo Pálavu), se nestahuje; známý inzerát s takovou kartou se deaktivuje a jako
+viděný se neoznačí – dřív zůstal aktivní se starou cenou. U známých rozhoduje uložený typ
+z detailu (komerční pozemek ve výpisu pozemků limit pozemků nemá). Co projde kartou, ale
+vyřadí ho detail, si pamatujeme v scrape_skips (60 dní), ať se detail nestahuje každou noc.
+Stažený inzerát, který je ve výpisu znovu, dostane detail místo „viděno“.
+
 Detail: h1.entry-title, h2.mesto-ulice, tabulky „Adresa“ (Obec/Okres/Kraj)
 a „Informace“ (Cena, Stav, Druh, Typ, Zastavěná plocha, Výměra pozemku,
 Užitná/Obytná plocha, Postaveno z), popis p.realita-popis, galerie
@@ -40,7 +47,7 @@ import logging
 import math
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Container, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import httpx
@@ -111,6 +118,8 @@ UNSET_VALUES = {"", "neuvedeno", "neuvedena", "nezadána", "nezadáno", "-"}
 COTTAGE_RE = re.compile(r"chat|chalup", re.I)
 DELETED_SELECTOR = ".smazany_inzerat, .smazany_inzerat_cena, .smazany_inzerat_popis"
 DELETED_TEXT = "nemovitost již není v nabídce"
+# Důvod v scrape_skips: výpisem prošel, detail ho vyřadil filtrem – detail se 60 dní nestahuje
+SKIP_FILTERED = "filtered out by detail"
 
 
 class RealityCechyScraper:
@@ -132,6 +141,7 @@ class RealityCechyScraper:
         # False = některý výpis se nepodařilo projít celý; co jsme neviděli, nemusí být stažené
         self.lists_complete = True
         self.deleted_count = 0
+        self.retired_count = 0      # deaktivované v tomto běhu (smazané, mimo filtry)
         self._http_client: Optional[httpx.AsyncClient] = None
 
     async def run(self, full_rescan: bool = False) -> int:
@@ -148,6 +158,7 @@ class RealityCechyScraper:
         started = time.monotonic()
         self.scraped_count = 0
         self.deleted_count = 0
+        self.retired_count = 0
         self.lists_complete = True
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
@@ -164,7 +175,11 @@ class RealityCechyScraper:
 
     async def _scrape_two_phase(self, max_pages: int, started: float, metrics: Any) -> int:
         db = get_db_manager()
-        known = await db.get_known_prices(self.SOURCE_CODE)
+        listings = await db.get_known_listings(self.SOURCE_CODE)
+        known = {external_id: row["price"] for external_id, row in listings.items()}
+        stored_types = {external_id: row["property_type"] for external_id, row in listings.items() if row["property_type"]}
+        inactive = {external_id for external_id, row in listings.items() if not row["is_active"]}
+        skipped = await db.get_skip_reasons(self.SOURCE_CODE)
 
         # 1. fáze: všechny stránky výpisů (levné)
         with timer("Fetch RealityCechy lists"):
@@ -173,11 +188,23 @@ class RealityCechyScraper:
             logger.warning("No listings found in RealityCechy lists")
             return 0
 
-        # Známé inzeráty stačí „vidět" (a doplnit jim obec a okres z výpisu, kde chybí)
+        # Co neprojde filtry už podle karty výpisu, se nestahuje. Známý inzerát mimo filtry (cena
+        # stoupla nad limit) se deaktivuje – dřív se každou noc jen označil jako viděný a zůstal
+        # aktivní se starou cenou (7. 11. 2026: 17 inzerátů). Rozhoduje uložený typ z detailu.
+        in_scope, out_of_scope_known = self.split_by_filters(items, known, stored_types, skipped)
+
+        # Známé aktivní inzeráty stačí „vidět" (a doplnit jim obec a okres z výpisu, kde chybí).
+        # Stažený (mimo filtry, smazaný, neviděný), který se ve výpisu znovu objevil, dostane detail:
+        # „viděno" by ho oživilo se starými daty.
         touched = await db.touch_listings(
             self.SOURCE_CODE,
-            [(i["external_id"], i["municipality"] or None, i["district"]) for i in items if i["external_id"] in known],
+            [(i["external_id"], i["municipality"] or None, i["district"]) for i in in_scope
+             if i["external_id"] in known and i["external_id"] not in inactive],
         )
+        for item in out_of_scope_known:
+            reason = skipped.get(item["external_id"]) or "out of search filters (list card)"
+            if await db.deactivate_listing(self.SOURCE_CODE, item["external_id"], reason=reason):
+                self.retired_count += 1
 
         # Neúplný výpis: runner po plném běhu deaktivuje vše, co jsme „neviděli" –
         # aktivní inzeráty proto necháme viděné a o stažení rozhodne až úplný běh.
@@ -187,40 +214,53 @@ class RealityCechyScraper:
 
         # 2. fáze: detail jen u nových a u změněné ceny, v časovém rozpočtu. Co se nestihne, je
         # nové (v DB není, nemá co deaktivovat) nebo známé a už obnovené – další běh pokračuje.
-        details = [i for i in self.select_for_detail(items, known) if self.passes_filters(i)]
+        details = self.select_for_detail(in_scope, known, revalidate=inactive)
         logger.info(
-            "RealityCechy lists: %s listings, %s known refreshed, %s need detail",
-            len(items), touched, len(details),
+            "RealityCechy lists: %s listings, %s known refreshed, %s known out of search filters or remembered "
+            "as filtered (%s deactivated now), %s need detail",
+            len(items), touched, len(out_of_scope_known), self.retired_count, len(details),
         )
 
         saved_new = 0
+        filtered_out: List[str] = []
         for idx, item in enumerate(details):
             if self.out_of_time(started, time.monotonic()):
                 logger.info("RealityCechy time budget used up after %s details – %s left for the next run",
                             idx, len(details) - idx)
                 break
+            external_id = item["external_id"]
             try:
                 start = time.perf_counter()
                 html = await self._fetch(item["url"])
                 metrics.record_fetch(time.perf_counter() - start)
                 if self.is_deleted_page(html):
                     self.deleted_count += 1
-                    if item["external_id"] in known:
-                        await db.deactivate_listing(self.SOURCE_CODE, item["external_id"])
+                    if external_id in known:
+                        if await db.deactivate_listing(self.SOURCE_CODE, external_id,
+                                                       reason="deleted on portal (soft 404)"):
+                            self.retired_count += 1
                     logger.info("RealityCechy listing %s is no longer offered – not saved", item["url"])
                 else:
                     normalized = self.parse_detail_page(html, item, item["property_type"], item["offer_type"], item["district"])
-                    if normalized:
-                        await self._save_listing(normalized)
+                    if normalized and await self._save_listing(normalized) is not None:
                         metrics.increment_scraped()
-                        if item["external_id"] not in known:
-                            saved_new += 1
+                        if external_id not in known or external_id in inactive:
+                            saved_new += 1      # nový nebo oživený stažený – touch ho nezapočítal
+                    elif normalized:
+                        # Výpisem prošel, detail ho vyřadil (typ nebo okres z detailu): zapamatovat,
+                        # ať se nestahuje každou noc; známý se starými daty aktivní nezůstane
+                        filtered_out.append(external_id)
+                        if external_id in known and await db.deactivate_listing(
+                                self.SOURCE_CODE, external_id, reason="out of search filters (detail)"):
+                            self.retired_count += 1
             except Exception as exc:
                 logger.error("Error processing %s: %s", item.get("url"), exc)
                 metrics.increment_failed()
             await asyncio.sleep(DETAIL_DELAY_SECONDS)
 
-        logger.info("RealityCechy details: %s new saved, %s deleted on the portal", saved_new, self.deleted_count)
+        await db.remember_skipped(self.SOURCE_CODE, filtered_out, SKIP_FILTERED)
+        logger.info("RealityCechy details: %s new saved, %s deleted on the portal, %s filtered out by detail, "
+                    "%s deactivated", saved_new, self.deleted_count, len(filtered_out), self.retired_count)
         return touched + saved_new
 
     async def _crawl_lists(self, max_pages: int, started: float, metrics: Any) -> List[Dict[str, Any]]:
@@ -327,10 +367,12 @@ class RealityCechyScraper:
         return max(1, math.ceil(total / per_page))
 
     @staticmethod
-    def select_for_detail(items: List[Dict[str, Any]], known: Dict[str, Optional[float]]) -> List[Dict[str, Any]]:
+    def select_for_detail(items: List[Dict[str, Any]], known: Dict[str, Optional[float]],
+                          revalidate: Container[str] = ()) -> List[Dict[str, Any]]:
         """
-        Které položky potřebují detail: napřed známé se změněnou cenou (ať se zapíše do historie),
-        potom nové. Známé se stejnou cenou nebo bez ceny ve výpisu („cena v RK") detail nepotřebují.
+        Které položky potřebují detail: napřed známé se změněnou cenou (ať se zapíše do historie)
+        a známé stažené, které jsou ve výpisu znovu (`revalidate`), potom nové. Známé se stejnou
+        cenou nebo bez ceny ve výpisu („cena v RK") detail nepotřebují.
         """
         changed: List[Dict[str, Any]] = []
         new: List[Dict[str, Any]] = []
@@ -339,19 +381,24 @@ class RealityCechyScraper:
                 new.append(item)
                 continue
             old_price, list_price = known[item["external_id"]], item.get("price")
-            if list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5):
+            if item["external_id"] in revalidate or (
+                    list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5)):
                 changed.append(item)
         return changed + new
 
     @staticmethod
-    def passes_filters(item: Dict[str, Any]) -> bool:
+    def passes_filters(item: Dict[str, Any], stored_type: Optional[str] = None) -> bool:
         """
         Projde položka výpisu cenovými, typovými a místními filtry (settings.yaml)? Co by upsert
         stejně zahodil (dům nad limit, obec okresu Břeclav mimo Pálavu), nemá smysl stahovat –
         a stahovalo by se každou noc znovu, protože se to nikdy neuloží. Chata ve výpisu domů
         (typ se pozná až z detailu) nemá cenový limit, proto se pozná už z titulku.
+
+        `stored_type` = typ, který u známého inzerátu určil detail (House, Commercial, Cottage…).
+        Má přednost před typem výpisu: komerční pozemek za 18 mil. ve výpisu pozemků limit
+        pozemků nemá (7. 11. 2026: 18 z 35 známých inzerátů by jinak vypadlo neprávem).
         """
-        property_type = item.get("property_type") or ""
+        property_type = stored_type or item.get("property_type") or ""
         if property_type == "Dům" and COTTAGE_RE.search(item.get("title") or ""):
             property_type = "Chata"
         municipality = item.get("municipality") or ""
@@ -365,6 +412,36 @@ class RealityCechyScraper:
             "municipality": municipality,
             "district": district,
         })
+
+    @classmethod
+    def split_by_filters(cls, items: List[Dict[str, Any]], known: Container[str],
+                         stored_types: Dict[str, str], skipped: Container[str] = ()
+                         ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Položky výpisu → (projdou filtry, známé mimo filtry k deaktivaci). Nové položky mimo filtry
+        a zapamatované jako vyřazené detailem (`skipped`, scrape_skips 60 dní) v první skupině
+        nejsou – detail se nestahuje. Typ známého inzerátu je uložený typ z detailu (`stored_types`).
+
+        Známý inzerát s kartou bez obce (záloha ld+json při změně značkování) se nikdy
+        nedeaktivuje: o lokalitě nejde rozhodnout a filtr částečného okresu by jinak vyřadil
+        celý okres Břeclav.
+        """
+        in_scope: List[Dict[str, Any]] = []
+        out_of_scope_known: List[Dict[str, Any]] = []
+        for item in items:
+            external_id = item["external_id"]
+            is_known = external_id in known
+            if external_id in skipped:
+                if is_known:
+                    out_of_scope_known.append(item)
+                continue
+            if cls.passes_filters(item, stored_types.get(external_id)):
+                in_scope.append(item)
+            elif is_known and not item.get("municipality"):
+                in_scope.append(item)
+            elif is_known:
+                out_of_scope_known.append(item)
+        return in_scope, out_of_scope_known
 
     @staticmethod
     def _is_deleted(soup: BeautifulSoup) -> bool:
@@ -747,7 +824,9 @@ class RealityCechyScraper:
                 result["latitude"], result["longitude"] = lat, lon
         return result
 
-    async def _save_listing(self, listing: Dict[str, Any]) -> None:
+    async def _save_listing(self, listing: Dict[str, Any]) -> Optional[Any]:
+        """Upsert; None = inzerát vyřadil filtr (settings.yaml)."""
         db = get_db_manager()
         listing_id = await db.upsert_listing(listing)
         logger.info("Saved listing %s: %s | %s Kč", listing_id, listing.get("title", "")[:50], listing.get("price"))
+        return listing_id

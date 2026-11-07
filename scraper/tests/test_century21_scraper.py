@@ -33,3 +33,18 @@ def test_bez_surového_html_vezme_aspon_img():
 def test_kazde_vyhledavani_ma_jediny_okres():
     assert {tuple(c["county"]) for c in SEARCH_CONFIGS} == {("Znojmo",), ("Brno-venkov",), ("Břeclav",)}
     assert len(SEARCH_CONFIGS) == 21
+
+
+def test_portret_maklere_neni_fotka_domu():
+    """Audit 6. 11. 2026: portrét makléře (blok bg-brokerHeroBg) byl 2. fotkou galerie u 70 inzerátů."""
+    from bs4 import BeautifulSoup
+    from core.scrapers.century21_scraper import Century21Scraper
+    dum = "https://live-file-api.igluu.cz/file/b9787df6-6f26-40e1-8460-450b22a1c559?isPublic=true"
+    makler = "https://live-file-api.igluu.cz/file/7570b32a-1d85-4cf7-aecc-77238010cbee?isPublic=true"
+    html = f"""<html><head><link rel="preload" as="image" href="{makler}"/></head><body>
+    <section><div class="bg-black/20 relative"><img src="{dum}"/></div></section>
+    <div class="w-full h-full absolute bg-brokerHeroBg bg-cover rounded-l-full"><img class="absolute" src="{makler}" alt=""/></div>
+    <script>self.__next_f.push([1,"[\\"$\\",\\"div\\",null,{{\\"className\\":\\"bg-brokerHeroBg\\",\\"children\\":[[\\"$\\",\\"img\\",null,{{\\"src\\":\\"{makler}\\"}}]]}}]"])</script>
+    </body></html>"""
+    photos = Century21Scraper()._extract_photos(BeautifulSoup(html, "html.parser"), html)
+    assert photos == [dum]

@@ -16,6 +16,9 @@ Strategie: výpis podle okresu + detail (SSR, httpx + BeautifulSoup, bez Playwri
   404. Výpis změnu galerie neprozradí (jen náhled 420×260 s jiným hashem než fotky galerie), takže bez
   čerstvého detailu zůstávaly uložené fotky mrtvé (6. 11. 2026: 4 z 10 vzorků, např. 0 z 47 fotek
   inzerátu tři dny po prvním stažení).
+- Filtry (od 7. 11. 2026): položka výpisu, která neprojde filtry, se nestahuje; je-li známá, deaktivuje
+  se a jako viděná se neoznačí. Totéž u známého, jehož čerstvý detail upsert vyřadí. Do té doby
+  zůstávaly oba aktivní se starou cenou („viděno ve výpisu“ každou noc).
 
 Do 6. 10. 2026 se inzeráty hledaly v sitemapě podle 13 názvů obcí v URL: pokrývalo to jen město
 Znojmo a pár obcí (370 z ~2 900 nabídek) a slug „miroslav" pouštěl dovnitř pražskou ulici
@@ -72,6 +75,7 @@ class IdnesRealityScraper:
     def __init__(self):
         """Initialize the scraper."""
         self.scraped_count = 0
+        self.retired = 0                # známé deaktivované v tomto běhu (mimo filtry)
         self.skipped_other_district = 0
         # False = některou stránku výpisu se nepodařilo načíst; co jsme neviděli, nemusí být stažené
         self.lists_complete = True
@@ -89,8 +93,19 @@ class IdnesRealityScraper:
         return await self.scrape(max_list_pages=max_list_pages)
 
     async def scrape(self, max_list_pages: int = INCREMENTAL_LIST_PAGES) -> int:
+        """
+        Dvě fáze: napřed výpisy okresů, potom detaily (nové, změna ceny, týdenní rotace).
+
+        Známý inzerát, který neprojde filtry už ve výpisu (cena stoupla nad limit), se deaktivuje
+        a jako viděný se neoznačí; stejně tak známý, jehož čerstvý detail upsert vyřadí filtrem.
+        Do 7. 11. 2026 se oba jen označily jako viděné a zůstaly aktivní se starými daty. Známé
+        vybrané k detailu se proto neoznačují předem, ale podle výsledku; co se nestihne nebo
+        selže, označí se na konci (jako Realingo).
+        """
         logger.info(f"Starting Idnes Reality scraper (max_list_pages={max_list_pages})")
         started = time.monotonic()
+        self.scraped_count = 0
+        self.retired = 0
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
@@ -98,6 +113,8 @@ class IdnesRealityScraper:
                 follow_redirects=True,
             ) as client:
                 self._http_client = client
+                db: Any = None
+                pending_touch: Dict[str, Dict[str, Any]] = {}
 
                 try:
                     db = get_db_manager()
@@ -109,11 +126,28 @@ class IdnesRealityScraper:
                         logger.warning("No listings found in iDNES district lists")
                         return 0
 
+                    in_scope: List[Dict[str, Any]] = []
+                    out_of_scope_known: List[str] = []
+                    for item in items:
+                        if self.passes_filters(item):
+                            in_scope.append(item)
+                        elif item["external_id"] in known:
+                            out_of_scope_known.append(item["external_id"])
+
+                    details = self.select_for_detail(in_scope, known, day=self.today())
+                    pending_touch = {i["external_id"]: i for i in details if i["external_id"] in known}
+
                     # Známé inzeráty stačí „vidět" (a doplnit jim obec a okres z výpisu)
                     touched = await db.touch_listings(
                         self.SOURCE_CODE,
-                        [(i["external_id"], i["municipality"], i["district"]) for i in items if i["external_id"] in known],
+                        [(i["external_id"], i["municipality"], i["district"]) for i in in_scope
+                         if i["external_id"] in known and i["external_id"] not in pending_touch],
                     )
+                    self.scraped_count += touched
+                    for external_id in out_of_scope_known:
+                        if await db.deactivate_listing(self.SOURCE_CODE, external_id,
+                                                       reason="out of search filters (list)"):
+                            self.retired += 1
 
                     # Neúplný výpis: runner po plném běhu deaktivuje vše, co jsme „neviděli" –
                     # aktivní inzeráty proto necháme viděné a o stažení rozhodne až úplný běh.
@@ -121,16 +155,14 @@ class IdnesRealityScraper:
                         kept = await db.mark_active_seen(self.SOURCE_CODE)
                         logger.warning(f"iDNES lists incomplete – {kept} active listings kept as seen, nothing will be deactivated")
 
-                    details = [i for i in self.select_for_detail(items, known, day=self.today())
-                               if self.passes_filters(i)]
                     rotating = sum(1 for i in details if i.get("rotation"))
                     logger.info(
                         f"iDNES lists: {len(items)} listings, {touched} known refreshed, "
+                        f"{len(out_of_scope_known)} known out of search filters, "
                         f"{len(details)} need detail ({rotating} weekly rotation, limit {self.MAX_DETAILS_PER_RUN}), "
                         f"{self.skipped_other_district} skipped as other district"
                     )
 
-                    count = 0
                     for idx, item in enumerate(details[: self.MAX_DETAILS_PER_RUN]):
                         if self.out_of_time(started, time.monotonic()):
                             logger.info(
@@ -138,6 +170,7 @@ class IdnesRealityScraper:
                                 f"{len(details) - idx} left for the next run"
                             )
                             break
+                        external_id = item["external_id"]
                         try:
                             with timer(f"Fetch detail {idx + 1}/{min(len(details), self.MAX_DETAILS_PER_RUN)}"):
                                 detail_html = await self._fetch_page(item["url"])
@@ -145,9 +178,16 @@ class IdnesRealityScraper:
                             normalized = self._parse_detail_page(detail_html, item["url"])
                             if normalized:
                                 self.apply_list_item(normalized, item)
-                                await self._save_listing(normalized)
-                                count += 1
-                                metrics.increment_scraped()
+                                saved = await self._save_listing(normalized)
+                                pending_touch.pop(external_id, None)   # uložený je viděný, vyřazený se deaktivuje
+                                if saved is not None:
+                                    self.scraped_count += 1
+                                    metrics.increment_scraped()
+                                elif external_id in known:
+                                    # Výpisem prošel, čerstvý detail ho vyřadil (jiná cena v detailu)
+                                    if await db.deactivate_listing(self.SOURCE_CODE, external_id,
+                                                                   reason="out of search filters (detail)"):
+                                        self.retired += 1
 
                         except Exception as exc:
                             logger.error(f"Error processing listing {item['url']}: {exc}")
@@ -156,16 +196,24 @@ class IdnesRealityScraper:
                         # Throttling
                         await asyncio.sleep(0.5)
 
-                    self.scraped_count = touched + count
-
                 except Exception as exc:
                     logger.error(f"Scraping failed: {exc!r}")
                     metrics.increment_failed()
 
                 finally:
+                    # Vybrané k detailu, ale nezpracované (rozpočet, strop, chyba) – ve výpisu byly
+                    if db is not None and pending_touch:
+                        try:
+                            self.scraped_count += await db.touch_listings(
+                                self.SOURCE_CODE,
+                                [(i["external_id"], i["municipality"], i["district"]) for i in pending_touch.values()],
+                            )
+                        except Exception as exc:
+                            logger.error(f"iDNES touch of unprocessed listings failed: {exc!r}")
                     self._http_client = None
 
-        logger.info(f"Idnes Reality scraper finished. Scraped {self.scraped_count} listings")
+        logger.info(f"Idnes Reality scraper finished. Scraped {self.scraped_count} listings, "
+                    f"deactivated {self.retired} (out of search filters)")
         return self.scraped_count
 
     async def _fetch_district_items(self, max_list_pages: int) -> List[Dict[str, Any]]:
@@ -628,8 +676,8 @@ class IdnesRealityScraper:
         # Strip trailing slash, take last path segment
         return url.rstrip("/").split("/")[-1]
 
-    async def _save_listing(self, listing: Dict[str, Any]) -> None:
-        """Save listing to database."""
+    async def _save_listing(self, listing: Dict[str, Any]) -> Optional[Any]:
+        """Upsert; None = inzerát vyřadil filtr (settings.yaml)."""
         db = get_db_manager()
         listing_id = await db.upsert_listing(listing)
         logger.info(
@@ -638,3 +686,4 @@ class IdnesRealityScraper:
             listing.get("title", "N/A")[:50],
             listing.get("price", "N/A"),
         )
+        return listing_id

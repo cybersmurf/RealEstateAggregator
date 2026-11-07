@@ -322,3 +322,29 @@ class TestFilterManagerDefaultConfig:
         fm = FilterManager.__new__(FilterManager)
         cfg = fm._get_default_config()
         assert cfg["search_filters"]["land"]["max_price"] == 3_500_000
+
+
+class TestOkresMimoRozsah:
+    """7. 11. 2026: jmenovkyně obcí z koridoru / Pálavy z jiných okresů procházely filtrem."""
+
+    @pytest.mark.parametrize("obec, okres", [
+        ("Milovice", "Nymburk"),
+        ("Sedlec-Prčice", "Příbram"),
+        ("Šumice", "Uherské Hradiště"),
+    ])
+    def test_obec_jmenovkyne_z_jineho_okresu(self, obec, okres):
+        fm = FilterManager()
+        ok, reason = fm._check_search_filters({
+            "property_type": "Dům", "offer_type": "Prodej", "price": 4_000_000,
+            "location_text": obec, "municipality": obec, "district": okres,
+        })
+        assert not ok and "out of scope" in reason
+
+    @pytest.mark.parametrize("obec, okres", [("Milovice", "Břeclav"), ("Šumice", "Brno-venkov"), ("Tasovice", "Znojmo")])
+    def test_obec_ve_spravnem_okrese_projde(self, obec, okres):
+        fm = FilterManager()
+        ok, _ = fm._check_search_filters({
+            "property_type": "Dům", "offer_type": "Prodej", "price": 4_000_000,
+            "location_text": obec, "municipality": obec, "district": okres,
+        })
+        assert ok

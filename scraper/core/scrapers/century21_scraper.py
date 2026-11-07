@@ -461,10 +461,15 @@ class Century21Scraper:
         """
         photos: List[str] = []
         seen: set = set()
+        raw = html or str(soup)
+        broker = self._broker_file_ids(raw)
 
         def add(url: str) -> bool:
             url = url.strip().rstrip("\\")
             if not url or url in seen or not re.search(r"file/[0-9a-f\-]{36}", url, re.I):
+                return True
+            file_id = re.search(r"file/([0-9a-f\-]{36})", url, re.I).group(1).lower()
+            if file_id in broker:
                 return True
             seen.add(url)
             photos.append(url)
@@ -474,8 +479,20 @@ class Century21Scraper:
             if not add(img.get("src", "")):
                 return photos
 
-        for m in self._PHOTO_RE.finditer(html or str(soup)):
+        for m in self._PHOTO_RE.finditer(raw):
             if not add(m.group(0)):
                 break
 
         return photos
+
+    @staticmethod
+    def _broker_file_ids(raw: str) -> set:
+        """Soubory z bloku makléře (pozadí `bg-brokerHeroBg` s portrétem) – v HTML i v Next.js payloadu.
+
+        Audit 6. 11. 2026: portrét makléře byl 2. fotkou galerie u 70 inzerátů (stejný soubor až u 12).
+        """
+        ids: set = set()
+        for m in re.finditer(r"brokerHeroBg", raw):
+            window = raw[m.start():m.start() + 1500]
+            ids.update(f.lower() for f in re.findall(r"igluu\.cz/file/([0-9a-f\-]{36})", window, re.I))
+        return ids

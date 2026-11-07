@@ -155,8 +155,10 @@ class TestPremiaCenaAFotkyJenZNabidky:
         listing = _parse("detail_dum_tvorihraz_sleva_3124.html", TVORIHRAZ)
         photos = listing["photos"]
         assert len(photos) == 4  # náhled nahoře je první fotka galerie – nezdvojí se
-        assert all("/files/importestate/3124/thumbs_1300_866/" in url for url in photos)
-        assert not any("/3106/" in url or "/3170/" in url or "thumbs_306_" in url for url in photos)
+        # Originály (1756×1170) místo náhledů galerie 1300×866 – kvůli klasifikaci (7. 11. 2026)
+        assert all(url.startswith("https://www.premiareality.cz/files/importestate/3124/1920x1920wm") for url in photos)
+        assert not any("thumbs_" in url or "_thumb" in url for url in photos)
+        assert not any("/3106/" in url or "/3170/" in url for url in photos)
 
     def test_bez_nadpisu_se_nebere_tabulka_z_podobnych_nabidek(self):
         html = """<html><body><h1>Dům na prodej</h1><h2>Tvořihráz</h2>
@@ -179,9 +181,7 @@ class TestPremiaCenaAFotkyJenZNabidky:
         assert "sold" not in listing  # štítek PRODÁNO patří podobné nabídce
         assert listing["price"] == 3_190_000
         assert listing["area_built_up"] == 100  # první výskyt popisku platí
-        assert listing["photos"] == [
-            "https://www.premiareality.cz/files/importestate/3124/thumbs_1300_731/b_thumb1300x731.jpg"
-        ]
+        assert listing["photos"] == ["https://www.premiareality.cz/files/importestate/3124/b.jpg"]
 
     @pytest.mark.parametrize("text, expected", [
         ("3\xa0190\xa0000\xa0Kč + provize RK", 3_190_000),
@@ -194,3 +194,15 @@ class TestPremiaCenaAFotkyJenZNabidky:
     ])
     def test_castka_z_bunky_cena(self, text, expected):
         assert PremiaRealityScraper()._parse_price(text) == expected
+
+
+@pytest.mark.parametrize("thumb, original", [
+    ("https://www.premiareality.cz/files/importestate/3124/thumbs_1300_866/1920x1920wm-x-2751154822_thumb1300x866.jpg",
+     "https://www.premiareality.cz/files/importestate/3124/1920x1920wm-x-2751154822.jpg"),
+    ("https://www.premiareality.cz/files/importestate/3151/thumbs_1300_731/zahrada-90-jpeg-33a6_thumb1300x731.jpg",
+     "https://www.premiareality.cz/files/importestate/3151/zahrada-90-jpeg-33a6.jpg"),
+    ("https://www.premiareality.cz/files/importestate/3124/1920x1920wm-x.jpg",
+     "https://www.premiareality.cz/files/importestate/3124/1920x1920wm-x.jpg"),
+])
+def test_original_misto_nahledu(thumb, original):
+    assert PremiaRealityScraper._original_url(thumb) == original

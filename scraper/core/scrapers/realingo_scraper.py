@@ -19,6 +19,13 @@ lokalita „okres Znojmo" z náhradní hodnoty – takže prošla i filtrem loka
 opravila jen tehdy, když detail prošel filtrem a nepocházel z portálu, který bereme přímo; jinak
 zůstala aktivní navždy (6. 11. 2026: 358 z 1 129 aktivních inzerátů, 235 z nich převzatých ze
 Sreality/iDNES/Bazoše, zbytek mimo cenový limit nebo z obcí okresu Břeclav, které nebereme).
+
+Předvýběr z výpisu (od 7. 11. 2026): položka výpisu nese typ (`category`, `property`, `purpose`),
+cenu a adresu, takže co by upsert zahodil filtrem (dům nad cenový limit, obec okresu Břeclav mimo
+Pálavu), se nestahuje vůbec – do té doby ~600 zbytečných detailů každou noc. Známý inzerát, který
+filtrem neprojde, se deaktivuje a neoznačí jako viděný. Co projde výpisem, ale vyřadí ho až detail,
+a prodané nebo smazané nabídky si pamatujeme v scrape_skips stejně jako převzaté odjinud – jinak
+by se jejich detail stahoval každou noc znovu (uložená cena zůstává prázdná = „změna ceny“).
 """
 import asyncio
 import json
@@ -27,13 +34,14 @@ import re
 import time
 import zlib
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Container, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import httpx
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..filters import get_filter_manager
 from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
@@ -90,6 +98,11 @@ STATUS_MAP = {
 }
 BUILDING_MAP = {"BRICK": "Cihla", "PANEL": "Panel", "WOOD": "Dřevostavba", "STONE": "Kámen", "MIXED": "Smíšená"}
 
+# Důvody v scrape_skips (a v logu deaktivace): proč se detail nabídky už nestahuje
+SKIP_ORIGIN = "origin scraped directly"
+SKIP_FILTERED = "filtered out by detail"
+SKIP_GONE = "sold or deleted on portal"
+
 
 class LockedOffer(Exception):
     """Nabídka je zamčená (`isLocked`) – Realingo ji zatím ukazuje jen předplatitelům, bez údajů."""
@@ -113,12 +126,16 @@ class RealingoScraper:
     ROTATION_DAYS = 7
     DETAIL_DELAY_SECONDS = 0.4
 
+    # Výsledek detailu → důvod, proč si nabídku pamatujeme jako neukládanou (scrape_skips, 60 dní)
+    SKIP_REASONS: Dict[str, str] = {"elsewhere": SKIP_ORIGIN, "filtered": SKIP_FILTERED, "gone": SKIP_GONE}
+
     def __init__(self, lists: Optional[List[Tuple[str, str, str]]] = None) -> None:
         self.lists = lists or DEFAULT_LISTS
         self.scraped_count = 0
         self.skipped_origin = 0
         self.locked = 0
         self.retired = 0
+        self.prefiltered = 0     # nové položky výpisu, které neprošly filtry – detail se nestahuje
         # False = některou stránku výpisu se nepodařilo načíst; co jsme neviděli, nemusí být stažené
         self.lists_complete = True
         self._http_client: Optional[httpx.AsyncClient] = None
@@ -139,7 +156,9 @@ class RealingoScraper:
         Známý inzerát, jehož čerstvý detail se neuloží (původ odjinud, filtr ho vyřadí, prodáno),
         se deaktivuje – jinak by ho „viděno ve výpisu" drželo aktivní se starými daty navždy.
         Proto se známé inzeráty vybrané k detailu neoznačují jako viděné předem, ale až podle
-        výsledku; co se nestihne nebo selže, označí se na konci.
+        výsledku; co se nestihne nebo selže, označí se na konci. Totéž platí pro známé inzeráty,
+        které neprojdou filtry už ve výpisu (cena nad limit, obec mimo zájem): deaktivují se bez
+        detailu a jako viděné se neoznačí.
         """
         logger.info("Starting Realingo scraper (max_pages=%s, lists=%s)", max_pages, len(self.lists))
         started = time.monotonic()
@@ -151,7 +170,7 @@ class RealingoScraper:
                 try:
                     db = get_db_manager()
                     known = await db.get_known_prices(self.SOURCE_CODE)
-                    skipped = await db.get_skipped_ids(self.SOURCE_CODE)
+                    skipped = await db.get_skip_reasons(self.SOURCE_CODE)
                     galleries = await self._stored_galleries(db)
 
                     items: List[Dict[str, Any]] = []
@@ -162,27 +181,50 @@ class RealingoScraper:
                                 seen.add(item["id"])
                                 items.append(item)
 
-                    todo = self.select_for_detail(items, known, skipped, galleries, day=self.today())
+                    in_scope: List[Dict[str, Any]] = []
+                    out_of_scope_known: List[str] = []
+                    for item in items:
+                        if self.passes_filters(item):
+                            in_scope.append(item)
+                        elif item["id"] in known and not item.get("address"):
+                            # Výpis bez adresy (změna webu?): o lokalitě nejde rozhodnout a filtr
+                            # částečného okresu by jinak stáhl celý okres Břeclav – rozhodne detail
+                            in_scope.append(item)
+                        elif item["id"] in known:
+                            out_of_scope_known.append(item["id"])
+                        else:
+                            self.prefiltered += 1
+
+                    todo = self.select_for_detail(in_scope, known, skipped, galleries, day=self.today())
                     pending_touch = {i["id"] for i in todo if i["id"] in known}
                     touched = await db.touch_listings(self.SOURCE_CODE, [
-                        (i["id"], None, None) for i in items
+                        (i["id"], None, None) for i in in_scope
                         if i["id"] in known and i["id"] not in skipped and i["id"] not in pending_touch])
-                    # Uložené dřív, než se zjistilo, že pocházejí z portálu, který bereme přímo
-                    for external_id in [i["id"] for i in items if i["id"] in known and i["id"] in skipped]:
-                        if await db.deactivate_listing(self.SOURCE_CODE, external_id):
+                    # Známé, které dnes neprojdou filtry už ve výpisu – se starými daty aktivní nezůstanou
+                    for external_id in out_of_scope_known:
+                        if await db.deactivate_listing(self.SOURCE_CODE, external_id,
+                                                       reason="out of search filters (list)"):
+                            self.retired += 1
+                    # Zapamatované jako neukládané (původ odjinud, vyřazené detailem, prodané), ale uložené
+                    # dřív – třeba starší verzí scraperu
+                    for external_id in [i["id"] for i in in_scope if i["id"] in known and i["id"] in skipped]:
+                        if await db.deactivate_listing(self.SOURCE_CODE, external_id,
+                                                       reason=skipped[external_id] or "remembered as skipped"):
                             self.retired += 1
                     if not self.lists_complete:
                         kept = await db.mark_active_seen(self.SOURCE_CODE)
                         logger.warning("Realingo lists incomplete – %s active listings kept as seen", kept)
 
                     logger.info(
-                        "Realingo lists: %s listings (%s locked), %s known refreshed, %s remembered as scraped "
-                        "elsewhere, %s need detail (%s known: price, gallery or weekly rotation)",
-                        len(items), sum(1 for i in items if i.get("locked")), touched,
-                        sum(1 for i in items if i["id"] in skipped), len(todo), len(pending_touch))
+                        "Realingo lists: %s listings (%s locked), %s new and %s known out of search filters, "
+                        "%s known refreshed, %s remembered as not stored, %s need detail "
+                        "(%s known: price, gallery or weekly rotation)",
+                        len(items), sum(1 for i in items if i.get("locked")), self.prefiltered,
+                        len(out_of_scope_known), touched, sum(1 for i in in_scope if i["id"] in skipped),
+                        len(todo), len(pending_touch))
                     self.scraped_count += touched
 
-                    newly_skipped: List[str] = []
+                    newly_skipped: Dict[str, List[str]] = {}
                     for idx, item in enumerate(todo):
                         if time.monotonic() - started >= self.TIME_BUDGET_SECONDS:
                             logger.info("Realingo time budget used up after %s details – %s left for the next run",
@@ -200,17 +242,20 @@ class RealingoScraper:
                             metrics.increment_scraped()
                         elif outcome == "elsewhere":
                             self.skipped_origin += 1
-                            newly_skipped.append(item["id"])
                         elif outcome == "locked":
                             self.locked += 1
+                        skip_reason = self.SKIP_REASONS.get(outcome)
+                        if skip_reason:
+                            newly_skipped.setdefault(skip_reason, []).append(item["id"])
                         if outcome in ("saved", "filtered", "elsewhere", "gone"):
                             pending_touch.discard(item["id"])
                             if outcome != "saved" and item["id"] in known:
-                                if await db.deactivate_listing(self.SOURCE_CODE, item["id"]):
+                                if await db.deactivate_listing(self.SOURCE_CODE, item["id"], reason=skip_reason):
                                     self.retired += 1
                         await asyncio.sleep(self.DETAIL_DELAY_SECONDS)
 
-                    await db.remember_skipped(self.SOURCE_CODE, newly_skipped, "origin scraped directly")
+                    for reason, external_ids in newly_skipped.items():
+                        await db.remember_skipped(self.SOURCE_CODE, external_ids, reason)
                 except Exception as exc:
                     logger.error("Realingo scraper failed: %r", exc)
                     metrics.increment_failed()
@@ -224,8 +269,8 @@ class RealingoScraper:
                             logger.error("Realingo touch of unprocessed listings failed: %r", exc)
         self._http_client = None
         logger.info("Realingo scraper done. Scraped %s, skipped (origin already scraped) %s, locked %s, "
-                    "deactivated %s (origin elsewhere, filtered out or sold)",
-                    self.scraped_count, self.skipped_origin, self.locked, self.retired)
+                    "new out of search filters (no detail) %s, deactivated %s (origin elsewhere, filtered out or sold)",
+                    self.scraped_count, self.skipped_origin, self.locked, self.prefiltered, self.retired)
         return self.scraped_count
 
     async def _process_detail(self, db: Any, item: Dict[str, Any]) -> str:
@@ -249,21 +294,10 @@ class RealingoScraper:
         None = nevíme (změnu galerie pak pozná až rotace).
         """
         try:
-            async with db.acquire() as conn:
-                rows = await conn.fetch(
-                    """
-                    SELECT l.external_id, array_agg(p.original_url) AS urls
-                    FROM re_realestate.listings l
-                    JOIN re_realestate.listing_photos p ON p.listing_id = l.id
-                    WHERE l.source_code = $1
-                    GROUP BY l.external_id
-                    """,
-                    self.SOURCE_CODE,
-                )
+            return await db.get_stored_photo_urls(self.SOURCE_CODE)
         except Exception as exc:  # noqa: BLE001 – kontrola galerie je jen zrychlení, rotace ji pokryje
             logger.warning("Realingo stored galleries unavailable (%r) – gallery check skipped", exc)
             return None
-        return {r["external_id"]: set(r["urls"] or []) for r in rows}
 
     async def _collect_list(self, path: str, property_type: str, offer_type: str,
                             max_pages: int, metrics: Any) -> List[Dict[str, Any]]:
@@ -313,16 +347,47 @@ class RealingoScraper:
         days = days or cls.ROTATION_DAYS
         return zlib.crc32(external_id.encode("utf-8")) % days == day % days
 
+    @staticmethod
+    def list_slug(url: str) -> str:
+        """„/prodej/dum-rodinny-chudcice-okres-brno-venkov/24777513" → „dum-rodinny-chudcice-okres-brno-venkov"."""
+        parts = (url or "").rstrip("/").rsplit("/", 2)
+        return parts[-2] if len(parts) == 3 else ""
+
+    @classmethod
+    def passes_filters(cls, item: Dict[str, Any]) -> bool:
+        """
+        Projde položka výpisu cenovými, typovými a místními filtry (settings.yaml)? Typ a cenu
+        počítá stejně jako detail (category / property / purpose, `offer_price`), takže co tu
+        neprojde, by upsert zahodil taky. Lokalitu tvoří adresa z výpisu, slug adresy detailu
+        (obsahuje obec, „…-mikulov/…") a okres výpisu – obec okresu Břeclav musí být v jednom
+        z nich, jinak ji filtr částečného okresu zahodí. Raději projít navíc než vyřadit platnou
+        nabídku: o uložení stejně rozhoduje až detail.
+        """
+        property_type = CATEGORY_MAP.get(item.get("category") or "") \
+            or PROPERTY_MAP.get(item.get("property") or "", item.get("property_type") or "Ostatní")
+        offer_type = PURPOSE_MAP.get(item.get("purpose") or "", item.get("offer_type") or "Prodej")
+        district = item.get("district") or ""
+        location = ", ".join(p for p in (item.get("address") or "", cls.list_slug(item.get("url") or ""),
+                                         f"okres {district}" if district else "") if p)
+        return get_filter_manager().passes_search_filters({
+            "property_type": property_type,
+            "offer_type": offer_type,
+            "price": item.get("price"),
+            "location_text": location,
+            "district": district,
+        })
+
     @classmethod
     def select_for_detail(cls, items: List[Dict[str, Any]], known: Dict[str, Optional[float]],
-                          skipped: set, galleries: Optional[Dict[str, set]] = None,
+                          skipped: Container[str], galleries: Optional[Dict[str, set]] = None,
                           day: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Které položky potřebují detail, v pořadí: známé se změněnou cenou, nové, známé s fotkou,
         kterou ještě nemáme (přenahraná galerie), a známé z dnešní rotace (`day`; None = bez rotace).
 
         Zamčené nabídky ne – detail je stejně prázdný; přijdou na řadu po odemčení. Zapamatované
-        „bereme odjinud" taky ne, ani když je kdysi uložila starší verze scraperu.
+        jako neukládané (původ odjinud, vyřazené detailem, prodané) taky ne, ani když je kdysi
+        uložila starší verze scraperu.
         """
         changed: List[Dict[str, Any]] = []
         new: List[Dict[str, Any]] = []
@@ -411,18 +476,28 @@ class RealingoScraper:
         return [f"{BASE_URL}/static/images/{p}.webp?w=1600" for p in paths][:50]
 
     def parse_list_page(self, html: str) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Stránka výpisu → (položky, celkový počet). Položka: id, url, cena, zámek, galerie a pro
+        předvýběr filtrem typ (category, property, purpose) a adresa („Ve dvoře 1185, Předklášteří").
+        """
         data = self._next_data(html)
         lst = data["props"]["pageProps"]["store"]["offer"]["list"]
-        items = [
-            {
+        items = []
+        for o in lst.get("data", []):
+            if not o.get("url"):
+                continue
+            location = o.get("location") if isinstance(o.get("location"), dict) else {}
+            items.append({
                 "id": str(o["id"]),
                 "url": o["url"],
                 "price": self.offer_price(o),
                 "locked": bool(o.get("isLocked")),
                 "photos": self.photo_urls(o.get("photos")),
-            }
-            for o in lst.get("data", []) if o.get("url")
-        ]
+                "category": o.get("category") or "",
+                "property": o.get("property") or "",
+                "purpose": o.get("purpose") or "",
+                "address": str(location.get("address") or ""),
+            })
         return items, int(lst.get("total") or 0)
 
     def parse_detail_page(self, html: str, list_item: Dict[str, Any], property_type: str, offer_type: str) -> Optional[Dict[str, Any]]:
