@@ -257,6 +257,10 @@ async def _live_one(client: httpx.AsyncClient, item: Dict[str, Any]) -> Dict[str
     if r.status_code == 200 and not res["dead"] and item.get("price"):
         raw = htmllib.unescape(body)
         res["price_ok"] = int(float(item["price"])) in _numbers(raw)
+        # Rezervovaná nabídka bez ceny na webu si záměrně drží poslední známou cenu (keep_last_price,
+        # price_note „Rezervace“) – Premia Reality ukazuje u rezervací jen štítek a má jich přes polovinu.
+        if not res["price_ok"] and (item.get("price_note") or "").lower().startswith("rezerv"):
+            res["price_ok"] = None
     photos = item.get("photos") or []
     if photos and not res["dead"]:
         picks = [photos[0]] + ([random.choice(photos[1:])] if len(photos) > 1 else [])
@@ -275,7 +279,7 @@ async def _live_one(client: httpx.AsyncClient, item: Dict[str, Any]) -> Dict[str
 async def check_live(conn, report: Report, sample: int, only: Optional[str]) -> None:
     rows = await conn.fetch("""
         SELECT * FROM (
-          SELECT l.source_code, l.url, l.external_id, l.price,
+          SELECT l.source_code, l.url, l.external_id, l.price, l.price_note,
                  row_number() OVER (PARTITION BY l.source_code
                                     ORDER BY (l.property_type = 'House' AND l.offer_type = 'Sale') DESC, random()) rn,
                  (SELECT array_agg(original_url ORDER BY order_index) FROM re_realestate.listing_photos p
