@@ -358,11 +358,12 @@ class TestUlovDomovPomocne:
         (0, None),
     ])
     def test_plocha(self, value, expected):
-        assert UlovDomovScraper._area({"usableArea": {"value": value}}, "usableArea") == expected
+        assert UlovDomovScraper._area({"usableArea": value}, "usableArea") == expected
 
     def test_plocha_chybejici_parametr(self):
         assert UlovDomovScraper._area({}, "usableArea") is None
         assert UlovDomovScraper._area({"usableArea": None}, "usableArea") is None
+        assert UlovDomovScraper._area({"usableArea": False}, "usableArea") is None
 
     @pytest.mark.parametrize("offer,area,expected", [
         ({"rentalPrice": {"value": 15000}, "priceUnit": "perMonth"}, None, (15000.0, "")),
@@ -497,3 +498,123 @@ class TestUlovDomovBehStazene:
         assert await scraper.scrape(max_details=None) == 0
         assert scraper.skipped["http_404"] == 9
         assert scraper.deactivated == []
+
+    async def test_vsechny_detaily_spadly_je_chyba_behu(self, monkeypatch):
+        """10. 11. 2026: nový formát detailu shodil parser u každého inzerátu a běh se zapsal jako
+        „Succeeded, 0“. Teď skončí výjimkou, runner ho zapíše jako Failed i s důvodem."""
+        monkeypatch.setattr(ulovdomov_scraper, "PARSE_FAILURE_MIN", 2)
+
+        def _broken(_self: UlovDomovScraper, _offer: Dict[str, Any]) -> Dict[str, Any]:
+            raise AttributeError("'list' object has no attribute 'get'")
+
+        monkeypatch.setattr(UlovDomovScraper, "normalize_offer", _broken)
+        scraper = _FakeUlovDomov()
+        with pytest.raises(RuntimeError, match="formát"):
+            await scraper.scrape(max_details=None)
+        assert scraper.parse_errors == 5
+        # Stažení (404, stav ≠ ACTIVE) se pozná bez parseru dat – ověřeně stažené se deaktivují i tak
+        assert sorted(scraper.deactivated) == sorted([HTTP_404_ID, SOFT_404_ID, INACTIVE_ID])
+
+
+class TestUlovDomovNovyFormat:
+    """Detail od 10. 11. 2026: `parameters` = [{name, value}], dispozice `twoPlusKitchenette`,
+    druh domu v `disposition`. Fixtury jsou živé stránky téhož dne."""
+
+    def setup_method(self):
+        self.scraper = UlovDomovScraper()
+
+    def _listing(self, name: str) -> Dict[str, Any]:
+        offer = _offer(name)
+        assert isinstance(offer["parameters"], list)
+        assert self.scraper.skip_reason(offer) is None
+        return self.scraper.normalize_offer(offer)
+
+    def test_dum_stejne_jako_ve_starem_formatu(self):
+        new = self._listing("detail_v2_dum_znojmo_5673902.html")
+        old = self.scraper.normalize_offer(_offer("detail_dum_znojmo_5673902.html"))
+        fields = ("external_id", "property_type", "offer_type", "price", "price_note", "municipality",
+                  "district", "location_text", "title", "area_built_up", "area_land", "rooms",
+                  "disposition", "condition", "construction_type", "seller_company", "latitude", "longitude")
+        assert {f: new[f] for f in fields} == {f: old[f] for f in fields}
+        assert new["area_built_up"] == 133.0
+        assert new["area_land"] == 545.0
+        assert new["rooms"] == 5
+        assert len(new["photos"]) == MAX_PHOTOS
+
+    def test_pronajem_bytu(self):
+        listing = self._listing("detail_v2_byt_pronajem_brno_5684583.html")
+        assert listing["property_type"] == "Byt"
+        assert listing["offer_type"] == "Pronájem"
+        assert listing["price"] == 18500.0
+        assert listing["disposition"] == "2+kk"
+        assert listing["rooms"] == 2
+        assert listing["area_built_up"] == 47.0
+        assert listing["area_land"] is None
+        assert listing["condition"] == "Po rekonstrukci"
+        assert listing["construction_type"] == "Panel"
+        assert listing["district"] == "Brno-město"
+        assert listing["location_text"] == "Dunajská, Brno - Starý Lískovec, okres Brno-město"
+        assert listing["seller_name"] == "Jan Novák"
+        assert "Poznámka k ceně: + energie, + kauce" in listing["description"]
+
+    def test_chata_z_dispozice(self):
+        listing = self._listing("detail_v2_chata_5683880.html")
+        assert listing["property_type"] == "Chata"
+        assert listing["disposition"] is None
+        assert listing["rooms"] == 2
+        assert listing["condition"] == "Dobrý"
+        assert listing["construction_type"] == "Smíšená"
+
+    def test_cena_na_dotaz(self):
+        listing = self._listing("detail_v2_dum_cena_na_dotaz_5682915.html")
+        assert listing["property_type"] == "Dům"
+        assert listing["price"] is None
+        assert listing["rooms"] is None  # roomCount „atypical"
+        assert listing["area_land"] == 1349.0
+        assert listing["condition"] == "Novostavba"
+        assert listing["construction_type"] == "Dřevostavba"
+        assert "Poznámka k ceně: Cenu Vám rádi sdělíme na vyžádání!" in listing["description"]
+
+    def test_poplatky_a_kauce_v_popisu(self):
+        offer = copy.deepcopy(_offer("detail_v2_byt_pronajem_brno_5684583.html"))
+        offer["monthlyFeePrice"] = {"value": 3500, "currency": "CZK"}
+        offer["parameters"].insert(0, {"name": "priceDeposit", "value": 37000})
+        description = self.scraper.normalize_offer(offer)["description"]
+        assert "Měsíční náklady: 3 500 Kč" in description
+        assert "Depozit: 37 000 Kč" in description
+
+    def test_nulove_poplatky_se_nepisou(self):
+        description = self._listing("detail_v2_byt_pronajem_brno_5684583.html")["description"]
+        assert "Měsíční náklady" not in description
+        assert "Depozit" not in description
+
+    def test_hodnoty_parametru_z_obou_formatu(self):
+        new = UlovDomovScraper.parameter_values({"parameters": [
+            {"name": "propertyType", "value": "flat"}, {"name": "localityCity", "value": "Brno"},
+            {"name": "localityCity", "value": "Jinde"}, {"value": "bez názvu"}, "nesmysl"]})
+        assert new == {"propertyType": "flat", "localityCity": "Brno"}
+        old = UlovDomovScraper.parameter_values({"parameters": {
+            "propertyType": {"title": "Typ", "options": [{"title": "byt", "id": "flat"}]},
+            "usableArea": {"title": "Užitná plocha", "value": "40 m2"}, "houseType": None}})
+        assert old == {"propertyType": "flat", "usableArea": "40 m2"}
+        assert UlovDomovScraper.parameter_values({}) == {}
+
+    @pytest.mark.parametrize("code,expected", [
+        ("twoPlusKitchenette", ("2+kk", 2)),
+        ("threePlusOne", ("3+1", 3)),
+        ("onePlusKk", ("1+kk", 1)),
+        ("fivePlusTwo", ("5+2", 5)),
+        ("sixAndMore", ("6 a více", 6)),
+        ("atypical", ("atypický", None)),
+        ("4+1", ("4+1", 4)),
+        ("familyHouse", (None, None)),
+        ("housing", (None, None)),
+        (None, (None, None)),
+    ])
+    def test_dispozice(self, code, expected):
+        assert UlovDomovScraper._disposition(code) == expected
+
+    def test_kod_ze_seznamu(self):
+        assert UlovDomovScraper._code({"heating": ["centralGas", "fireplace"]}, "heating") == "centralGas"
+        assert UlovDomovScraper._code({"heating": []}, "heating") is None
+        assert UlovDomovScraper._code({"floorArea": 0}, "floorArea") is None

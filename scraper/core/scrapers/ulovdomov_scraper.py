@@ -13,7 +13,13 @@ Co robots.txt www povoluje (`Allow: /` + odkaz na sitemap):
    SSR `count` na /prodej/nemovitosti resp. /pronajem/nemovitosti hlásil 4 394 a 3 308).
 2. Detail `/inzerat/<slug>/<id>` – v `__NEXT_DATA__` (`props.pageProps.offer.data`)
    je vše: okres, obec, část obce, ulice, GPS, cena, parametry, popis, fotky.
-   Na slugu nezáleží, rozhoduje id.
+   Na slugu nezáleží, rozhoduje id. Nový build portálu 9./10. 11. 2026 změnil
+   `parameters` ze slovníku `{název: {title, options: [{id, title}]} | {title, value}}`
+   na seznam `[{name, value}]` se surovými hodnotami (`"usableArea": 133`, dispozice
+   `twoPlusKitchenette` místo `twoPlusKk` / „2+kk", typ domu `familyHouse` / `cottage`
+   v `disposition` místo `houseType`, poplatky v `monthlyFeePrice` / `depositPrice`
+   místo `priceParameters`). `parameter_values` čte obě podoby – noční běh 10. 11.
+   na starém parseru spadl u každého detailu (`'list' object has no attribute 'get'`).
 
 Okresy: slug v sitemapě začíná obcí (`pronajem-znojmo-kasarna-kasarna-2-kk`,
 u prodeje s prázdným prefixem: `-znojmo-primetice-postovni-fiveplusrooms`), takže
@@ -103,12 +109,21 @@ CONSTRUCTION_MAP = {
     "stone": "Kámen", "wood": "Dřevostavba", "mixed": "Smíšená", "modular": "Montovaná",
 }
 ROOM_COUNT_MAP = {"oneRoom": 1, "twoRooms": 2, "threeRooms": 3, "fourRooms": 4, "fivePlusRooms": 5}
+# Kód dispozice bytu → (dispozice, pokoje); „N+kk" / „N+1" skládá _RE_DISPOSITION_ID
+DISPOSITION_CODE_MAP: Dict[str, Tuple[str, Optional[int]]] = {
+    "sixAndMore": ("6 a více", 6), "atypical": ("atypický", None),
+}
+_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+# Pojistka: tolik detailů spadlých na výjimce bez jediného uloženého = změnil se formát webu
+PARSE_FAILURE_MIN = 10
 
 _RE_SITEMAP_URL = re.compile(r"<loc>\s*(https://www\.ulovdomov\.cz/inzerat/([^/<\s]*)/(\d+))\s*</loc>")
 _RE_SLUG_PREFIX = re.compile(r"^(prodej|pronajem|spolubydleni)?-?")
 _RE_NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
 _RE_AREA = re.compile(r"(\d[\d\s\u00a0.]*(?:,\d+)?)\s*m(?:2|²)", re.I)
 _RE_DISPOSITION = re.compile(r"^(\d)\+(kk|\d)$", re.I)
+# Kód dispozice: starý formát `twoPlusKk`, nový (od 10. 11. 2026) `twoPlusKitchenette`, `threePlusOne`
+_RE_DISPOSITION_ID = re.compile(r"^(one|two|three|four|five|six|seven)Plus(Kk|Kitchenette|One|Two)$")
 
 
 class UlovDomovScraper:
@@ -126,6 +141,7 @@ class UlovDomovScraper:
         # Nejdelší napřed, ať „ujezd-u-brna" vyhraje nad „ujezd"
         self._municipality_slugs: List[str] = sorted(slugs, key=len, reverse=True)
         self.scraped_count = 0
+        self.parse_errors = 0
         self.skipped: Dict[str, int] = {}
         self.gone_ids: List[str] = []
         self._http_client: Optional[httpx.AsyncClient] = None
@@ -158,9 +174,17 @@ class UlovDomovScraper:
                     metrics.increment_failed()
         self._http_client = None
         deactivated = await self._deactivate_gone()
-        logger.info("UlovDomov scraper done. Scraped %s, skipped %s, deactivated %s",
-                    self.scraped_count, self.skipped, deactivated)
+        logger.info("UlovDomov scraper done. Scraped %s, skipped %s, parse errors %s, deactivated %s",
+                    self.scraped_count, self.skipped, self.parse_errors, deactivated)
+        # Bez výjimky by runner zapsal „Succeeded, 0“ a příčina by zůstala jen v logu
+        self.raise_if_format_changed()
         return self.scraped_count
+
+    def raise_if_format_changed(self) -> None:
+        """Každý zpracovaný detail spadl na výjimce a nic se neuložilo → změnil se formát webu."""
+        if self.scraped_count == 0 and self.parse_errors >= PARSE_FAILURE_MIN:
+            raise RuntimeError(f"UlovDomov: {self.parse_errors} detailů nešlo zpracovat a nic se "
+                               f"neuložilo – změnil se formát __NEXT_DATA__?")
 
     async def _scrape_detail(self, entry: Dict[str, str], metrics: Any) -> None:
         try:
@@ -187,6 +211,7 @@ class UlovDomovScraper:
             metrics.increment_failed()
         except Exception as exc:
             logger.error("Error processing offer %s: %s", entry.get("external_id"), exc)
+            self.parse_errors += 1
             metrics.increment_failed()
 
     def _skip(self, entry: Dict[str, str], reason: str, gone: bool = False) -> None:
@@ -289,21 +314,63 @@ class UlovDomovScraper:
         return offer_data
 
     @staticmethod
-    def _option_id(parameters: Dict[str, Any], key: str) -> Optional[str]:
-        options = (parameters.get(key) or {}).get("options") or []
-        first = options[0] if options and isinstance(options[0], dict) else {}
-        return first.get("id") or None
+    def parameter_values(offer: Dict[str, Any]) -> Dict[str, Any]:
+        """`offer.parameters` → {název: hodnota} pro oba formáty detailu.
+
+        Nový formát (od 10. 11. 2026) je seznam `[{name, value}]` – hodnota se bere, jak je
+        (u opakovaného názvu první výskyt). Starý slovník `{název: {options: [{id}]} | {value}}`
+        dá id první volby, jinak `value`.
+        """
+        raw = offer.get("parameters")
+        values: Dict[str, Any] = {}
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, dict) and item.get("name"):
+                    values.setdefault(str(item["name"]), item.get("value"))
+        elif isinstance(raw, dict):
+            for name, node in raw.items():
+                if not isinstance(node, dict):
+                    continue
+                options = node.get("options")
+                if isinstance(options, list):
+                    first = options[0] if options and isinstance(options[0], dict) else {}
+                    values[name] = first.get("id")
+                else:
+                    values[name] = node.get("value")
+        return values
 
     @staticmethod
-    def _option_title(parameters: Dict[str, Any], key: str) -> Optional[str]:
-        options = (parameters.get(key) or {}).get("options") or []
-        first = options[0] if options and isinstance(options[0], dict) else {}
-        return first.get("title") or None
+    def _code(parameters: Dict[str, Any], key: str) -> Optional[str]:
+        """Kódová hodnota parametru („house", „brick"); u seznamu (`heating`) první položka."""
+        value = parameters.get(key)
+        if isinstance(value, list):
+            value = value[0] if value else None
+        if not isinstance(value, str):
+            return None
+        return value.strip() or None
+
+    @staticmethod
+    def _disposition(code: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+        """Kód dispozice bytu → („2+kk", 2). Typ domu / pozemku (`familyHouse`, `housing`) → (None, None)."""
+        if not code:
+            return None, None
+        match = _RE_DISPOSITION_ID.match(code)
+        if match:
+            rooms = _NUMBER_WORDS[match.group(1)]
+            suffix = match.group(2)
+            kitchen = "kk" if suffix in ("Kk", "Kitchenette") else str(_NUMBER_WORDS[suffix.lower()])
+            return f"{rooms}+{kitchen}", rooms
+        title = _RE_DISPOSITION.match(code)
+        if title:
+            return f"{title.group(1)}+{title.group(2).lower()}", int(title.group(1))
+        return DISPOSITION_CODE_MAP.get(code, (None, None))
 
     @staticmethod
     def _area(parameters: Dict[str, Any], key: str) -> Optional[float]:
-        """Parametr typu „133 m2" → 133.0; „0 m2" a nesmysly → None."""
-        value = (parameters.get(key) or {}).get("value")
+        """Plocha z parametru: 133 / „133 m2" → 133.0; 0, „0 m2" a nesmysly → None."""
+        value = parameters.get(key)
+        if isinstance(value, bool):
+            return None
         if isinstance(value, (int, float)):
             return float(value) if value > 0 else None
         match = _RE_AREA.search(str(value or ""))
@@ -331,8 +398,8 @@ class UlovDomovScraper:
         district = self._name(offer.get("district"))
         if district not in self.districts:
             return "other_district"
-        parameters = offer.get("parameters") or {}
-        category = (offer.get("offerTypeId") or "", self._option_id(parameters, "propertyType") or "")
+        parameters = self.parameter_values(offer)
+        category = (offer.get("offerTypeId") or "", self._code(parameters, "propertyType") or "")
         if category not in self.categories:
             return "other_category"
         return None
@@ -340,10 +407,12 @@ class UlovDomovScraper:
     def normalize_offer(self, offer: Dict[str, Any]) -> Dict[str, Any]:
         """`offer.data` z detailu → dict pro `upsert_listing`."""
         offer_id = str(offer["id"])
-        parameters = offer.get("parameters") or {}
-        portal_type = self._option_id(parameters, "propertyType") or ""
+        parameters = self.parameter_values(offer)
+        portal_type = self._code(parameters, "propertyType") or ""
         property_type = PROPERTY_MAP.get(portal_type, "Ostatní")
-        if portal_type == "house" and self._option_id(parameters, "houseType") in COTTAGE_HOUSE_TYPES:
+        # Druh domu: starý formát v `houseType`, nový v `disposition` (familyHouse / cottage)
+        house_kind = self._code(parameters, "houseType") or self._code(parameters, "disposition")
+        if portal_type == "house" and house_kind in COTTAGE_HOUSE_TYPES:
             property_type = "Chata"
         offer_type = OFFER_MAP.get(offer.get("offerTypeId") or "", "Prodej")
 
@@ -366,16 +435,9 @@ class UlovDomovScraper:
         else:
             area_built, area_land = usable, estate
 
-        disposition: Optional[str] = None
-        rooms: Optional[int] = None
-        disposition_title = (self._option_title(parameters, "disposition") or "").strip()
-        match = _RE_DISPOSITION.match(disposition_title)
-        if match:
-            disposition, rooms = f"{match.group(1)}+{match.group(2).lower()}", int(match.group(1))
-        elif disposition_title:
-            disposition = disposition_title[:50]
+        disposition, rooms = self._disposition(self._code(parameters, "disposition"))
         if rooms is None:
-            rooms = ROOM_COUNT_MAP.get(self._option_id(parameters, "roomCount") or "")
+            rooms = ROOM_COUNT_MAP.get(self._code(parameters, "roomCount") or "")
 
         price, unit_note = self._price(offer, area_land if property_type == "Pozemek" else area_built)
         # price_note se v seznamech ukazuje jako štítek u ceny („Rezervace") – patří tam jen krátká
@@ -399,6 +461,12 @@ class UlovDomovScraper:
         for item in offer.get("priceParameters") or []:
             if isinstance(item, dict) and item.get("title") and item.get("value"):
                 notes.append(f"{item['title']}: {item['value']}")
+        if "priceParameters" not in offer:
+            for label, field, parameter in (("Měsíční náklady", "monthlyFeePrice", "priceMonthlyFee"),
+                                            ("Depozit", "depositPrice", "priceDeposit")):
+                amount = self._amount(offer.get(field)) or self._amount(parameters.get(parameter))
+                if amount:
+                    notes.append(f"{label}: {amount:,.0f} Kč".replace(",", " "))
         if offer.get("isNoCommission"):
             notes.append("Bez provize")
         if notes:
@@ -427,8 +495,8 @@ class UlovDomovScraper:
             "area_land": area_land,
             "rooms": rooms,
             "disposition": disposition,
-            "condition": CONDITION_MAP.get(self._option_id(parameters, "buildingCondition") or ""),
-            "construction_type": CONSTRUCTION_MAP.get(self._option_id(parameters, "material") or ""),
+            "condition": CONDITION_MAP.get(self._code(parameters, "buildingCondition") or ""),
+            "construction_type": CONSTRUCTION_MAP.get(self._code(parameters, "material") or ""),
             "seller_name": seller_name,
             "seller_company": seller_company,
             "photos": photos[:MAX_PHOTOS],
@@ -440,6 +508,15 @@ class UlovDomovScraper:
             except (TypeError, ValueError):
                 pass
         return result
+
+    @staticmethod
+    def _amount(value: Any) -> Optional[float]:
+        """Částka `{"value": 15000, "currency": "CZK"}` nebo číslo → 15000.0; 0 a nesmysly → None."""
+        if isinstance(value, dict):
+            value = value.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value) if value > 0 else None
 
     @staticmethod
     def _price(offer: Dict[str, Any], area: Optional[float]) -> Tuple[Optional[float], str]:
