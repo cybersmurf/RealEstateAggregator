@@ -39,3 +39,21 @@ async def test_reserved_listing_with_price_on_page_still_compares_price() -> Non
     async with _client(PRICED_PAGE) as client:
         res = await quality_audit._live_one(client, item)
     assert res["price_ok"] is True
+
+
+UNIT_PAGE = """<div class="advert-detail-heading__price"><span>3 700 Kč</span> <span>(za m<sup>2</sup>)</span></div>"""
+
+
+async def test_unit_price_listing_compares_price_per_m2() -> None:
+    """Cena za m² (10. 11. 2026): uložená je celková 783 × 3 700, web ukazuje jen 3 700 Kč/m²."""
+    item = {"url": URL, "external_id": "7868449", "price": 2897100, "price_note": "3 700 Kč/m²", "photos": []}
+    async with _client(UNIT_PAGE) as client:
+        res = await quality_audit._live_one(client, item)
+    assert res["price_ok"] is True
+
+
+async def test_unit_price_mismatch_is_flagged() -> None:
+    item = {"url": URL, "external_id": "7868449", "price": 3132000, "price_note": "4 000 Kč/m²", "photos": []}
+    async with _client(UNIT_PAGE) as client:
+        res = await quality_audit._live_one(client, item)
+    assert res["price_ok"] is False

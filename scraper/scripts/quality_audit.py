@@ -14,6 +14,7 @@ Audit měří po zdrojích:
   types    – titulek proti typu nemovitosti / nabídky (pozemek jako byt, pronájem jako prodej)
   live     – vzorek inzerátů proti živému webu: smazaný/404, cena na stránce, fotky jdou stáhnout
   shared   – stejná fotka u 3+ různých inzerátů (logo, placeholder, fotky z „podobných nabídek“)
+  unit_price – pozemky s celkovou cenou pod 5 Kč/m² (cena za m² uložená jako celková)
 
 Spuštění v kontejneru scraperu:
     docker exec realestate-scraper python scripts/quality_audit.py            # text
@@ -57,6 +58,9 @@ FILL_METRICS = ("price", "area", "obec", "desc200", "photos")
 FILL_DROP_PP = 15.0          # propad vyplněnosti o 15+ procentních bodů proti mediánu = chyba
 STALE_RED_SHARE = 0.05       # 5 % aktivních neviděných 3+ dny
 TYPE_MISMATCH_SHARE = 0.03
+UNIT_PRICE_MAX_KC_M2 = 5      # celková cena pozemku pod 5 Kč/m² = jednotková cena uložená jako celková
+UNIT_PRICE_MIN_COUNT = 3
+UNIT_PRICE_NOTE_RE = re.compile(r"^\s*(\d[\d\s\u00a0]*)\s*Kč/m")
 SNAPSHOT_DDL = """
 CREATE TABLE IF NOT EXISTS re_realestate.scraper_quality_snapshots (
     source_code text NOT NULL,
@@ -213,6 +217,24 @@ async def check_types(conn, report: Report) -> None:
                        f"{len(bad)} z {r['n']} inzerátů má titulek v rozporu s typem nemovitosti/nabídky", bad)
 
 
+async def check_unit_price(conn, report: Report) -> None:
+    # 10. 11. 2026: Sreality, RealityMIX a Reality Čechy ukládaly cenu pozemku „za m²“ jako celkovou
+    # (pole 19 297 m² za 55 Kč, 230+ aktivních pozemků) a žádná kontrola si toho nevšimla. I orná půda
+    # na jižní Moravě stojí desítky Kč/m², celková cena pod 5 Kč/m² je jednotková cena.
+    # Bazoš vynechán: cenu za m² tam do pole ceny píše sám prodávající (portál jednotku nemá),
+    # parser ji od celkové nerozezná – trvalé varování by jen přehlušilo nové nálezy.
+    rows = await conn.fetch("""
+        SELECT source_code, count(*) c, (array_agg(url ORDER BY price / area_land))[1:5] ex
+        FROM re_realestate.listings
+        WHERE is_active AND property_type = 'Land' AND offer_type = 'Sale' AND price > 0 AND area_land > 0
+          AND price / area_land < $1 AND source_code <> 'BAZOS'
+        GROUP BY 1 HAVING count(*) >= $2""", UNIT_PRICE_MAX_KC_M2, UNIT_PRICE_MIN_COUNT)
+    for r in rows:
+        report.add(r["source_code"], "unit_price", "yellow",
+                   f"{r['c']} pozemků má celkovou cenu pod {UNIT_PRICE_MAX_KC_M2} Kč/m² – cena za m² uložená jako celková?",
+                   list(r["ex"]))
+
+
 async def check_shared_photos(conn, report: Report) -> None:
     rows = await conn.fetch("""
         SELECT l.source_code, p.original_url, count(DISTINCT l.id) c
@@ -261,6 +283,10 @@ async def _live_one(client: httpx.AsyncClient, item: Dict[str, Any]) -> Dict[str
         # price_note „Rezervace“) – Premia Reality ukazuje u rezervací jen štítek a má jich přes polovinu.
         if not res["price_ok"] and (item.get("price_note") or "").lower().startswith("rezerv"):
             res["price_ok"] = None
+        # Cena za m² (od 10. 11. 2026): ukládáme celkovou (jednotková × plocha), web ukazuje jednotkovou
+        unit = UNIT_PRICE_NOTE_RE.match(item.get("price_note") or "")
+        if not res["price_ok"] and unit:
+            res["price_ok"] = int(re.sub(r"\D", "", unit.group(1))) in _numbers(raw)
     photos = item.get("photos") or []
     if photos and not res["dead"]:
         picks = [photos[0]] + ([random.choice(photos[1:])] if len(photos) > 1 else [])
@@ -342,6 +368,7 @@ async def main() -> int:
         await check_fill(conn, report, metrics)
         await check_same_description(conn, report)
         await check_types(conn, report)
+        await check_unit_price(conn, report)
         await check_shared_photos(conn, report)
         if not args.no_live:
             await check_live(conn, report, args.sample, args.source)
