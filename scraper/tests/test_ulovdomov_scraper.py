@@ -541,6 +541,13 @@ class TestUlovDomovNovyFormat:
         assert new["rooms"] == 5
         assert len(new["photos"]) == MAX_PHOTOS
 
+    def test_url_detailu_ne_zkracena_adresa(self):
+        """absoluteUrl nového formátu „/i/<id>/<seo>“ vrací 404 (ověřeno 10. 11. 2026)."""
+        offer = _offer("detail_v2_dum_znojmo_5673902.html")
+        assert offer["absoluteUrl"].startswith(f"{BASE_URL}/i/")
+        listing = self.scraper.normalize_offer(offer)
+        assert listing["url"] == f"{BASE_URL}/inzerat/{offer['seo']}/5673902"
+
     def test_pronajem_bytu(self):
         listing = self._listing("detail_v2_byt_pronajem_brno_5684583.html")
         assert listing["property_type"] == "Byt"

@@ -478,10 +478,16 @@ class UlovDomovScraper:
             if isinstance(path, str) and path.startswith("http") and path not in photos:
                 photos.append(path)
 
+        # Nový formát (10. 11. 2026) má absoluteUrl „/i/<id>/<seo>“ a ta vrací 404 – detail je jen
+        # na /inzerat/<seo>/<id> (na slugu nezáleží, rozhoduje id)
+        url = str(offer.get("absoluteUrl") or "")
+        if not url.startswith(f"{BASE_URL}/inzerat/"):
+            url = f"{BASE_URL}/inzerat/{offer.get('seo') or 'x'}/{offer_id}"
+
         result: Dict[str, Any] = {
             "source_code": self.SOURCE_CODE,
             "external_id": offer_id,
-            "url": offer.get("absoluteUrl") or f"{BASE_URL}/inzerat/{offer.get('seo') or 'x'}/{offer_id}",
+            "url": url,
             "title": title[:200],
             "description": description[:5000],
             "property_type": property_type,
