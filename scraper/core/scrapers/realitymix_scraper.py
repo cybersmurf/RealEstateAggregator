@@ -20,6 +20,11 @@ v HTML jsou i náhledy „podobných nemovitostí“). Inzerát bez fotek (formu
 „Mám zájem o více fotografií“) má v og:image jen obecný obrázek portálu.
 Kontakt: .offer-detail-sidebar__agent (jméno, telefon, e-mail) → seller_*.
 
+Cena za m²: u pozemků RK často uvádí jednotkovou cenu – vedle ceny je
+.advert-detail-heading__price-type „(za m²)“. Celkovou cenu dopočítáme plochou,
+jednotková jde do price_note („3 700 Kč/m²“); bez plochy cenu neuvádíme. Do 10. 11. 2026
+se jednotková cena ukládala jako celková (31 pozemků za 1 000–12 500 Kč).
+
 Stažený inzerát: detail vrací HTTP 200, ale místo inzerátu výpis „podobných“ s hláškou
 „Požadovaný inzerát již není v naší databázi. Našli jsme ale 10 podobných…“ (og:title
 výpisu okresu, breadcrumbs jen do okresu, žádné .advert-detail-heading). Takový detail
@@ -94,6 +99,7 @@ DISPOSITION_RE = re.compile(r"\b(\d)\s*\+\s*(kk|\d)\b", re.I)
 AUCTION_SUBJECT_RE = re.compile(r"předmět\w*\s+dražby", re.I)
 AUCTION_AGENCY_RE = re.compile(r"dra[žz]b", re.I)
 PHOTO_HOST = "st.realitymix.cz/i/"
+PER_M2_RE = re.compile(r"za\s*m\s*(?:2|²)|/\s*m\s*(?:2|²)", re.I)
 GONE_RE = re.compile(r"inzer[aá]t\s+již\s+není\s+v\s+naší\s+databázi", re.I)
 # Pojistka jako v runneru: víc stažených inzerátů než max(10, uložených) v jednom běhu
 # ukazuje spíš na změnu webu než na vlnu stahování – pak se nedeaktivuje nic.
@@ -361,7 +367,9 @@ class RealityMixScraper:
         price_el = soup.select_one(".advert-detail-heading__price-value")
         price = self._parse_number(price_el.get_text(" ", strip=True) if price_el else None) \
             or self._parse_number(params.get("cena")) or self._parse_number(item.get("price_text"))
-        if price is not None and price < 1000:
+        price_type_el = soup.select_one(".advert-detail-heading__price-type")
+        per_m2 = bool(price_type_el and PER_M2_RE.search(price_type_el.get_text("", strip=True)))
+        if price is not None and price < 1000 and not per_m2:
             price = None  # „Cena: dohodou“ / „1 Kč“ apod.
 
         area_land = self._parse_number(params.get("plocha parcely") or params.get("plocha pozemku"))
@@ -373,6 +381,12 @@ class RealityMixScraper:
         if ptype == "Pozemek":
             area_land = area_land or self._parse_number(params.get("celková plocha") or params.get("plocha")) or area_built
             area_built = None
+
+        price_note: Optional[str] = None
+        if per_m2 and price is not None:
+            price_note = f"{price:,.0f} Kč/m²".replace(",", " ")
+            area = area_land if ptype == "Pozemek" else (area_built or area_land)
+            price = float(round(price * area)) if area else None
 
         desc_el = soup.select_one(".advert-description__text-inner-inner") or soup.select_one(".advert-description__text-inner")
         description = desc_el.get_text("\n", strip=True) if desc_el else ""
@@ -422,6 +436,7 @@ class RealityMixScraper:
             "property_type": ptype,
             "offer_type": otype,
             "price": price,
+            "price_note": price_note,
             "location_text": location_text[:200],
             "municipality": municipality[:100] or None,
             "district": final_district,

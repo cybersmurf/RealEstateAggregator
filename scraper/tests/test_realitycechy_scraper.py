@@ -187,6 +187,51 @@ class TestRealityCechyDetailPozemek:
         assert all(p.startswith("https://www.realitycechy.cz/foto/hq/") for p in self.d["photos"])
 
 
+class TestRealityCechyCenaZaMetr:
+    """Žebětín (10. 11. 2026): „Cena: 180 Kč/m2“ u pole 5 791 m² se ukládala jako celková cena
+    180 Kč (60 aktivních pozemků za 45–13 000 Kč). Celková = jednotková × plocha."""
+
+    def setup_method(self):
+        self.scraper = RealityCechyScraper()
+        item = _item("https://www.realitycechy.cz/nemovitost/prodej/pozemek-u-brna/20082797", "20082797",
+                     price_text="180 Kč/m2")
+        self.d = self.scraper.parse_detail_page(_load("detail_pozemek_cena_za_m2.html"), item,
+                                                "Pozemek", "Prodej", "Brno-venkov")
+
+    def test_celkova_cena_z_ceny_za_metr(self):
+        assert self.d["area_land"] == 5791.0
+        assert self.d["price"] == 1_042_380.0
+        assert self.d["price_note"] == "180 Kč/m²"
+
+    def test_kontakt_je_zastupny(self):
+        assert self.d["seller_name"] == "Jan Novák"
+
+    def test_celkova_cena_bez_poznamky(self):
+        item = _item("https://www.realitycechy.cz/nemovitost/prodej/pozemek-ivancice/21205223", "21205223")
+        d = self.scraper.parse_detail_page(_load("detail_pozemek.html"), item, "Pozemek", "Prodej", "Brno-venkov")
+        assert d["price"] == 3_490_000
+        assert d["price_note"] is None
+
+    @pytest.mark.parametrize("text,expected", [
+        ("180 Kč/m2", {"price": None, "unit_price": 180.0}),
+        ("1 250 Kč/m²", {"price": None, "unit_price": 1250.0}),
+        ("3 490 000 Kč", {"price": 3_490_000.0, "unit_price": None}),
+        ("Cena v RK", {"price": None, "unit_price": None}),
+    ])
+    def test_cena_z_karty_vypisu(self, text, expected):
+        assert RealityCechyScraper._card_prices(text) == expected
+
+    def test_detail_jen_kdyz_ulozena_cena_je_jednotkova(self):
+        items = [
+            {"external_id": "1", "price": None, "unit_price": 180.0},   # uloženo 180 Kč (stará chyba)
+            {"external_id": "2", "price": None, "unit_price": 180.0},   # uloženo už celkem
+            {"external_id": "3", "price": None, "unit_price": 900.0},   # nový
+        ]
+        known = {"1": 180.0, "2": 1_042_380.0}
+        selected = [i["external_id"] for i in RealityCechyScraper.select_for_detail(items, known)]
+        assert selected == ["1", "3"]
+
+
 class TestRealityCechyDetailChata:
     def setup_method(self):
         self.scraper = RealityCechyScraper()
@@ -329,7 +374,9 @@ class TestRealityCechyVypisRcCard:
         html = _list_html([_card("1", price="cena v RK"), _card("2", price="135 000 Kč/m2")], total=2)
         items, _, _ = self.scraper.parse_list_page(html)
         assert items[0]["price"] is None
-        assert items[1]["price"] == 135_000
+        # cena za m² není celková – celkovou dopočítá detail z plochy (10. 11. 2026)
+        assert items[1]["price"] is None
+        assert items[1]["unit_price"] == 135_000
 
     def test_prectrnuta_puvodni_cena_se_nebere(self):
         html = _list_html([_card("1", price="<del>6 000 000 Kč</del> 5 500 000 Kč")], total=1)

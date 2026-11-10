@@ -12,7 +12,7 @@ import asyncio
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -455,9 +455,8 @@ class SrealityScraper:
         gps_lat = locality_obj.get("gps_lat")
         gps_lon = locality_obj.get("gps_lon")
 
-        # v1 API: price_czk je přímý float (ne nested dict)
-        price_raw = estate.get("price_czk")
-        price = float(price_raw) if (price_raw and float(price_raw) > 1) else None
+        # v1 API: price_czk je přímý float (ne nested dict); u ceny „za m²“ jen jednotková
+        price, unit_note = self._price_and_note(estate)
 
         # v1 API: advert_images je list plain URL stringů (//domain/path)
         photos = []
@@ -489,6 +488,7 @@ class SrealityScraper:
             "district": district or None,
             "district": district,
             "price": price,
+            **({"price_note": unit_note} if unit_note else {}),
             "property_type": property_type,
             "offer_type": offer_type,
             "latitude": gps_lat,
@@ -497,11 +497,42 @@ class SrealityScraper:
             "photos": photos[:50],
         }
 
+    @staticmethod
+    def _price_and_note(estate: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
+        """(cena celkem, poznámka u ceny) z `price_czk` + `price_unit_cb`.
+
+        RK u pozemků často zadávají cenu „za m²“ (`price_unit_cb` = {"name": "za m²", "value": 3}):
+        `price_czk` je pak jednotková (pole 19 297 m² za 55 Kč) a celková je v `price_summary_czk`.
+        Do 10. 11. 2026 se jednotková ukládala jako celková (108 aktivních pozemků za 52–18 990 Kč).
+        Poznámka je jen u jednotkové ceny („55 Kč/m²“), jinak None.
+        """
+        def _positive(value: Any) -> Optional[float]:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            return number if number > 1 else None
+
+        price = _positive(estate.get("price_czk"))
+        unit = estate.get("price_unit_cb")
+        unit_name = str(unit.get("name") or "") if isinstance(unit, dict) else ""
+        if "m²" not in unit_name and "m2" not in unit_name:
+            return price, None
+        note = None
+        if price is not None:
+            per = re.sub(r"^za\s+", "", unit_name.strip())
+            note = f"{price:,.0f} Kč/{per}".replace(",", " ")
+        return _positive(estate.get("price_summary_czk")), note
+
     def _merge_detail(self, normalized: Dict[str, Any], detail: Dict[str, Any]) -> Dict[str, Any]:
         # v1 API: price_czk je přímý float (ne nested dict)
-        detail_price = detail.get("price_czk")
-        if detail_price and float(detail_price) > 1:
-            normalized["price"] = float(detail_price)
+        detail_price, unit_note = self._price_and_note(detail)
+        if unit_note:
+            # Jednotková cena ze seznamu nesmí zůstat jako celková, ani když souhrn chybí
+            normalized["price"] = detail_price
+            normalized["price_note"] = unit_note
+        elif detail_price is not None:
+            normalized["price"] = detail_price
 
         # v1 API: stats je přímý int (počet zhlédnutí), ne nested _embedded.stats.views
         seen_count = detail.get("stats")

@@ -216,6 +216,51 @@ class TestRealitymixDetailPozemek:
         assert self.d["latitude"] == pytest.approx(48.957525)
 
 
+class TestRealitymixCenaZaMetr:
+    """10. 11. 2026: u pozemků RK uvádí cenu za m² („3 700 Kč (za m²)“) a ukládala se jako
+    celková – 31 pozemků za 1 000–12 500 Kč. Celková = jednotková × plocha, jednotková do price_note."""
+
+    def setup_method(self):
+        self.scraper = RealityMixScraper()
+        self.item = {"url": "https://realitymix.cz/detail/mikulov/prodej-pozemky-pro-bydleni-783m2-obec-mikulov-lokalita-pod-ul-nova-7868449.html",
+                     "external_id": "7868449", "address": "Nová, Mikulov, okr. Břeclav", "price_text": "3 700 Kč"}
+        self.d = self.scraper.parse_detail_page(_load("detail_pozemek_cena_za_m2_7868449.html"), self.item,
+                                                "Pozemek", "Prodej", "Břeclav")
+
+    def test_celkova_cena_z_ceny_za_metr(self):
+        assert self.d["area_land"] == 783.0
+        assert self.d["price"] == 2897100.0
+        assert self.d["price_note"] == "3 700 Kč/m²"
+
+    def test_kontakt_je_zastupny(self):
+        assert self.d["seller_name"] == "Jan Novák"
+
+    def test_bez_plochy_cena_neni(self):
+        html = ('<html><body><h1>Prodej pozemku</h1>'
+                '<div class="advert-detail-heading__price"><span class="advert-detail-heading__price-value">800 Kč</span>'
+                '<span class="advert-detail-heading__price-type">(za m<sup>2</sup>)</span></div></body></html>')
+        d = self.scraper.parse_detail_page(html, {"url": "https://realitymix.cz/detail/x/x-1234567.html",
+                                                  "external_id": "1234567"}, "Pozemek", "Prodej", "Znojmo")
+        assert d["price"] is None
+        assert d["price_note"] == "800 Kč/m²"
+
+    def test_levna_cena_za_metr_se_nezahodi(self):
+        html = ('<html><body><h1>Prodej pole, 4 000 m²</h1>'
+                '<ul class="detail-information__data"><li><span>Plocha pozemku:</span><span>4 000 m²</span></li></ul>'
+                '<div class="advert-detail-heading__price"><span class="advert-detail-heading__price-value">150 Kč</span>'
+                '<span class="advert-detail-heading__price-type">(za m<sup>2</sup>)</span></div></body></html>')
+        d = self.scraper.parse_detail_page(html, {"url": "https://realitymix.cz/detail/x/x-1234567.html",
+                                                  "external_id": "1234567"}, "Pozemek", "Prodej", "Znojmo")
+        assert d["price"] == 600000.0
+        assert d["price_note"] == "150 Kč/m²"
+
+    @pytest.mark.parametrize("name", ["detail_dum_8709111.html", "detail_pozemek_8710173.html"])
+    def test_celkova_cena_bez_poznamky(self, name):
+        item = {"url": "https://realitymix.cz/detail/x/x-1234567.html", "external_id": "1234567"}
+        d = self.scraper.parse_detail_page(_load(name), item, "Pozemek", "Prodej", "Znojmo")
+        assert d["price_note"] is None
+
+
 class TestRealitymixHelpers:
 
     def test_split_address_s_okresem(self):

@@ -1085,6 +1085,46 @@ class TestSrealityBuildingCodebooks:
         assert "house_position_listed" not in merged
 
 
+class TestSrealityCenaZaMetr:
+    """Blučina (10. 11. 2026): „Prodej pole 19 297 m²“ za 55 Kč – RK zadala cenu „za m²“
+    (`price_unit_cb` value 3), `price_czk` je jednotková, celková je v `price_summary_czk`."""
+
+    BASE = {"title": "Prodej pole 19297 m²", "external_id": "162792268", "price": 55.0}
+    DETAIL = {"price_czk": 55.0, "price_czk_m2": 55, "price_summary_czk": 1061335.0,
+              "price_unit_cb": {"name": "za m²", "value": 3},
+              "price_summary_unit_cb": {"name": "za nemovitost", "value": 1}}
+
+    def test_celkova_cena_ze_souhrnu(self):
+        merged = SrealityScraper(fetch_details=False)._merge_detail(dict(self.BASE), dict(self.DETAIL))
+        assert merged["price"] == 1061335.0
+        assert merged["price_note"] == "55 Kč/m²"
+
+    def test_bez_souhrnu_jednotkova_cena_nezustane(self):
+        detail = dict(self.DETAIL, price_summary_czk=0.0)
+        merged = SrealityScraper(fetch_details=False)._merge_detail(dict(self.BASE), detail)
+        assert merged["price"] is None
+        assert merged["price_note"] == "55 Kč/m²"
+
+    def test_cena_za_nemovitost_beze_zmeny(self):
+        detail = {"price_czk": 4990000.0, "price_summary_czk": 4990000.0,
+                  "price_unit_cb": {"name": "za nemovitost", "value": 1}}
+        merged = SrealityScraper(fetch_details=False)._merge_detail(dict(self.BASE), detail)
+        assert merged["price"] == 4990000.0
+        assert "price_note" not in merged
+
+    @pytest.mark.parametrize("estate,expected", [
+        ({"price_czk": 1250.0, "price_summary_czk": 1250000.0, "price_unit_cb": {"name": "za m²", "value": 3}},
+         (1250000.0, "1 250 Kč/m²")),
+        ({"price_czk": 120.0, "price_summary_czk": 9600.0, "price_unit_cb": {"name": "za m²/měsíc", "value": 5}},
+         (9600.0, "120 Kč/m²/měsíc")),
+        ({"price_czk": 18000.0, "price_unit_cb": {"name": "za měsíc", "value": 2}}, (18000.0, None)),
+        ({"price_czk": 1.0}, (None, None)),
+        ({}, (None, None)),
+    ])
+    def test_cena_a_poznamka(self, estate, expected):
+        assert SrealityScraper._price_and_note(estate) == expected
+
+
 class TestPremiaRealityListingStatus:
     """Horní Leska (6. 10. 2026): web Premia Reality nechává prodané i rezervované nabídky viset
     a místo ceny ukáže štítek. Z 51 „aktivních" inzerátů bylo 19 prodaných a 21 rezervovaných."""

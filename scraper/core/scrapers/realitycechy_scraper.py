@@ -116,6 +116,8 @@ DISPOSITION_RE = re.compile(r"(\d)\s*\+\s*(kk|\d)", re.I)
 GPS_RE = re.compile(r"var x = ([\d.]+);\s*var y = ([\d.]+);")
 UNSET_VALUES = {"", "neuvedeno", "neuvedena", "nezadána", "nezadáno", "-"}
 COTTAGE_RE = re.compile(r"chat|chalup", re.I)
+# „180 Kč/m2“ – RK zadala u pozemku cenu za m²; do 10. 11. 2026 se ukládala jako celková
+PER_M2_RE = re.compile(r"Kč\s*/\s*m\s*(?:2|²)|za\s*m\s*(?:2|²)", re.I)
 DELETED_SELECTOR = ".smazany_inzerat, .smazany_inzerat_cena, .smazany_inzerat_popis"
 DELETED_TEXT = "nemovitost již není v nabídce"
 # Důvod v scrape_skips: výpisem prošel, detail ho vyřadil filtrem – detail se 60 dní nestahuje
@@ -372,7 +374,9 @@ class RealityCechyScraper:
         """
         Které položky potřebují detail: napřed známé se změněnou cenou (ať se zapíše do historie)
         a známé stažené, které jsou ve výpisu znovu (`revalidate`), potom nové. Známé se stejnou
-        cenou nebo bez ceny ve výpisu („cena v RK") detail nepotřebují.
+        cenou nebo bez ceny ve výpisu („cena v RK") detail nepotřebují. Cena za m² (`unit_price`)
+        se s uloženou celkovou porovnat nedá – detail jen tehdy, když je uložená cena rovna té
+        jednotkové (řádek z doby, kdy se jednotková ukládala jako celková).
         """
         changed: List[Dict[str, Any]] = []
         new: List[Dict[str, Any]] = []
@@ -381,8 +385,10 @@ class RealityCechyScraper:
                 new.append(item)
                 continue
             old_price, list_price = known[item["external_id"]], item.get("price")
+            unit_price = item.get("unit_price")
             if item["external_id"] in revalidate or (
-                    list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5)):
+                    list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5)) or (
+                    unit_price is not None and old_price is not None and abs(float(old_price) - unit_price) <= 0.5):
                 changed.append(item)
         return changed + new
 
@@ -514,6 +520,14 @@ class RealityCechyScraper:
             old.decompose()
         return re.sub(r"\s+", " ", el.get_text(" ", strip=True)).strip()
 
+    @classmethod
+    def _card_prices(cls, price_text: str) -> Dict[str, Optional[float]]:
+        """Cena z karty výpisu: celková → `price`, „180 Kč/m2“ → jen `unit_price` (celková není známá)."""
+        number = cls._parse_number(price_text)
+        if number is not None and PER_M2_RE.search(price_text or ""):
+            return {"price": None, "unit_price": number}
+        return {"price": number, "unit_price": None}
+
     def parse_list_page(self, html: str, page: int = 1) -> Tuple[List[Dict[str, Any]], int, bool]:
         """
         Stránka výpisu → (položky, celkový počet nabídek podle portálu, existuje další stránka).
@@ -541,7 +555,7 @@ class RealityCechyScraper:
                 "title": self._text_with_sup(link)[:200],
                 "municipality": self._clean_municipality(loc.get_text(" ", strip=True))[:100] if loc else "",
                 "price_text": price_text,
-                "price": self._parse_number(price_text),
+                **self._card_prices(price_text),
                 "status": "",
                 "thumb": urljoin(BASE_URL, thumb) if thumb else "",
             })
@@ -564,7 +578,7 @@ class RealityCechyScraper:
                     "title": self._text_with_sup(link)[:200],
                     "municipality": self._clean_municipality(addr.get_text(" ", strip=True))[:100] if addr else "",
                     "price_text": price_text,
-                    "price": self._parse_number(price_text),
+                    **self._card_prices(price_text),
                     "status": status_el.get_text(" ", strip=True).lower() if status_el else "",
                     "thumb": urljoin(BASE_URL, thumb_el["src"]) if thumb_el else "",
                 })
@@ -703,9 +717,12 @@ class RealityCechyScraper:
             otype = "Dražba"
 
         # ── cena ──
-        price = self._parse_number(params.get("cena", ""))
+        price_text = params.get("cena", "")
+        price = self._parse_number(price_text)
         if price is None:
-            price = self._parse_number(item.get("price_text", ""))
+            price_text = item.get("price_text", "")
+            price = self._parse_number(price_text)
+        unit_price = price if price is not None and PER_M2_RE.search(price_text or "") else None
         if price is None:
             ld_offer = ld_listing.get("offers") if isinstance(ld_listing.get("offers"), dict) else {}
             price = self._parse_number(str(ld_offer.get("price") or ""))
@@ -731,6 +748,12 @@ class RealityCechyScraper:
             # obytná plocha vypovídá o domě víc než zastavěná: ta je půdorys i s dvorem
             # a u řadových domů bývá stejná jako celý pozemek
             area_built_up = area_usable or area_living or area_built or area_overview
+
+        price_note: Optional[str] = None
+        if unit_price is not None:
+            price_note = f"{unit_price:,.0f} Kč/m²".replace(",", " ")
+            area = area_land if ptype == "Pozemek" else (area_built_up or area_land)
+            price = float(round(unit_price * area)) if area else None
 
         # ── dispozice ──
         disposition = None
@@ -805,6 +828,7 @@ class RealityCechyScraper:
             "property_type": ptype,
             "offer_type": otype,
             "price": price,
+            "price_note": price_note,
             "location_text": location_text[:200],
             "municipality": obec[:100] or None,
             "district": district or None,
