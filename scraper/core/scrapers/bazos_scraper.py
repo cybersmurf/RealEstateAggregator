@@ -13,7 +13,7 @@ import asyncio
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import httpx
 from bs4 import BeautifulSoup
@@ -125,6 +125,47 @@ _ROOM_CONTEXT_RE = re.compile(
 # výměře 820 m2" skončilo v zastavěné ploše a detekce duplikátů to vzala jako rozpor
 # se SREALITY (180 m² dům / 820 m² pozemek).
 _LAND_CONTEXT_RE = re.compile(r"pozem|zahrad|parcel", re.IGNORECASE)
+# Druh pozemku v katastru, ne plocha domu: „zastavěná plocha a nádvoří 1 792 m2 + trvalý travní porost
+# 1 840 m2“ (Korolupy – dům 5+1 by měl 1 792 m²)
+_PARCEL_KIND_RE = re.compile(r"ploch\w*\s+a\s+nádvoř|travn\w*\s+porost|orn\w*\s+půd", re.IGNORECASE)
+
+# Plocha v m² i s mezerou nebo tečkou v tisících – do 11. 11. 2026 dávalo „Pole 18 222 m²“ 222 m²
+# a „pole 35.449 m²“ 449 m² (246 z 1 414 pozemků). Před číslem nesmí být „+“ („3+1 120 m²“ je
+# dispozice a plocha) ani „/“ („901/11 739m2“ je parcela 901/11 a 739 m²).
+_AREA_NUMBER = r"(?<![\d,.+/])(\d{1,3}(?:[ \xa0.]\d{3})+|\d{2,5})"
+
+# Cena za m², jak ji prodávající píše do popisu, když ji dal i do pole ceny (portál jednotku nemá):
+# „Cena: 1 400 Kč/m2“, „2.600,- Kč/m2“, „149,- Kč/m2“, „800 Kč za m²“, „Cena za m²: 2 990 Kč“,
+# „Za 1metr čtvereční 3200 Kč“.
+_SQM = r"(?:m[²2]|㎡|metr\w*(?:\s+čtvere\w*)?|čtvere\w*\s+metr\w*)"
+_UNIT_NUMBER = r"(?<![\d.,])(\d{1,3}(?:[ \xa0.]\d{3})+|\d+)(?:,(\d{1,2})(?!\d)|,-+)?"
+_UNIT_PRICE_AFTER_RE = re.compile(
+    _UNIT_NUMBER + r"\s*(?:(?:kč|kc|czk)\.?(?:\s*,-+)?\s*(?:/|za\b|na\b)|,-+\s*(?:/|za\b|na\b)|/)\s*(?:1\s*)?" + _SQM,
+    re.IGNORECASE,
+)
+_UNIT_PRICE_BEFORE_RE = re.compile(
+    r"\bza\s*(?:1\s*)?" + _SQM + r"\s*(?:je|činí|:|-|–|=)?\s*" + _UNIT_NUMBER + r"\s*(?:,-+\s*)?(?:kč|kc|czk|,-)",
+    re.IGNORECASE,
+)
+# Spoluvlastnický podíl: cena je celková za podíl, plocha celého pozemku – nízké Kč/m² nejsou cena za m²
+_SHARE_RE = re.compile(r"pod[íi]l|spoluvlastn", re.IGNORECASE)
+# Bez jednotky v popisu: číslo v poli ceny pozemku do 10 000 Kč, které by dalo pod 5 Kč/m²,
+# je cena za m² (i orná půda na jižní Moravě stojí desítky Kč/m², viz audit unit_price).
+UNIT_PRICE_GUESS_MAX = 10_000
+UNIT_PRICE_GUESS_MAX_KC_M2 = 5
+# Výš cena za m² nebývá ani u stavebních pozemků v Brně; „Cena pozemku činí 2.990.000,- Kč/m2“ je
+# celková cena se špatnou jednotkou
+UNIT_PRICE_MAX = 50_000
+
+# Proč se detail inzerátu nestahuje znovu (scrape_skips, dokud se nezmění cena ve výpisu, nejdéle 60 dní)
+SKIP_FILTERED = "neprošel filtrem"
+SKIP_DEMAND = "poptávka"
+
+
+def _same_price(a: Optional[float], b: Optional[float]) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    return abs(float(a) - float(b)) <= 0.5
 
 # Katastrální území v titulku: "…, k.ú. Práče", "v k.ú. Lednice na Moravě", "k.ú. Kyjovice, okr. Znojmo"
 _CADASTRE_RE = re.compile(
@@ -163,6 +204,11 @@ class BazosScraper:
         Dvě fáze: napřed výpisy všech hledání (okres a cena jsou už v položce výpisu), potom
         detaily – jen u inzerátů z našich okresů, které ještě neznáme nebo jim Bazoš změnil cenu.
         Známým se jen obnoví „naposledy viděno".
+
+        Detail, který filtr zahodí (Břeclavsko mimo vybrané obce, dům nebo pozemek nad limit) nebo
+        je poptávkou, si pamatujeme s cenou z výpisu (scrape_skips) a stáhneme ho znovu, až se
+        cena změní (nejpozději za 60 dní). Známý inzerát v té situaci se deaktivuje a „viděno“ se
+        mu neobnovuje – jinak by zůstal aktivní se starou cenou.
         """
         logger.info("Starting Bazos.cz scraper (max_pages=%s, searches=%s)", max_pages, len(self.searches))
         started = time.monotonic()
@@ -178,6 +224,8 @@ class BazosScraper:
                 try:
                     db = get_db_manager()
                     known = await db.get_known_prices(self.SOURCE_CODE)
+                    unit_prices = await db.get_known_unit_prices(self.SOURCE_CODE)
+                    skipped = await db.get_skip_prices(self.SOURCE_CODE)
 
                     items: List[Dict[str, Any]] = []
                     seen_ids: set[str] = set()
@@ -187,49 +235,38 @@ class BazosScraper:
                                 seen_ids.add(item["external_id"])
                                 items.append(item)
 
+                    remembered = {i["external_id"] for i in items if self.is_remembered(i, skipped)}
                     touched = await db.touch_listings(
                         self.SOURCE_CODE,
-                        [(i["external_id"], None, i["district"]) for i in items if i["external_id"] in known],
+                        [(i["external_id"], None, i["district"]) for i in items
+                         if i["external_id"] in known and i["external_id"] not in remembered],
                     )
                     if not self.lists_complete:
                         kept = await db.mark_active_seen(self.SOURCE_CODE)
                         logger.warning("Bazos lists incomplete – %s active listings kept as seen", kept)
 
-                    todo = self.select_for_detail(items, known)
+                    todo = self.select_for_detail(items, known, unit_prices, skipped)
                     logger.info(
                         "Bazos lists: %s listings in target districts, %s known refreshed, %s need detail, "
-                        "%s skipped as other district",
-                        len(items), touched, len(todo), self.skipped_other_district,
+                        "%s remembered as filtered out, %s skipped as other district",
+                        len(items), touched, len(todo), len(remembered), self.skipped_other_district,
                     )
 
                     saved = 0
-                    for idx, item in enumerate(todo):
-                        if time.monotonic() - started >= self.TIME_BUDGET_SECONDS:
-                            logger.info("Bazos time budget used up after %s details – %s left for the next run",
-                                        idx, len(todo) - idx)
-                            break
-                        try:
-                            with timer(f"Bazos detail {item['external_id']}", logging.DEBUG):
-                                start = time.perf_counter()
-                                detail_html = await self._fetch(item["detail_url"])
-                                metrics.record_fetch(time.perf_counter() - start)
-
-                            listing = self._parse_detail_page(detail_html, item)
-                            if listing is None:
-                                # Poptávkový inzerát (hledám…) – přeskočit
-                                logger.debug("Bazos: skipping demand ad %s", item["external_id"])
-                                metrics.increment_failed()
-                                continue
-
-                            if item.get("district"):
-                                listing["district"] = item["district"]
-                            await self._save_listing(listing)
-                            saved += 1
-                            metrics.increment_scraped()
-                        except Exception as exc:
-                            logger.error("Bazos: error processing detail %s: %s", item.get("detail_url"), exc)
-                            metrics.increment_failed()
-                        await asyncio.sleep(0.5)
+                    newly_skipped: Dict[str, List[Dict[str, Any]]] = {}
+                    stored_ids: List[str] = []
+                    try:
+                        saved = await self._scrape_details(todo, known, started, metrics, newly_skipped, stored_ids)
+                    finally:
+                        for reason, skip_items in newly_skipped.items():
+                            await db.remember_skipped(
+                                self.SOURCE_CODE, [i["external_id"] for i in skip_items], reason,
+                                prices={i["external_id"]: i["price"] for i in skip_items},
+                            )
+                        await db.forget_skipped(self.SOURCE_CODE, [x for x in stored_ids if x in skipped])
+                        if newly_skipped:
+                            logger.info("Bazos details not stored: %s",
+                                        ", ".join(f"{len(v)} {k}" for k, v in newly_skipped.items()))
 
                     self.scraped_count = touched + saved
                 except Exception as exc:
@@ -239,6 +276,56 @@ class BazosScraper:
         self._http_client = None
         logger.info("Bazos.cz scraper finished. Scraped %s listings", self.scraped_count)
         return self.scraped_count
+
+    async def _scrape_details(
+        self,
+        todo: List[Dict[str, Any]],
+        known: Mapping[str, Optional[float]],
+        started: float,
+        metrics: Any,
+        newly_skipped: Dict[str, List[Dict[str, Any]]],
+        stored_ids: List[str],
+    ) -> int:
+        """Stáhne a uloží detaily; neuložené zapíše do `newly_skipped` (důvod → položky výpisu).
+        Vrací počet uložených."""
+        db = get_db_manager()
+        saved = 0
+        for idx, item in enumerate(todo):
+            if time.monotonic() - started >= self.TIME_BUDGET_SECONDS:
+                logger.info("Bazos time budget used up after %s details – %s left for the next run",
+                            idx, len(todo) - idx)
+                break
+            external_id = item["external_id"]
+            try:
+                with timer(f"Bazos detail {external_id}", logging.DEBUG):
+                    start = time.perf_counter()
+                    detail_html = await self._fetch(item["detail_url"])
+                    metrics.record_fetch(time.perf_counter() - start)
+
+                listing = self._parse_detail_page(detail_html, item)
+                if listing is None:
+                    # Poptávkový inzerát (hledám…) – přeskočit
+                    logger.debug("Bazos: skipping demand ad %s", external_id)
+                    metrics.increment_failed()
+                    reason: Optional[str] = SKIP_DEMAND
+                else:
+                    if item.get("district"):
+                        listing["district"] = item["district"]
+                    listing_id = await self._save_listing(listing)
+                    reason = None if listing_id is not None else SKIP_FILTERED
+                    if listing_id is not None:
+                        saved += 1
+                        stored_ids.append(external_id)
+                        metrics.increment_scraped()
+                if reason is not None:
+                    newly_skipped.setdefault(reason, []).append(item)
+                    if external_id in known:
+                        await db.deactivate_listing(self.SOURCE_CODE, external_id, reason=reason)
+            except Exception as exc:
+                logger.error("Bazos: error processing detail %s: %s", item.get("detail_url"), exc)
+                metrics.increment_failed()
+            await asyncio.sleep(0.5)
+        return saved
 
     async def _collect_search(self, category: str, postcode: str, radius: int,
                               max_pages: int, metrics: Any) -> List[Dict[str, Any]]:
@@ -366,17 +453,41 @@ class BazosScraper:
         return items, other_district, raw_count
 
     @staticmethod
-    def select_for_detail(items: List[Dict[str, Any]], known: Dict[str, Optional[float]]) -> List[Dict[str, Any]]:
-        """Detail potřebují známé inzeráty se změněnou cenou (napřed) a nové; ostatní ne."""
+    def is_remembered(item: Dict[str, Any], skipped: Mapping[str, Optional[float]]) -> bool:
+        """Detail už jednou skončil mimo filtr (nebo jako poptávka) a cena ve výpisu je pořád stejná."""
+        external_id = item["external_id"]
+        return external_id in skipped and _same_price(skipped[external_id], item["price"])
+
+    @classmethod
+    def select_for_detail(
+        cls,
+        items: List[Dict[str, Any]],
+        known: Mapping[str, Optional[float]],
+        unit_prices: Optional[Mapping[str, float]] = None,
+        skipped: Optional[Mapping[str, Optional[float]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Detail potřebují známé inzeráty se změněnou cenou (napřed) a nové; ostatní ne.
+
+        `unit_prices` = známé ceny za m² (z price_note): u pozemku s cenou za m² je ve výpisu jednotková
+        cena, uložená je celková – to není změna ceny. `skipped` = inzeráty, jejichž detail filtr
+        zahodil, s cenou z výpisu v tu chvíli: stáhnou se znovu, až se cena změní (11. 11. 2026:
+        ~550 zbytečných detailů za noc – Břeclavsko mimo vybrané obce, domy a pozemky nad limit).
+        """
+        unit_prices = unit_prices or {}
+        skipped = skipped or {}
         changed: List[Dict[str, Any]] = []
         new: List[Dict[str, Any]] = []
         for item in items:
-            if item["external_id"] not in known:
+            external_id, list_price = item["external_id"], item["price"]
+            if cls.is_remembered(item, skipped):
+                continue
+            if external_id not in known:
                 new.append(item)
                 continue
-            old_price, list_price = known[item["external_id"]], item["price"]
-            if list_price is not None and (old_price is None or abs(float(old_price) - list_price) > 0.5):
-                changed.append(item)
+            if list_price is None or _same_price(known[external_id], list_price) \
+                    or _same_price(unit_prices.get(external_id), list_price):
+                continue
+            changed.append(item)
         return changed + new
 
     # ── Detail page ────────────────────────────────────────────────────────────
@@ -422,6 +533,9 @@ class BazosScraper:
         # ── Plochy ───────────────────────────────────────────────────────────
         area_built_up, area_land = self._extract_areas(title, description, property_type)
 
+        # ── Cena za m² u pozemku → celková ───────────────────────────────────
+        price, price_note = self.resolve_unit_price(price, title, description, property_type, offer_type, area_land)
+
         # ── Fotky ────────────────────────────────────────────────────────────
         photos = self._extract_photos(soup, item["external_id"])
 
@@ -434,6 +548,7 @@ class BazosScraper:
             "property_type": property_type,
             "offer_type": offer_type,
             "price": price,
+            "price_note": price_note,
             "location_text": location_text,
             "municipality": self._extract_municipality(title),
             "area_built_up": area_built_up,
@@ -558,6 +673,48 @@ class BazosScraper:
 
         return None
 
+    @staticmethod
+    def stated_unit_prices(text: str) -> List[float]:
+        """Ceny za m², které prodávající uvádí v textu („Cena: 1 400 Kč/m2“, „Cena za m²: 2 990 Kč“)."""
+        values: List[float] = []
+        for rx in (_UNIT_PRICE_AFTER_RE, _UNIT_PRICE_BEFORE_RE):
+            for m in rx.finditer(text or ""):
+                whole = re.sub(r"[\s\xa0.]", "", m.group(1))
+                try:
+                    value = float(f"{whole}.{m.group(2)}" if m.group(2) else whole)
+                except ValueError:
+                    continue
+                if value > 0:
+                    values.append(value)
+        return values
+
+    @classmethod
+    def resolve_unit_price(
+        cls, price: Optional[float], title: str, description: str, property_type: str, offer_type: str,
+        area_land: Optional[float],
+    ) -> Tuple[Optional[float], Optional[str]]:
+        """Cena z pole ceny → (celková cena, poznámka „N Kč/m²“ nebo None).
+
+        Bazoš jednotku ceny nemá a u pozemků sem prodávající často píše cenu za m² (11. 11. 2026:
+        22 aktivních pozemků za 550–5 500 Kč, Měnín 924 m² za 55 Kč). Za cenu za m² ji bereme, když
+        ji popis uvádí jako cenu za m² („Cena: 1 400 Kč/m2“), nebo když by celková cena vyšla pod
+        5 Kč/m² (do 10 000 Kč, ne u spoluvlastnického podílu). Celková = jednotková × výměra
+        pozemku, jednotková jde do price_note jako u Sreality a RealityMIX; bez výměry cenu
+        neuvádíme. „1 Kč“ je cena neuvedená.
+        """
+        if price is not None and price <= 1:
+            return None, None
+        if price is None or price > UNIT_PRICE_MAX or property_type != "Pozemek" or offer_type != "Prodej":
+            return price, None
+        per_m2 = any(_same_price(value, price) for value in cls.stated_unit_prices(description))
+        if not per_m2 and area_land and price <= UNIT_PRICE_GUESS_MAX \
+                and price / area_land < UNIT_PRICE_GUESS_MAX_KC_M2 and not _SHARE_RE.search(f"{title} {description}"):
+            per_m2 = True
+        if not per_m2:
+            return price, None
+        note = f"{price:,.0f} Kč/m²".replace(",", " ")
+        return (float(round(price * area_land)) if area_land else None), note
+
     # Slova, kterými inzerenti začínají titulek místo lokality
     _TITLE_NON_PLACE_RE = re.compile(
         r"^(prodej|prodám|prodám|pronájem|pronajmu|koupě|koupím|nabízím|sleva|exkluzivn|"
@@ -680,7 +837,7 @@ class BazosScraper:
             full_text,
             re.IGNORECASE,
         ) or re.search(
-            r"(?:zastav[eě]n[oaáíé]+|u[žz]itn[aáíé]+|obytn[aáíé]+)\s+ploch\w*[^\d]*(?<![\d,.])(\d{2,5})(?:[,.]\d+)?\s*(?:m[²2]|㎡)",
+            r"(?:zastav[eě]n[oaáíé]+|u[žz]itn[aáíé]+|obytn[aáíé]+)\s+ploch\w*(?!\s+a\s+nádvoř)[^\d]*(?<![\d,.])(\d{2,5})(?:[,.]\d+)?\s*(?:m[²2]|㎡)",
             full_text,
             re.IGNORECASE,
         )
@@ -697,12 +854,12 @@ class BazosScraper:
         # se uložilo jako plocha domu a cenový signál pak počítal 730 000 Kč/m².
         if area_built_up is None:
             # (?<![\d,.]) – "pokoj 12,45 m²" nesmí dát 45 (desetinná část)
-            for m in re.finditer(r"(?<![\d,.])(\d{2,5})(?:[,.]\d+)?\s*(?:m[²2]|㎡)", description):
+            for m in re.finditer(_AREA_NUMBER + r"(?:[,.]\d+)?\s*(?:m[²2]|㎡)", description):
                 context = description[max(0, m.start() - 60):m.start()]
                 if _ROOM_CONTEXT_RE.search(context):
                     continue  # jde o pokoj/kuchyň/garáž, ne o celý dům
                 try:
-                    val = float(m.group(1))
+                    val = float(re.sub(r"[ \xa0.]", "", m.group(1)))
                 except ValueError:
                     continue
                 # Jen úsek od konce předchozí věty / předchozí plochy – "zahrada 450 m². Dům má 120 m²"
@@ -712,18 +869,23 @@ class BazosScraper:
                 # dům 150 m² se uložil jako 322 m² a nespároval se Sreality.
                 after = description[m.end():m.end() + 60]
                 cadastral = bool(re.search(r"katastr|\bLV\b|list[ue]? vlastnictví", after, re.IGNORECASE))
-                if property_type != "Pozemek" and (val == area_land or cadastral or _LAND_CONTEXT_RE.search(own_clause)):
+                if property_type != "Pozemek" and (val == area_land or cadastral or _LAND_CONTEXT_RE.search(own_clause)
+                                                   or _PARCEL_KIND_RE.search(own_clause)):
                     if area_land is None and 10 <= val <= 100000:
                         area_land = val
                     continue  # výměra pozemku, ne plocha domu
-                if not (10 <= val <= 5000):
-                    continue
                 if property_type == "Pozemek":
                     # U pozemku plocha patří vždy do area_land; pokud už ji máme,
-                    # nesmí se stejné číslo propsat i do zastavěné plochy
+                    # nesmí se stejné číslo propsat i do zastavěné plochy. Strop jako u výměry
+                    # pozemku – se stropem domu (5 000 m²) „výměra 22 500 m2“ propadla na 141 m²
+                    # dílčí parcely o kus dál.
+                    if not (10 <= val <= 100000):
+                        continue
                     if area_land is None:
                         area_land = val
                     break
+                if not (10 <= val <= 5000):
+                    continue
                 # Dům pod 40 m² je téměř jistě špatně přiřazená místnost
                 if property_type == "Dům" and val < 40:
                     continue
@@ -732,10 +894,10 @@ class BazosScraper:
 
         # Pokud pořád nic, zkus titulek – ale jen pro Pozemek kde to jde do area_land
         if area_built_up is None and area_land is None:
-            m = re.search(r"(\d{2,5})\s*(?:m[²2]|㎡)", title)
+            m = re.search(_AREA_NUMBER + r"\s*(?:m[²2]|㎡)", title)
             if m:
                 try:
-                    val = float(m.group(1))
+                    val = float(re.sub(r"[ \xa0.]", "", m.group(1)))
                     if 10 <= val <= 100000:
                         # "…sklepem a zahradou, 1223 m²" – číslo hned za zahradou/pozemkem je pozemek
                         after_land_word = _LAND_CONTEXT_RE.search(title[max(0, m.start() - 20):m.start()])
@@ -784,6 +946,7 @@ class BazosScraper:
 
     # ── Save ───────────────────────────────────────────────────────────────────
 
-    async def _save_listing(self, listing: Dict[str, Any]) -> None:
+    async def _save_listing(self, listing: Dict[str, Any]) -> Optional[Any]:
+        """Id uloženého inzerátu, None = filtr ho zahodil."""
         db_manager = get_db_manager()
-        await db_manager.upsert_listing(listing)
+        return await db_manager.upsert_listing(listing)

@@ -841,6 +841,24 @@ class DatabaseManager:
             )
         return {r["external_id"]: (float(r["price"]) if r["price"] is not None else None) for r in rows}
 
+    async def get_known_unit_prices(self, source_code: str) -> Dict[str, float]:
+        """external_id → cena za m² z price_note („1 400 Kč/m²“) u inzerátů zdroje, které ji mají.
+        Bazoš má ve výpisu cenu za m², uložená je celková – bez toho by každá noc byla „změna ceny“."""
+        async with self.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT external_id, price_note FROM re_realestate.listings
+                WHERE source_code = $1 AND external_id IS NOT NULL AND price_note LIKE '%Kč/m%'
+                """,
+                source_code,
+            )
+        result: Dict[str, float] = {}
+        for r in rows:
+            m = re.match(r"\s*(\d[\d\s\u00a0]*)\s*Kč/m", r["price_note"] or "")
+            if m:
+                result[r["external_id"]] = float(re.sub(r"\D", "", m.group(1)))
+        return result
+
     async def get_known_listings(self, source_code: str) -> Dict[str, Dict[str, Any]]:
         """
         external_id → {"price", "property_type", "is_active"} všech inzerátů zdroje (i stažených).
@@ -1011,6 +1029,9 @@ class DatabaseManager:
             PRIMARY KEY (source_code, external_id)
         )
     """
+    # Cena z výpisu v době, kdy se detail přestal stahovat (Bazoš: filtr zahodil dům nad limit –
+    # po slevě se má stáhnout znovu). Přidáno 11. 11. 2026, Realingo ji nevyplňuje.
+    _SCRAPE_SKIPS_PRICE_DDL = "ALTER TABLE re_realestate.scrape_skips ADD COLUMN IF NOT EXISTS list_price numeric"
     _SCRAPE_SKIPS_KEEP_DAYS = 60
 
     async def get_skipped_ids(self, source_code: str) -> set:
@@ -1033,18 +1054,61 @@ class DatabaseManager:
                 "SELECT external_id, reason FROM re_realestate.scrape_skips WHERE source_code = $1", source_code)
         return {r["external_id"]: (r["reason"] or "") for r in rows}
 
-    async def remember_skipped(self, source_code: str, external_ids: Sequence[str], reason: str) -> None:
+    async def get_skip_prices(self, source_code: str) -> Dict[str, Optional[float]]:
+        """Zapamatované inzeráty zdroje → cena z výpisu, se kterou se přestaly stahovat (None = bez ceny)."""
+        async with self.acquire() as conn:
+            await conn.execute(self._SCRAPE_SKIPS_DDL)
+            await conn.execute(self._SCRAPE_SKIPS_PRICE_DDL)
+            await conn.execute(
+                "DELETE FROM re_realestate.scrape_skips WHERE first_skipped_at < now() - make_interval(days => $1)",
+                self._SCRAPE_SKIPS_KEEP_DAYS,
+            )
+            rows = await conn.fetch(
+                "SELECT external_id, list_price FROM re_realestate.scrape_skips WHERE source_code = $1", source_code)
+        return {r["external_id"]: (float(r["list_price"]) if r["list_price"] is not None else None) for r in rows}
+
+    async def remember_skipped(
+        self, source_code: str, external_ids: Sequence[str], reason: str,
+        prices: Optional[Mapping[str, Optional[float]]] = None,
+    ) -> None:
+        """
+        Zapamatuje inzeráty, jejichž detail se nemá stahovat znovu. S `prices` (cena z výpisu) se záznam
+        přepíše a 60 dní běží znovu – inzerát se cenou z výpisu ověřil teď; bez nich zůstává první záznam.
+        """
         if not external_ids:
             return
         async with self.acquire() as conn:
             await conn.execute(self._SCRAPE_SKIPS_DDL)
+            if prices is None:
+                await conn.executemany(
+                    """
+                    INSERT INTO re_realestate.scrape_skips (source_code, external_id, reason)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (source_code, external_id) DO NOTHING
+                    """,
+                    [(source_code, external_id, reason) for external_id in external_ids],
+                )
+                return
+            await conn.execute(self._SCRAPE_SKIPS_PRICE_DDL)
             await conn.executemany(
                 """
-                INSERT INTO re_realestate.scrape_skips (source_code, external_id, reason)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (source_code, external_id) DO NOTHING
+                INSERT INTO re_realestate.scrape_skips (source_code, external_id, reason, list_price)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (source_code, external_id) DO UPDATE
+                SET reason = EXCLUDED.reason, list_price = EXCLUDED.list_price, first_skipped_at = now()
                 """,
-                [(source_code, external_id, reason) for external_id in external_ids],
+                [(source_code, external_id, reason, money(prices.get(external_id))) for external_id in external_ids],
+            )
+
+    async def forget_skipped(self, source_code: str, external_ids: Sequence[str]) -> None:
+        """Inzerát se po stažení detailu uložil – už ho nepřeskakovat."""
+        if not external_ids:
+            return
+        async with self.acquire() as conn:
+            await conn.execute(self._SCRAPE_SKIPS_DDL)
+            await conn.execute(
+                "DELETE FROM re_realestate.scrape_skips WHERE source_code = $1 AND external_id = ANY($2::text[])",
+                source_code, list(external_ids),
             )
 
     async def fill_missing_districts(self) -> Tuple[int, int]:

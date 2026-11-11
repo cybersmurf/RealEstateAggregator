@@ -59,6 +59,25 @@ class TestBazosVypis:
         assert [i["external_id"] for i in BazosScraper.select_for_detail(self.items, known)] == ["224210973", "224450984"]
         assert BazosScraper.select_for_detail(self.items, {"224210973": 12_649_000.0, "224450984": 7_600_000.0}) == []
 
+    def test_cena_za_metr_ve_vypisu_neni_zmena_ceny(self):
+        items = [{"external_id": "225408146", "price": 1400.0}]
+        known = {"225408146": 4_219_600.0}
+        assert BazosScraper.select_for_detail(items, known, {"225408146": 1400.0}) == []
+        assert BazosScraper.select_for_detail(items, known, {"225408146": 1300.0}) == items
+        # bez výměry je uložená cena None a poznámka „1 400 Kč/m²“
+        assert BazosScraper.select_for_detail(items, {"225408146": None}, {"225408146": 1400.0}) == []
+
+    def test_zapamatovany_se_stahne_az_po_zmene_ceny(self):
+        items = [{"external_id": "1", "price": 12_000_000.0}, {"external_id": "2", "price": None},
+                 {"external_id": "3", "price": 9_500_000.0}]
+        skipped = {"1": 12_000_000.0, "2": None, "3": 10_500_000.0}
+        assert [i["external_id"] for i in BazosScraper.select_for_detail(items, {}, skipped=skipped)] == ["3"]
+
+    def test_zapamatovany_znamy_se_nestahuje_ani_pri_jine_ulozene_cene(self):
+        # známý dům zdražil nad limit: uložená stará cena, filtr novou zahodil a zapamatoval si ji
+        items = [{"external_id": "1", "price": 12_000_000.0}]
+        assert BazosScraper.select_for_detail(items, {"1": 9_000_000.0}, skipped={"1": 12_000_000.0}) == []
+
 
 class TestBazosHledani:
 
@@ -185,3 +204,114 @@ class TestBazosBlokaceVypisu:
 
     def test_rozpocet_vypisu_necha_cas_na_detaily(self):
         assert BazosScraper.LIST_BUDGET_SECONDS <= BazosScraper.TIME_BUDGET_SECONDS - 10 * 60
+
+
+class _FakeDb:
+    def __init__(self, known: dict, skipped: dict, rejected: set):
+        self.known, self.skipped, self.rejected = known, dict(skipped), rejected
+        self.touched: list = []
+        self.deactivated: dict = {}
+        self.saved: list = []
+        self.remembered: dict = {}
+        self.forgotten: list = []
+
+    async def get_known_prices(self, source_code):
+        return dict(self.known)
+
+    async def get_known_unit_prices(self, source_code):
+        return {}
+
+    async def get_skip_prices(self, source_code):
+        return dict(self.skipped)
+
+    async def touch_listings(self, source_code, items):
+        self.touched.extend(external_id for external_id, _, _ in items)
+        return len(items)
+
+    async def deactivate_listing(self, source_code, external_id, reason=None):
+        self.deactivated[external_id] = reason
+        return True
+
+    async def mark_active_seen(self, source_code):
+        return 0
+
+    async def remember_skipped(self, source_code, external_ids, reason, prices=None):
+        for external_id in external_ids:
+            self.remembered[external_id] = (reason, (prices or {}).get(external_id))
+
+    async def forget_skipped(self, source_code, external_ids):
+        self.forgotten.extend(external_ids)
+
+    async def upsert_listing(self, listing):
+        self.saved.append(listing["external_id"])
+        return None if listing["external_id"] in self.rejected else f"uuid-{listing['external_id']}"
+
+
+class TestBazosPametOdmitnutych:
+    """11. 11. 2026: ~550 detailů za noc filtr zahodil (Břeclavsko mimo vybrané obce, ceny nad limit)
+    a příští noc se stáhly znovu."""
+
+    @staticmethod
+    def _item(external_id: str, price, district: str = "Znojmo") -> dict:
+        return {"external_id": external_id, "price": price, "district": district, "title": "Dům",
+                "detail_url": f"https://reality.bazos.cz/inzerat/{external_id}/x.php"}
+
+    def _run(self, monkeypatch, items: list, db: _FakeDb) -> tuple:
+        import asyncio
+        from core.scrapers import bazos_scraper
+
+        scraper = BazosScraper(searches=[("", "66902", 35)])
+        fetched: list = []
+
+        async def collect(*args, **kwargs):
+            return list(items)
+
+        async def fetch(url: str) -> str:
+            external_id = url.split("/")[-2]
+            fetched.append(external_id)
+            title = "Hledám dům Znojmo" if external_id.startswith("9") else f"Rodinný dům {external_id}"
+            return (f'<div class="drobky"><a href="https://reality.bazos.cz/prodam/dum/">Domy</a></div>'
+                    f'<h1>{title}</h1><div class="popisdetail">Dům.</div>')
+
+        async def no_sleep(seconds: float) -> None:
+            return None
+
+        scraper._collect_search = collect
+        scraper._fetch = fetch
+        monkeypatch.setattr(bazos_scraper, "get_db_manager", lambda: db)
+        monkeypatch.setattr(asyncio, "sleep", no_sleep)
+        count = asyncio.run(scraper.scrape(max_pages=1))
+        return count, fetched
+
+    def test_odmitnuty_detail_se_zapamatuje_s_cenou_z_vypisu(self, monkeypatch):
+        db = _FakeDb(known={}, skipped={}, rejected={"2"})
+        items = [self._item("1", 5_000_000.0), self._item("2", 15_000_000.0), self._item("9", None)]
+        count, fetched = self._run(monkeypatch, items, db)
+        assert fetched == ["1", "2", "9"]
+        assert db.saved == ["1", "2"]
+        assert db.remembered == {"2": ("neprošel filtrem", 15_000_000.0), "9": ("poptávka", None)}
+        assert db.deactivated == {}
+        assert count == 1  # uložený je jen jeden
+
+    def test_zapamatovany_se_nestahuje_ani_neobnovuje(self, monkeypatch):
+        db = _FakeDb(known={"3": 9_000_000.0}, skipped={"2": 15_000_000.0, "3": 12_000_000.0}, rejected=set())
+        items = [self._item("2", 15_000_000.0), self._item("3", 12_000_000.0)]
+        count, fetched = self._run(monkeypatch, items, db)
+        assert fetched == []
+        assert db.touched == []
+        assert count == 0
+
+    def test_po_sleve_se_stahne_a_ulozi(self, monkeypatch):
+        db = _FakeDb(known={}, skipped={"2": 15_000_000.0}, rejected=set())
+        count, fetched = self._run(monkeypatch, [self._item("2", 9_900_000.0)], db)
+        assert fetched == ["2"]
+        assert db.saved == ["2"]
+        assert db.forgotten == ["2"]
+        assert db.remembered == {}
+
+    def test_znamy_inzerat_mimo_filtr_se_deaktivuje(self, monkeypatch):
+        db = _FakeDb(known={"4": 9_000_000.0}, skipped={}, rejected={"4"})
+        count, fetched = self._run(monkeypatch, [self._item("4", 12_000_000.0)], db)
+        assert fetched == ["4"]
+        assert db.deactivated == {"4": "neprošel filtrem"}
+        assert db.remembered == {"4": ("neprošel filtrem", 12_000_000.0)}

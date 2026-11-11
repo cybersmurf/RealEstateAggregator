@@ -221,13 +221,14 @@ async def check_unit_price(conn, report: Report) -> None:
     # 10. 11. 2026: Sreality, RealityMIX a Reality Čechy ukládaly cenu pozemku „za m²“ jako celkovou
     # (pole 19 297 m² za 55 Kč, 230+ aktivních pozemků) a žádná kontrola si toho nevšimla. I orná půda
     # na jižní Moravě stojí desítky Kč/m², celková cena pod 5 Kč/m² je jednotková cena.
-    # Bazoš vynechán: cenu za m² tam do pole ceny píše sám prodávající (portál jednotku nemá),
-    # parser ji od celkové nerozezná – trvalé varování by jen přehlušilo nové nálezy.
+    # Bazoš (od 11. 11. 2026 v kontrole): cenu za m² tam do pole ceny píše sám prodávající, scraper ji
+    # pozná z popisu („Cena: 1 400 Kč/m2“) nebo podle ceny pod 5 Kč/m². Spoluvlastnický podíl má cenu
+    # za podíl a výměru celého pozemku („Pole 4 729 m², Podíl 8 % o výměře 394 m²“) – to chyba není.
     rows = await conn.fetch("""
         SELECT source_code, count(*) c, (array_agg(url ORDER BY price / area_land))[1:5] ex
         FROM re_realestate.listings
         WHERE is_active AND property_type = 'Land' AND offer_type = 'Sale' AND price > 0 AND area_land > 0
-          AND price / area_land < $1 AND source_code <> 'BAZOS'
+          AND price / area_land < $1 AND title !~* 'pod[ií]l|spoluvlastn'
         GROUP BY 1 HAVING count(*) >= $2""", UNIT_PRICE_MAX_KC_M2, UNIT_PRICE_MIN_COUNT)
     for r in rows:
         report.add(r["source_code"], "unit_price", "yellow",
