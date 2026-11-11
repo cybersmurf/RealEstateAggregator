@@ -111,3 +111,77 @@ class TestBazosTypZRubriky:
         html = '<div class="menuleft"><a href="/prodam/byt/">Byty</a></div><h1>Stodola</h1>'
         offer, ptype = self.scraper._infer_types(self.soup(html), "Stodola u lesa", "x")
         assert (offer, ptype) == ("Prodej", "Ostatní")
+
+
+class TestBazosBlokaceVypisu:
+    """11. 11. 2026: blokace hledání trvala ~5½ min, čekání 30 + 60 + 120 s vypršelo dřív → hledání
+    padlo, výpis byl neúplný a 24 stažených inzerátů zůstalo aktivních."""
+
+    URL = "https://reality.bazos.cz/prodam/chata/?hledat=&hlokalita=69201&humkreis=20"
+
+    @staticmethod
+    def _status_error(url: str, status: int) -> "httpx.HTTPStatusError":
+        import httpx
+        request = httpx.Request("GET", url)
+        return httpx.HTTPStatusError(str(status), request=request, response=httpx.Response(status, request=request))
+
+    def _run(self, scraper: BazosScraper, responses: list, monkeypatch) -> tuple[list[str], list[float], object]:
+        """Odpovědi (výjimka nebo HTML) po řadě na každý požadavek; vrací požadavky, čekání a výsledek."""
+        import asyncio
+
+        calls: list[str] = []
+        sleeps: list[float] = []
+
+        async def fake_get(url: str) -> str:
+            calls.append(url)
+            response = responses[len(calls) - 1]
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+        async def fake_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            if scraper._list_deadline is not None:   # čas běží: do limitu zbývá méně
+                scraper._list_deadline -= seconds
+
+        scraper._get = fake_get
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+        try:
+            result: object = asyncio.run(scraper._fetch_list(self.URL))
+        except Exception as exc:  # noqa: BLE001 – test kontroluje typ níž
+            result = exc
+        return calls, sleeps, result
+
+    def test_ceka_dost_dlouho_na_konec_petiminutove_blokace(self, monkeypatch):
+        blocked = [self._status_error(self.URL, 429)] * 4
+        calls, sleeps, result = self._run(BazosScraper(), [*blocked, LIST_HTML], monkeypatch)
+        assert result == LIST_HTML
+        assert sum(sleeps) >= 330          # 5½ minuty od první 429
+        assert len(calls) == 5             # žádné rychlé opakování po 2 s uvnitř blokace
+
+    def test_po_vycerpani_pokusu_vyjimka(self, monkeypatch):
+        import httpx
+        blocked = [self._status_error(self.URL, 429)] * 6
+        calls, _, result = self._run(BazosScraper(), blocked, monkeypatch)
+        assert isinstance(result, httpx.HTTPStatusError)
+        assert len(calls) == 6
+
+    def test_necekat_pres_rozpocet_vypisu(self, monkeypatch):
+        import time
+        import httpx
+        scraper = BazosScraper()
+        scraper._list_deadline = time.monotonic() + 80    # 30 s se vejde, dalších 60 už ne (zbývá 50)
+        blocked = [self._status_error(self.URL, 429)] * 3
+        calls, sleeps, result = self._run(scraper, blocked, monkeypatch)
+        assert isinstance(result, httpx.HTTPStatusError)
+        assert sleeps == [30]
+        assert len(calls) == 2
+
+    def test_chyba_serveru_se_opakuje_hned(self, monkeypatch):
+        calls, sleeps, result = self._run(
+            BazosScraper(), [self._status_error(self.URL, 503), LIST_HTML], monkeypatch)
+        assert result == LIST_HTML
+        assert len(calls) == 2 and sleeps and max(sleeps) <= 10
+
+    def test_rozpocet_vypisu_necha_cas_na_detaily(self):
+        assert BazosScraper.LIST_BUDGET_SECONDS <= BazosScraper.TIME_BUDGET_SECONDS - 10 * 60

@@ -46,3 +46,20 @@ http_retry = retry(
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,  # po 3 neúspěšných pokusech opětovně vyvolá výjimku
 )
+
+
+def _is_retryable_except_429(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+        return False
+    return _is_retryable(exc)
+
+
+# Totéž bez 429 – pro volající, kteří na 429 čekají sami minuty (Bazoš: blokace trvá ~5 minut,
+# dva pokusy po 2 a 4 s do ní jen přidají požadavky).
+http_retry_except_429 = retry(
+    retry=retry_if_exception(_is_retryable_except_429),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)

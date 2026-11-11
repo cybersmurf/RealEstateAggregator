@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
-from ..http_utils import http_retry
+from ..http_utils import http_retry, http_retry_except_429
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,9 @@ class BazosScraper:
     _MAX_PAGES_FULL = 250         # pojistka; výpis končí sám (méně než 20 položek / 404)
     # Limit úlohy v runneru je 45 min; běh proto končí sám, jakmile vyčerpá rozpočet (viz iDNES).
     TIME_BUDGET_SECONDS = 36 * 60
+    # Výpisy bez blokace trvají ~6 min, s jednou blokací ~12; detailům (~600 za noc, ~7 min)
+    # musí zbýt zbytek rozpočtu. Po tomhle limitu se na konec blokace už nečeká.
+    LIST_BUDGET_SECONDS = 22 * 60
 
     def __init__(self, searches: Optional[List[Tuple[str, str, int]]] = None) -> None:
         self.searches = searches or SEARCHES
@@ -149,6 +152,7 @@ class BazosScraper:
         # False = některou stránku výpisu se nepodařilo načíst; co jsme neviděli, nemusí být stažené
         self.lists_complete = True
         self._http_client: Optional[httpx.AsyncClient] = None
+        self._list_deadline: Optional[float] = None  # time.monotonic(); None = bez limitu
 
     async def run(self, full_rescan: bool = False) -> int:
         max_pages = self._MAX_PAGES_FULL if full_rescan else self._MAX_PAGES_INCREMENTAL
@@ -162,6 +166,7 @@ class BazosScraper:
         """
         logger.info("Starting Bazos.cz scraper (max_pages=%s, searches=%s)", max_pages, len(self.searches))
         started = time.monotonic()
+        self._list_deadline = started + self.LIST_BUDGET_SECONDS
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
@@ -268,31 +273,48 @@ class BazosScraper:
                     category, postcode, radius, len(collected))
         return collected
 
-    @http_retry
-    async def _fetch(self, url: str) -> str:
+    async def _get(self, url: str) -> str:
         if self._http_client is None:
             raise RuntimeError("HTTP client not initialized")
         response = await self._http_client.get(url)
         response.raise_for_status()
         return response.text
 
-    # Bazoš po ~3 minutách výpisů vrací 429 (6. 11. 2026: posledních 5 hledání padlo, výpis byl
-    # „neúplný" a nic se nedeaktivovalo). Celý běh trvá 8 minut, rozpočet je 36 – čekat se vyplatí.
+    @http_retry
+    async def _fetch(self, url: str) -> str:
+        return await self._get(url)
+
+    @http_retry_except_429
+    async def _fetch_list_once(self, url: str) -> str:
+        return await self._get(url)
+
+    # Bazoš blokuje stránky hledání (detaily ne) po ~5 minutách výpisů.
+    # 6. 11. 2026: posledních 5 hledání padlo, výpis byl „neúplný" a nic se nedeaktivovalo.
+    # 11. 11. 2026: blokace trvala 4½–5½ minuty (první 429 v 2:05:32, projde až 2:10:57), čekání
+    # 30 + 60 + 120 s vypršelo dřív → hledání „chaty Mikulov" padlo a 24 stažených inzerátů zůstalo
+    # aktivních. Čtvrtý pokus teď přijde 7½ minuty po první 429, pátý po 12½.
     LIST_DELAY_SECONDS = 2.0
-    _RATE_LIMIT_WAITS = (30, 60, 120)
+    _RATE_LIMIT_WAITS = (30, 60, 120, 240, 300)
 
     async def _fetch_list(self, url: str) -> str:
-        """Stránka výpisu; na 429 počká (Retry-After, jinak 30/60/120 s) a zkusí znovu."""
+        """Stránka výpisu; na 429 počká (Retry-After, jinak 30/60/120/240/300 s) a zkusí znovu.
+
+        429 se neopakuje hned (http_retry by poslal další dva požadavky do běžící blokace).
+        Čekání, které by přesáhlo rozpočet výpisů, se už nezačne – výpis je pak neúplný.
+        """
         for wait in (*self._RATE_LIMIT_WAITS, None):
             try:
-                return await self._fetch(url)
+                return await self._fetch_list_once(url)
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code != 429 or wait is None:
                     raise
                 retry_after = exc.response.headers.get("Retry-After", "")
-                delay = int(retry_after) if retry_after.isdigit() else wait
+                delay = min(int(retry_after) if retry_after.isdigit() else wait, 300)
+                if self._list_deadline is not None and time.monotonic() + delay > self._list_deadline:
+                    logger.warning("Bazos: 429 on list page, list time budget used up – giving up")
+                    raise
                 logger.warning("Bazos: 429 on list page, waiting %s s", delay)
-                await asyncio.sleep(min(delay, 300))
+                await asyncio.sleep(delay)
         raise RuntimeError("unreachable")
 
     # ── List page ──────────────────────────────────────────────────────────────
