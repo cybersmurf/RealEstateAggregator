@@ -32,8 +32,13 @@ Omezení, o kterých je dobré vědět:
   nové inzeráty se v ní objeví až po dalším nasazení portálu.
 - Typ nemovitosti ze slugu spolehlivě nepoznáme, kategorie (dům/byt/pozemek) se
   filtruje až po stažení detailu. Jeden inzerát = jeden požadavek.
-- `publishedAt` v detailu není datum zveřejnění, ale „volné od" ve formátu
-  MM.DD.RRRR (bývá i v budoucnosti) – jako `date_created_source` ho nepoužíváme.
+- `publishedAt`: ve starém formátu to bylo „volné od" (MM.DD.RRRR, i v budoucnosti),
+  od 10. 11. 2026 je „volné od" zvlášť v `availableFrom` a `publishedAt` je čas
+  zveřejnění (`2026-09-09T10:24:53`, pražský čas). Ten jde do `date_created_source`
+  (dny na trhu). Kontrola 11. 11. 2026 na 25 domech s kopií na Sreality: 18× týž den
+  jako Sreality `since`, 6× později (makléř dal inzerát na UlovDomov až potom),
+  1× po našem prvním vidění – po znovuzveřejnění. Pozdější datum nevadí, dny na trhu
+  berou nejdřívější z data zdroje a prvního vidění v celé skupině duplicit.
 - Stažený inzerát vrací HTTP 200 se `status` ≠ `ACTIVE` (např. `IMPORT_IGNORED`),
   nebo HTTP 404 se stránkou Next.js „Tady nikdo nebydlí“ (`"page": "/404"`), a sitemap
   ho nese dál až do příštího nasazení portálu. Takový inzerát se neuloží (last_seen_at
@@ -48,7 +53,9 @@ import json
 import logging
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -124,6 +131,9 @@ _RE_AREA = re.compile(r"(\d[\d\s\u00a0.]*(?:,\d+)?)\s*m(?:2|²)", re.I)
 _RE_DISPOSITION = re.compile(r"^(\d)\+(kk|\d)$", re.I)
 # Kód dispozice: starý formát `twoPlusKk`, nový (od 10. 11. 2026) `twoPlusKitchenette`, `threePlusOne`
 _RE_DISPOSITION_ID = re.compile(r"^(one|two|three|four|five|six|seven)Plus(Kk|Kitchenette|One|Two)$")
+# Čas zveřejnění v novém formátu; starý „MM.DD.RRRR“ (= volné od) tím neprojde
+_RE_PUBLISHED_AT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?")
+PRAGUE = ZoneInfo("Europe/Prague")
 
 
 class UlovDomovScraper:
@@ -513,7 +523,29 @@ class UlovDomovScraper:
                 result["latitude"], result["longitude"] = float(gps["lat"]), float(gps["lng"])
             except (TypeError, ValueError):
                 pass
+        published = self.published_at(offer)
+        if published is not None:
+            result["date_created_source"] = published
         return result
+
+    @staticmethod
+    def published_at(offer: Dict[str, Any], now: Optional[datetime] = None) -> Optional[datetime]:
+        """Čas zveřejnění nabídky (`publishedAt` nového formátu, pražský čas) jako aware datetime.
+
+        Starý formát nesl v `publishedAt` „volné od“ („04.05.2027“) – to se nebere. Datum v budoucnosti
+        (víc než den dopředu) taky ne: datum vložení to být nemůže.
+        """
+        raw = offer.get("publishedAt")
+        if not isinstance(raw, str) or not _RE_PUBLISHED_AT.match(raw):
+            return None
+        try:
+            value = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        value = value.replace(tzinfo=PRAGUE) if value.tzinfo is None else value
+        if value > (now or datetime.now(timezone.utc)) + timedelta(days=1):
+            return None
+        return value
 
     @staticmethod
     def _amount(value: Any) -> Optional[float]:

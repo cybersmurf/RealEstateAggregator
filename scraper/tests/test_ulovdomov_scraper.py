@@ -5,11 +5,13 @@ fixturách nahrazené zástupnými (Jan Novák, +420000000000, makler@example.co
 """
 import copy
 import sys
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
 import httpx
 import pytest
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -164,8 +166,9 @@ class TestUlovDomovProdejDomu:
         assert "+420000000000" not in str(self.listing)
         assert "makler@example.com" not in str(self.listing)
 
-    def test_datum_zverejneni_se_neuklada(self):
+    def test_volne_od_ze_stareho_formatu_neni_datum_vlozeni(self):
         assert "date_created_source" not in self.listing
+        assert "date_created_source" not in self.scraper.normalize_offer(_offer("detail_byt_brno_5662221.html"))
 
 
 class TestUlovDomovPronajemBytu:
@@ -540,6 +543,22 @@ class TestUlovDomovNovyFormat:
         assert new["area_land"] == 545.0
         assert new["rooms"] == 5
         assert len(new["photos"]) == MAX_PHOTOS
+
+    def test_datum_zverejneni(self):
+        listing = self._listing("detail_v2_dum_znojmo_5673902.html")
+        published = listing["date_created_source"]
+        assert published == datetime(2026, 9, 9, 10, 24, 53, tzinfo=ZoneInfo("Europe/Prague"))
+        assert published.utcoffset() == timedelta(hours=2)
+        assert self._listing("detail_v2_chata_5683880.html")["date_created_source"].date() == date(2026, 10, 21)
+
+    @pytest.mark.parametrize("raw", ["04.05.2027", "", None, 20261021, "2026-13-40T10:00:00", "nesmysl"])
+    def test_neplatne_datum_zverejneni(self, raw):
+        assert UlovDomovScraper.published_at({"publishedAt": raw}) is None
+
+    def test_datum_zverejneni_v_budoucnosti_se_nebere(self):
+        now = datetime(2026, 11, 11, 4, 0, tzinfo=timezone.utc)
+        assert UlovDomovScraper.published_at({"publishedAt": "2026-11-15T10:00:00"}, now=now) is None
+        assert UlovDomovScraper.published_at({"publishedAt": "2026-11-11T10:00:00"}, now=now) is not None
 
     def test_url_detailu_ne_zkracena_adresa(self):
         """absoluteUrl nového formátu „/i/<id>/<seo>“ vrací 404 (ověřeno 10. 11. 2026)."""
