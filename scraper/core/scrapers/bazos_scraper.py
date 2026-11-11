@@ -133,6 +133,7 @@ _PARCEL_KIND_RE = re.compile(r"ploch\w*\s+a\s+nádvoř|travn\w*\s+porost|orn\w*\
 # a „pole 35.449 m²“ 449 m² (246 z 1 414 pozemků). Před číslem nesmí být „+“ („3+1 120 m²“ je
 # dispozice a plocha) ani „/“ („901/11 739m2“ je parcela 901/11 a 739 m²).
 _AREA_NUMBER = r"(?<![\d,.+/])(\d{1,3}(?:[ \xa0.]\d{3})+|\d{2,5})"
+_TITLE_AREA = _AREA_NUMBER + r"\s*(?:m[²2]|㎡)"
 
 # Cena za m², jak ji prodávající píše do popisu, když ji dal i do pole ceny (portál jednotku nemá):
 # „Cena: 1 400 Kč/m2“, „2.600,- Kč/m2“, „149,- Kč/m2“, „800 Kč za m²“, „Cena za m²: 2 990 Kč“,
@@ -822,6 +823,13 @@ class BazosScraper:
             except ValueError:
                 pass
 
+        # U pozemku nese titulek celkovou výměru, popis často vyjmenuje parcely a první z nich bývá
+        # nejmenší: „Pole 9 615 m², Podíl 25 % o výměře 2 404 m²“ + „parc. č. 745/34 - výměra 34 m2 …“
+        # dávalo 34 m² (11. 11. 2026, 50+ podílů). Ostatní portály u podílu ukládají celou výměru
+        # („Prodej podílu 1/2 pole 5 903 m²“ = 5 903 m² na Lexamu, RealityMIX i Reality Čechy).
+        if area_land is None and property_type == "Pozemek":
+            area_land = self._title_area(title)
+
         # Zastavěná plocha: preferuj 'zastavěnou plochou X m²' / 'užitnou X m²' z popisu
         area_built_up: Optional[float] = None
         # ploch\w* pokrývá i 1. pád "užitná plocha" – dřívější (plochou?|plochem?)
@@ -894,7 +902,7 @@ class BazosScraper:
 
         # Pokud pořád nic, zkus titulek – ale jen pro Pozemek kde to jde do area_land
         if area_built_up is None and area_land is None:
-            m = re.search(_AREA_NUMBER + r"\s*(?:m[²2]|㎡)", title)
+            m = re.search(_TITLE_AREA, title)
             if m:
                 try:
                     val = float(re.sub(r"[ \xa0.]", "", m.group(1)))
@@ -909,6 +917,18 @@ class BazosScraper:
                     pass
 
         return area_built_up, area_land
+
+    @staticmethod
+    def _title_area(title: str) -> Optional[float]:
+        """První plocha v m² z titulku (10–100 000 m²)."""
+        m = re.search(_TITLE_AREA, title)
+        if not m:
+            return None
+        try:
+            val = float(re.sub(r"[ \xa0.]", "", m.group(1)))
+        except ValueError:
+            return None
+        return val if 10 <= val <= 100000 else None
 
     def _extract_photos(self, soup: BeautifulSoup, external_id: str) -> List[str]:
         """

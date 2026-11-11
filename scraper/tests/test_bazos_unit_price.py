@@ -132,6 +132,21 @@ class TestBazosPlochySMezerouVTisicich:
                 "- parcela č. 1375/23 – 141 m², 1/9 podíl")
         assert self._land("Pole 15 995 m², Podíl 11 % o výměře 1 777 m²", text) == 15995.0
 
+    def test_podil_ma_celou_vymeru_z_titulku_ne_prvni_parcelu(self):
+        # Kuchařovice: popis vyjmenuje parcely od nejmenší, uložilo se 34 m² místo 9 615 m²
+        text = ("Nabízíme Vám následující pozemky v katastrálním území Kuchařovice:\n"
+                "- parc. č. 745/34 - výměra 34 m2\n- parc. č. 746/34 - výměra 25 m2\n"
+                "- parc. č. 627/36 - výměra 2564 m2")
+        assert self._land("Pole 9 615 m², Podíl 25 % o výměře 2 404 m²", text) == 9615.0
+
+    def test_titulek_ma_prednost_pred_parcelou_v_popisu(self):
+        text = ("Tyto pozemky jsou zapsané na LV 1209 pod parcelními čísly: Parcela č. 883/19 - o celkové "
+                "výměře 2073 m² Parcela č. 882/10 - o celkové výměře 46 m²")
+        assert self._land("Pole 2 739 m², Podíl 25 % o výměře 685 m²", text) == 2739.0
+
+    def test_vymera_pozemku_v_popisu_ma_prednost_pred_titulkem(self):
+        assert self._land("Prodej louky 3 200 m²", "Pozemek o výměře 3194 m2 v obci.") == 3194.0
+
     def test_cislo_parcely_se_neslije_s_vymerou(self):
         assert self._land("Pozemek na prodej", "Cena dohodou parcelní číslo 901/11 739m2 901/12 12m2") == 739.0
 

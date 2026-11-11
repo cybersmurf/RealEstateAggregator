@@ -25,11 +25,21 @@ Exit code 0 = vše v pořádku, 1 = jen varování, 2 = chyby. Popis kontrol je 
   Prahy nikdy nepovoluj jen proto, aby nález zmizel.
 
 ## 3. Oprava
-- Konvence jsou v `CLAUDE.md` (Python: async, typové anotace, defenzivní parsování; testy pytest
-  s fixturami v `scraper/tests/fixtures/`). Ke každé opravě test.
+- **Rozhoduj sám, neptej se.** Petr 11. 11. 2026: „my dva furt musíme něco řešit ručně?“ – otázky
+  typu „Mám to dopočítávat?“, „Ověřit to?“, „Udělám to, pokud chceš“ v hlášení nechce. Co patří
+  do správnosti dat, pokrytí nebo úspory požadavků a vejde se do povoleného rozsahu níž, rovnou
+  ověř, oprav, otestuj a nasaď; v hlášení jen napiš, co a proč jsi rozhodl. Nejistý nález ověř na
+  živém webu nebo v datech (vzorek 20–30 inzerátů), nenechávej ho jako „neověřoval jsem“.
+  Při volbě mezi variantami se drž toho, co dělají ostatní zdroje (např. u podílu na pozemku
+  všechny portály ukládají celou výměru) – jinak se rozbije párování duplicit.
 - Smíš měnit: `scraper/**`, `scripts/migrate_*.sql` (nová migrace, idempotentní, `-- KONTEXT:`),
-  `src/RealEstate.Api/Services/DeadListingDetector.cs` + jeho testy. Cokoli jiného (UI, API logika,
-  vypnutí zdroje, robots.txt, mazání dat) NEDĚLEJ – jen popiš v hlášení jako „čeká na Petra“.
+  `src/RealEstate.Api/Services/DeadListingDetector.cs` + jeho testy. Smíš jednorázově opravit data
+  inzerátů (obnova detailů, oprava ceny/plochy, deaktivace inzerátu zjevně mimo oblast nebo
+  chybně zařazeného) – vždy se zálohou dotčených řádků.
+- **Petrovi nech jen tohle** (v hlášení „Čeká na Petra“, každé jako otázka na jedno slovo
+  s tvým doporučením): rozsah hledání (zdroje, okresy, obce, cenové a plošné limity filtrů),
+  robots.txt a nový/vypnutý zdroj, cokoli placeného (API, tarify), změny UI a API logiky mimo
+  povolené soubory, mazání dat (DELETE) a cokoli, co se dotkne jeho záznamů (níž).
 - Nikdy nesahej na Petrova data: `user_listing_state`, poznámky, `user_listing_photos`, analýzy,
   hlasy, prohlídky. Hromadné UPDATE/DELETE inzerátů jen s předchozí zálohou dotčených řádků.
 - `cd scraper && .venv/bin/python -m pytest -q` musí projít celý; při změně API i
@@ -47,7 +57,9 @@ Exit code 0 = vše v pořádku, 1 = jen varování, 2 = chyby. Popis kontrol je 
 
 ## 5. Hlášení
 Pošli do Slacku (kanál, kam chodí upozornění scraperu) zprávu „Doktor scraperů DD. MM.“:
-co audit našel, co jsi opravil (commit), co se dotáhlo (počty), co zůstává a proč (čeká na Petra).
+co audit našel, co jsi opravil (commit), co se dotáhlo (počty), co zůstává a proč (čeká na Petra –
+jen body z výčtu v kroku 3). Žádná sekce „Drobnosti“ s nabídkami „udělám, pokud chceš“: drobnost
+buď oprav, nebo napiš jednou větou, proč ji nechávaš (např. mimo Petrův zájem).
 Když audit něco našel, pošli stejný text i e-mailem na petr@blackies.cz (Gmail, předmět
 „Doktor scraperů DD. MM. – N oprav, M čeká“) – Slack Petr nečte. Když bylo vše v pořádku, stačí
 jedna věta do Slacku, e-mail ne. Stejný text ulož do
