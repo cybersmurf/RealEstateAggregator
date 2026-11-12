@@ -57,3 +57,21 @@ async def test_unit_price_mismatch_is_flagged() -> None:
     async with _client(UNIT_PAGE) as client:
         res = await quality_audit._live_one(client, item)
     assert res["price_ok"] is False
+
+
+def test_missed_nightly_run_is_red_at_doctor_time() -> None:
+    from datetime import datetime, timezone
+    # 12. 11. 2026: restart serveru zrušil běh ve 3:00, doktor se ptal ve 4:30 (3:30 UTC)
+    last = datetime(2026, 11, 11, 2, 0, tzinfo=timezone.utc)
+    level, message = quality_audit.nightly_finding(last, datetime(2026, 11, 12, 3, 30, tzinfo=timezone.utc))
+    assert level == "red"
+    assert "11. 11. 02:00" in message
+
+
+def test_nightly_run_from_tonight_is_fine() -> None:
+    from datetime import datetime, timezone
+    last = datetime(2026, 11, 12, 2, 0, tzinfo=timezone.utc)
+    assert quality_audit.nightly_finding(last, datetime(2026, 11, 12, 3, 30, tzinfo=timezone.utc))[0] is None
+    # audit spuštěný během dalšího nočního běhu ještě nehlásí
+    assert quality_audit.nightly_finding(last, datetime(2026, 11, 13, 2, 40, tzinfo=timezone.utc))[0] is None
+    assert quality_audit.nightly_finding(None, datetime(2026, 11, 12, 3, 30, tzinfo=timezone.utc))[0] == "red"

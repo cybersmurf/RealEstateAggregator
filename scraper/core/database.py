@@ -291,6 +291,9 @@ def _enrich_areas(data: Dict[str, Any]) -> None:
 
 logger = logging.getLogger(__name__)
 
+# Chybová zpráva jobu, který ukončil restart kontejneru (čte ji i audit kvality)
+INTERRUPTED_JOB_MESSAGE = "Přerušeno restartem scraperu"
+
 
 def _gallery_needs_reclassification(existing: Sequence[Mapping[str, Any]], photo_urls: Sequence[str]) -> bool:
     """
@@ -1426,6 +1429,42 @@ class DatabaseManager:
                 datetime.utcnow()
             )
             logger.info(f"Created scrape job {job_id} for sources: {source_codes}")
+
+    async def fail_interrupted_jobs(self) -> Dict[str, Any]:
+        """Při startu kontejneru uzavře joby, které zůstaly ve stavu Queued/Running.
+
+        Joby běží v procesu scraperu, takže po startu žádný běžet nemůže – zůstal po restartu
+        (12. 11. 2026: server se po aktualizaci jádra restartoval ve 3:00:02, dvě vteřiny po
+        začátku nočního běhu; job visel jako Running a noční scrape neproběhl vůbec).
+
+        Returns:
+            {"interrupted": [{id, source_codes, full_rescan, age_hours}], "earlier_recent": int}
+            – earlier_recent = počet jobů přerušených restartem v posledních 6 hodinách před tímto
+            (ochrana proti smyčce pád → obnova → pád).
+        """
+        async with self.acquire() as conn:
+            earlier_recent = await conn.fetchval(
+                """
+                SELECT count(*) FROM re_realestate.scrape_jobs
+                WHERE status = 'Failed' AND error_message = $1
+                  AND finished_at > now() - interval '6 hours'
+                """,
+                INTERRUPTED_JOB_MESSAGE,
+            )
+            rows = await conn.fetch(
+                """
+                UPDATE re_realestate.scrape_jobs
+                SET status = 'Failed', error_message = $1, finished_at = now()
+                WHERE status IN ('Queued', 'Running')
+                RETURNING id, source_codes, full_rescan,
+                          extract(epoch FROM now() - coalesce(started_at, created_at)) / 3600.0 AS age_hours
+                """,
+                INTERRUPTED_JOB_MESSAGE,
+            )
+        interrupted = [dict(r) for r in rows]
+        if interrupted:
+            logger.warning("Uzavřeno %s jobů přerušených restartem: %s", len(interrupted), [str(r["id"]) for r in interrupted])
+        return {"interrupted": interrupted, "earlier_recent": int(earlier_recent or 0)}
     
     async def update_scrape_job(self, job_id: UUID, status: str, 
                                progress: int = None, error_message: str = None,

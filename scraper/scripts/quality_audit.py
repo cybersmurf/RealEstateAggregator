@@ -8,6 +8,7 @@ mrtvé fotky. Healthcheck i Prometheus byly zelené, protože zdroje pořád „
 
 Audit měří po zdrojích:
   runs     – poslední běhy (selhání po sobě, stáří posledního úspěchu)
+  nightly  – noční plný běh proběhl v posledních 25 h (klíč _NOCNI_BEH, jen když ne)
   stale    – podíl aktivních inzerátů, které běh neviděl 3+ dny
   fill     – vyplněnost polí proti mediánu posledních 7 denních snímků (propad = chyba parseru)
   same_desc– stejný popis u mnoha inzerátů (parser bere menu/šablonu)
@@ -60,6 +61,8 @@ STALE_RED_SHARE = 0.05       # 5 % aktivních neviděných 3+ dny
 TYPE_MISMATCH_SHARE = 0.03
 UNIT_PRICE_MAX_KC_M2 = 5      # celková cena pozemku pod 5 Kč/m² = jednotková cena uložená jako celková
 UNIT_PRICE_MIN_COUNT = 3
+NIGHTLY_MAX_AGE_HOURS = 25   # viz check_nightly
+NIGHTLY_KEY = "_NOCNI_BEH"    # nález za celý běh, ne za zdroj
 UNIT_PRICE_NOTE_RE = re.compile(r"^\s*(\d[\d\s\u00a0]*)\s*Kč/m")
 SNAPSHOT_DDL = """
 CREATE TABLE IF NOT EXISTS re_realestate.scraper_quality_snapshots (
@@ -121,6 +124,33 @@ async def check_runs(conn, report: Report, sources: List[str]) -> None:
             report.add(src, "runs", "red", f"poslední úspěšný běh {last_ok:%d. %m. %H:%M}" if last_ok else "žádný úspěšný běh")
         if runs[0]["status"] == "Succeeded" and runs[0]["total_seen"] == 0:
             report.add(src, "runs", "red", "poslední běh nenašel žádný inzerát")
+
+
+async def check_nightly(conn, report: Report) -> None:
+    """Noční plný běh musí proběhnout každý den – jinak jsou všechna data den stará.
+
+    12. 11. 2026 restart serveru ve 3:00:02 zrušil noční běh hned po startu; kontrola runs to
+    neviděla (řádky scrape_runs se nezapsaly, poslední úspěch byl mladší než 36 h) a audit byl 🟢.
+    Mez 25 h: běh začíná ve 3:00, doktor se ptá ve 4:30 – vynechaná noc je tou dobou 25,5 h stará.
+    """
+    last = await conn.fetchval(
+        "SELECT max(started_at) FROM re_realestate.scrape_runs WHERE full_rescan AND status = 'Succeeded'")
+    level, message = nightly_finding(last, datetime.now(timezone.utc))
+    if level is None:
+        return
+    job = await conn.fetchrow(
+        "SELECT status, error_message FROM re_realestate.scrape_jobs ORDER BY created_at DESC LIMIT 1")
+    if job is not None and job["status"] != "Succeeded":
+        message += f"; poslední job: {job['status']} {job['error_message'] or ''}".rstrip()
+    report.add(NIGHTLY_KEY, "nightly", level, message)
+
+
+def nightly_finding(last_full_run: Optional[datetime], now: datetime) -> tuple:
+    if last_full_run is None:
+        return "red", "žádný úspěšný plný běh v historii"
+    if now - last_full_run > timedelta(hours=NIGHTLY_MAX_AGE_HOURS):
+        return "red", f"noční plný běh neproběhl – poslední úspěšný {last_full_run:%d. %m. %H:%M} UTC"
+    return None, ""
 
 
 async def check_stale(conn, report: Report) -> None:
@@ -364,6 +394,10 @@ async def main() -> int:
         if args.source:
             sources = [s for s in sources if s == args.source]
         await check_runs(conn, report, sources)
+        if not args.source:
+            await check_nightly(conn, report)
+            if report.sources[NIGHTLY_KEY]["issues"]:
+                sources = [NIGHTLY_KEY] + sources
         await check_stale(conn, report)
         metrics = await fill_metrics(conn)
         await check_fill(conn, report, metrics)

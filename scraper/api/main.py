@@ -66,6 +66,51 @@ async def _scheduled_scrape_all(full_rescan: bool = False) -> None:
         logger.exception("[Scheduler] Scraping job failed: %r", exc)
 
 
+# Přerušený job se po startu spustí znovu jen tehdy, když začal nejvýš před tolika hodinami
+RESUME_MAX_AGE_HOURS = 6.0
+# Po restartu serveru nech síť a DNS naběhnout
+RESUME_DELAY_SECONDS = 90
+_resume_task: asyncio.Task | None = None
+
+
+def pick_job_to_resume(interrupted: list[dict], earlier_recent: int) -> dict | None:
+    """Vybere job přerušený restartem, který se má po startu spustit znovu.
+
+    12. 11. 2026: unattended-upgrades restartoval server ve 3:00:02, noční běh začal ve 3:00:00
+    a po startu už ho nic nespustilo – data zůstala den stará. Znovu se spouští nejnovější
+    přerušený job mladší než RESUME_MAX_AGE_HOURS (plný má přednost – pokryje i inkrementální).
+    Když už v posledních hodinách restart nějaký job přerušil, nespouští se nic: pád, který
+    způsobuje sám běh (paměť), by se jinak točil dokola.
+    """
+    if earlier_recent > 0:
+        return None
+    fresh = [j for j in interrupted if j["age_hours"] <= RESUME_MAX_AGE_HOURS]
+    if not fresh:
+        return None
+    return min(fresh, key=lambda j: (not j["full_rescan"], j["age_hours"]))
+
+
+async def _resume_interrupted_job(job: dict) -> None:
+    """Spustí znovu job, který přerušil restart kontejneru (stejné zdroje, stejný režim)."""
+    try:
+        await asyncio.sleep(RESUME_DELAY_SECONDS)
+        db_manager = get_db_manager()
+        source_codes = list(job["source_codes"])
+        job_id = uuid4()
+        request = ScrapeTriggerRequest(source_codes=source_codes, full_rescan=job["full_rescan"])
+        await db_manager.create_scrape_job(job_id=job_id, source_codes=source_codes, full_rescan=job["full_rescan"])
+        logger.warning(
+            "[Scheduler] Job %s přerušil restart – spouštím ho znovu jako %s (%s zdrojů, full_rescan=%s)",
+            job["id"], job_id, len(source_codes), job["full_rescan"],
+        )
+        await run_scrape_job(job_id, request)
+    except asyncio.CancelledError:
+        logger.warning("[Scheduler] Obnovený job zrušen (app shutdown?)")
+        raise
+    except Exception as exc:
+        logger.exception("[Scheduler] Obnova přerušeného jobu selhala: %r", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -156,6 +201,18 @@ async def lifespan(app: FastAPI):
         # ── Notifikace ─────────────────────────────────────────────────────
         notif_cfg = config.get("notifications", {})
         notifications.configure(notif_cfg.get("slack_webhook_url") or "")
+
+        # ── Joby přerušené restartem ───────────────────────────────────────
+        global _resume_task
+        try:
+            leftovers = await db_manager.fail_interrupted_jobs()
+            to_resume = pick_job_to_resume(leftovers["interrupted"], leftovers["earlier_recent"])
+            if to_resume is not None and sched_cfg.get("enabled", True):
+                _resume_task = asyncio.create_task(_resume_interrupted_job(to_resume))
+            elif leftovers["interrupted"]:
+                logger.warning("Přerušené joby se znovu nespouští (staré, opakovaný restart nebo vypnutý scheduler)")
+        except Exception as exc:  # noqa: BLE001 – úklid jobů nesmí zabránit startu
+            logger.warning("Kontrola přerušených jobů selhala: %r", exc)
 
     except Exception as exc:
         logger.error(f"❌ Startup failed: {exc}")
