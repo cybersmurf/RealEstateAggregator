@@ -12,6 +12,7 @@ import httpx
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Mapping, Sequence, Set, Tuple
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -41,6 +42,19 @@ _PHOTO_DOWNLOAD_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
 }
+
+# Weby za WEDOS Global Protection vrací „455 Blocked“ klientovi, který se hlásí jako plný Chrome
+# a prohlížeč není (HV Reality od 12. 11. 2026, i u fotek) – tam se scraper hlásí vlastním jménem.
+_HONEST_UA_HOSTS = ("hvreality.cz",)
+_HONEST_USER_AGENT = "RealEstateAggregator/1.0 (https://github.com/cybersmurf/RealEstateAggregator)"
+
+
+def _photo_download_headers(photo_url: str) -> Dict[str, str]:
+    host = (urlparse(photo_url).hostname or "").lower()
+    if any(host == h or host.endswith("." + h) for h in _HONEST_UA_HOSTS):
+        return {**_PHOTO_DOWNLOAD_HEADERS, "User-Agent": _HONEST_USER_AGENT}
+    return _PHOTO_DOWNLOAD_HEADERS
+
 
 from .filters import get_filter_manager
 from .area_parsing import parse_title_areas, parse_description_land, title_offers_land
@@ -1214,7 +1228,7 @@ class DatabaseManager:
             return None  # Inline download není nakonfigurován
 
         try:
-            response = await http_client.get(photo_url, headers=_PHOTO_DOWNLOAD_HEADERS, follow_redirects=True)
+            response = await http_client.get(photo_url, headers=_photo_download_headers(photo_url), follow_redirects=True)
             if response.status_code != 200:
                 logger.debug(f"Photo download HTTP {response.status_code}: {photo_url}")
                 return None

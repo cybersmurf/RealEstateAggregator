@@ -178,3 +178,15 @@ def test_sablona_webu_neni_popis_a_obec_z_titulku():
     assert result["description"] == ""
     assert result["municipality"] == "Znojmo"
     assert result["district"] == "Znojmo"
+
+
+def test_hvreality_identifies_honestly_behind_wedos_protection() -> None:
+    # 12. 11. 2026: WEDOS vrací 455 na „Chrome/122.0.0.0“ z httpx (i 154.0.0.0), přiznaný klient projde
+    from core.database import _photo_download_headers, _PHOTO_DOWNLOAD_HEADERS
+    from core.scrapers.hvreality_scraper import DEFAULT_HEADERS
+
+    assert "Chrome/" not in DEFAULT_HEADERS["User-Agent"]
+    photo = _photo_download_headers("https://hvreality.cz/wp-content/uploads/2026/11/a.webp")
+    assert "Chrome/" not in photo["User-Agent"]
+    assert photo["Accept"] == _PHOTO_DOWNLOAD_HEADERS["Accept"]
+    assert _photo_download_headers("https://d18-a.sdn.cz/d_18/x.jpg") is _PHOTO_DOWNLOAD_HEADERS

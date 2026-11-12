@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..geocoding import USER_AGENT
 from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
@@ -61,12 +62,11 @@ START_URLS = [
     "https://hvreality.cz/pronajem-nemovitosti/"
 ]
 
+# Web běží za WEDOS Global Protection: od 12. 11. 2026 vrací „455 Blocked“ klientovi, který se
+# hlásí jako plný Chrome („Chrome/N.0.0.0“), ale prohlížeč to není (ověřeno pro verze 122–154).
+# Přiznaný klient projde – robots.txt zakazuje jen /wp-admin/.
 DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "cs-CZ,cs;q=0.9",
 }
