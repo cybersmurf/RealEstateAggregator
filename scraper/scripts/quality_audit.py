@@ -47,6 +47,16 @@ from core.database import init_db_manager
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
 
+# Weby, kde ochrana proti robotům (Anubis) pustí jen klienta, který se nevydává za prohlížeč –
+# s UA výše vrací výzvu místo inzerátu a kontrola ceny by hlásila falešný rozdíl (REALmix 14. 11. 2026).
+HONEST_UA = "RealEstateAggregator/1.0 (https://github.com/cybersmurf/RealEstateAggregator)"
+HONEST_UA_HOSTS = ("reality-znojmo.cz",)
+
+
+def _headers_for(url: str) -> Dict[str, str]:
+    return {"User-Agent": HONEST_UA} if any(h in url for h in HONEST_UA_HOSTS) else {}
+
+
 # Stejné značky jako DeadListingDetector v API – smazaný inzerát se stavem 200
 GONE_MARKERS = (
     "smazany_inzerat",
@@ -294,7 +304,7 @@ def _numbers(text: str) -> set:
 async def _live_one(client: httpx.AsyncClient, item: Dict[str, Any]) -> Dict[str, Any]:
     res: Dict[str, Any] = {"url": item["url"], "dead": False, "price_ok": None, "photos_bad": 0, "photos_checked": 0}
     try:
-        r = await client.get(item["url"])
+        r = await client.get(item["url"], headers=_headers_for(item["url"]))
     except Exception as exc:  # noqa: BLE001 – nedostupnost webu hlásí jiné kontroly
         res["error"] = type(exc).__name__
         return res

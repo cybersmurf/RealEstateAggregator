@@ -26,6 +26,7 @@ from bs4 import BeautifulSoup
 
 from ..utils import timer, scraper_metrics_context
 from ..database import get_db_manager
+from ..geocoding import USER_AGENT
 from ..http_utils import http_retry
 
 logger = logging.getLogger(__name__)
@@ -39,15 +40,18 @@ DEFAULT_LISTS: List[Tuple[str, str, str, str]] = [
     ("/prodej/pozemky/", "Pozemek", "Prodej", "Znojmo"),
 ]
 
+# Od 14. 11. 2026 je web za ochranou Anubis: klient, který se hlásí jako prohlížeč („Mozilla/…“),
+# dostane místo výpisu stránku s výpočetní výzvou (200, „Making sure you're not a bot!“) a běh
+# skončil s 0 inzeráty. Přiznaný klient projde – robots.txt procházení dovoluje (Allow: /).
 DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "cs-CZ,cs;q=0.9",
     "Referer": BASE_URL,
 }
+
+# Cesta, na kterou Anubis přesměruje místo obsahu
+CHALLENGE_PATH = "/.within.website/"
 
 # Podtyp z URL: /prodej/rodinne-domy/<podtyp>/<obec>/… – chaty jsou v sekci domů
 SUBTYPE_MAP = {"chaty": "Chata", "chalupy": "Chata", "rodinne-domy": "Dům", "vily": "Dům",
@@ -122,6 +126,9 @@ class RealmixScraper:
             raise RuntimeError("HTTP client not initialized")
         response = await self._http_client.get(url)
         response.raise_for_status()
+        if CHALLENGE_PATH in str(response.url):
+            # výzva má stav 200 – bez téhle kontroly by běh tiše „uspěl“ s 0 inzeráty
+            raise RuntimeError(f"Ochrana proti robotům místo obsahu: {url}")
         return response.text
 
     # ── parsování ────────────────────────────────────────────────────────────
