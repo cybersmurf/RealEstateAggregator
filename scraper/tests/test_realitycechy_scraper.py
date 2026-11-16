@@ -2,6 +2,7 @@
 Unit testy parseru RealityCechy.cz nad uloženými fixturami (tests/fixtures/realitycechy/).
 Bez živého HTTP a bez DB.
 """
+import asyncio
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -865,6 +866,63 @@ class TestRealityCechyZnameMimoFiltry:
         scraper = _FakeRealityCechy(_site(1), details={"900001": _load("detail_smazany.html")})
         await scraper.run(full_rescan=True)
         assert fake_db.reasons == {"900001": "deleted on portal (soft 404)"}
+
+
+class _SlowRealityCechy(_FakeRealityCechy):
+    """Web, který s odpovědí čeká – počítá, kolik požadavků běží naráz."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.in_flight = 0
+        self.max_in_flight = 0
+
+    async def _fetch(self, url: str) -> str:
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            for _ in range(3):      # pustí ke slovu ostatní úlohy (asyncio.sleep je v testech vypnutý)
+                loop = asyncio.get_running_loop()
+                tick = loop.create_future()
+                loop.call_soon(tick.set_result, None)
+                await tick
+            return await super()._fetch(url)
+        finally:
+            self.in_flight -= 1
+
+
+class TestRealityCechyPomalyPortal:
+    """12.–16. 11. 2026: portál vracel každou stránku za 19–24 s, 115 stránek výpisů po jedné
+    trvalo 42 min a běh končil na rozpočtu před pozemky okresu Břeclav – pět nocí bez detailu
+    a bez deaktivace. Výpisy a detaily se stahují souběžně."""
+
+    async def test_vypisy_se_stahuji_soubezne_nejvys_po_ctyrech(self, fake_db):
+        lists = [(LIST_PATH, "Dům", "Prodej", "Brno-venkov", 20023700 + n) for n in range(6)]
+        scraper = _SlowRealityCechy(_site(45), lists=lists)
+        await scraper.run(full_rescan=True)
+
+        assert len(scraper.list_requests) == 6 * 3
+        assert scraper.lists_complete is True
+        assert 1 < scraper.max_in_flight <= RealityCechyScraper.CONCURRENCY
+
+    async def test_detaily_se_stahuji_soubezne_a_ulozi_se_vsechny(self, fake_db):
+        scraper = _SlowRealityCechy(_site(45))
+        seen = await scraper.run(full_rescan=True)
+
+        assert len(scraper.saved) == 45 == seen
+        assert len(set(scraper.detail_requests)) == 45
+        assert 1 < scraper.max_in_flight <= RealityCechyScraper.CONCURRENCY
+
+    async def test_polozka_ve_dvou_vypisech_patri_prvnimu(self, fake_db):
+        scraper = _SlowRealityCechy(_site(3), lists=[BV_LIST, BRECLAV_LIST])
+        await scraper.run(full_rescan=True)
+        assert [listing["district"] for listing in scraper.saved] == ["Brno-venkov"] * 3
+
+    async def test_po_vycerpani_casu_se_dalsi_detail_nezacne(self, fake_db):
+        scraper = _SlowRealityCechy(_site(45))
+        scraper.detail_limit = 5
+        await scraper.run(full_rescan=True)
+        # rozpracované požadavky doběhnou, nový už nezačne
+        assert 5 <= len(scraper.detail_requests) < 5 + RealityCechyScraper.CONCURRENCY
 
 
 class TestRealityCechyRozdeleniPodleFiltru:

@@ -174,24 +174,30 @@ async def lifespan(app: FastAPI):
         if sched_cfg.get("enabled", True):
             # Denní quick scraping – každý den ve 3:00 ráno
             daily_cron = sched_cfg.get("daily_cron", "0 3 * * *")
+            daily_full = bool(sched_cfg.get("daily_full_rescan", True))
             _scheduler.add_job(
                 _scheduled_scrape_all,
                 CronTrigger.from_crontab(daily_cron, timezone="Europe/Prague"),
                 id="daily_scrape",
                 name="Denní scraping (všechny zdroje)",
                 replace_existing=True,
-                kwargs={"full_rescan": bool(sched_cfg.get("daily_full_rescan", True))},
+                kwargs={"full_rescan": daily_full},
             )
-            # Týdenní full rescan – v neděli v 2:00
-            weekly_cron = sched_cfg.get("weekly_cron", "0 2 * * 0")
-            _scheduler.add_job(
-                _scheduled_scrape_all,
-                CronTrigger.from_crontab(weekly_cron, timezone="Europe/Prague"),
-                id="weekly_full_rescan",
-                name="Týdenní full rescan",
-                replace_existing=True,
-                kwargs={"full_rescan": True},
-            )
+            # Týdenní full rescan jen tehdy, když denní běh plný není. S daily_full_rescan=true to byl
+            # druhý plný běh všech zdrojů hodinu před denním – a ne v neděli, ale v pondělí
+            # (APScheduler čísluje dny od pondělí = 0; 9. a 16. 11. 2026 běžely v 2:00 i ve 3:10).
+            weekly_cron = sched_cfg.get("weekly_cron", "0 2 * * sun")
+            if daily_full:
+                weekly_cron = "vypnuto (denní běh je plný)"
+            else:
+                _scheduler.add_job(
+                    _scheduled_scrape_all,
+                    CronTrigger.from_crontab(weekly_cron, timezone="Europe/Prague"),
+                    id="weekly_full_rescan",
+                    name="Týdenní full rescan",
+                    replace_existing=True,
+                    kwargs={"full_rescan": True},
+                )
             _scheduler.start()
             logger.info(f"✓ Scheduler spuštěn | denní={daily_cron} | weekly={weekly_cron}")
             print(f"✓ Scheduler spuštěn | denní={daily_cron} | týdenní={weekly_cron}")

@@ -26,6 +26,14 @@ z detailu (komerční pozemek ve výpisu pozemků limit pozemků nemá). Co proj
 vyřadí ho detail, si pamatujeme v scrape_skips (60 dní), ať se detail nestahuje každou noc.
 Stažený inzerát, který je ve výpisu znovu, dostane detail místo „viděno“.
 
+Pomalý portál (od 12. 11. 2026): každá stránka včetně 404 se vrací za 19–24 s (ověřeno
+16. 11. z pěti zemí, není to omezení naší IP). 115 stránek výpisů po jedné trvalo 42 min,
+běh pět nocí končil na časovém rozpočtu uprostřed výpisů: pozemky okresu Břeclav (poslední
+v pořadí) neviděl vůbec, nestáhl jediný detail a nic nedeaktivoval. Výpisy a detaily se
+proto stahují až po CONCURRENCY naráz (souběžné požadavky portál vyřizuje stejně rychle
+jako jeden); rozestup mezi začátky požadavků drží `_throttle`, takže rychlý portál
+nedostane víc požadavků za vteřinu než dřív.
+
 Detail: h1.entry-title, h2.mesto-ulice, tabulky „Adresa“ (Obec/Okres/Kraj)
 a „Informace“ (Cena, Stav, Druh, Typ, Zastavěná plocha, Výměra pozemku,
 Užitná/Obytná plocha, Postaveno z), popis p.realita-popis, galerie
@@ -136,6 +144,10 @@ class RealityCechyScraper:
     # Limit úlohy v runneru je 45 min (asyncio.wait_for); kdo ho přetáhne, je zrušen a po
     # plném běhu se nic nedeaktivuje. Výpisy trvají ~4 min, detail ~1 s.
     TIME_BUDGET_SECONDS = 36 * 60
+    # Kolik výpisů (a potom detailů) se stahuje naráz – viz „Pomalý portál" v hlavičce
+    CONCURRENCY = 4
+    # Odpověď trvá až 24 s; s 30 s končila část stránek na ReadTimeout
+    HTTP_TIMEOUT_SECONDS = 60
 
     def __init__(self, lists: Optional[List[Tuple[str, str, str, str, int]]] = None) -> None:
         self.lists = lists or DEFAULT_LISTS
@@ -145,6 +157,8 @@ class RealityCechyScraper:
         self.deleted_count = 0
         self.retired_count = 0      # deaktivované v tomto běhu (smazané, mimo filtry)
         self._http_client: Optional[httpx.AsyncClient] = None
+        self._gate = asyncio.Lock()
+        self._next_request_at = 0.0
 
     async def run(self, full_rescan: bool = False) -> int:
         """
@@ -163,7 +177,7 @@ class RealityCechyScraper:
         self.retired_count = 0
         self.lists_complete = True
         with scraper_metrics_context() as metrics:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
+            async with httpx.AsyncClient(timeout=self.HTTP_TIMEOUT_SECONDS, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
                 self._http_client = client
                 try:
                     self.scraped_count = await self._scrape_two_phase(max_pages, started, metrics)
@@ -224,41 +238,52 @@ class RealityCechyScraper:
         )
 
         saved_new = 0
+        fetched = 0
         filtered_out: List[str] = []
-        for idx, item in enumerate(details):
-            if self.out_of_time(started, time.monotonic()):
-                logger.info("RealityCechy time budget used up after %s details – %s left for the next run",
-                            idx, len(details) - idx)
-                break
-            external_id = item["external_id"]
-            try:
-                start = time.perf_counter()
-                html = await self._fetch(item["url"])
-                metrics.record_fetch(time.perf_counter() - start)
-                if self.is_deleted_page(html):
-                    self.deleted_count += 1
-                    if external_id in known:
-                        if await db.deactivate_listing(self.SOURCE_CODE, external_id,
-                                                       reason="deleted on portal (soft 404)"):
-                            self.retired_count += 1
-                    logger.info("RealityCechy listing %s is no longer offered – not saved", item["url"])
-                else:
-                    normalized = self.parse_detail_page(html, item, item["property_type"], item["offer_type"], item["district"])
-                    if normalized and await self._save_listing(normalized) is not None:
-                        metrics.increment_scraped()
-                        if external_id not in known or external_id in inactive:
-                            saved_new += 1      # nový nebo oživený stažený – touch ho nezapočítal
-                    elif normalized:
-                        # Výpisem prošel, detail ho vyřadil (typ nebo okres z detailu): zapamatovat,
-                        # ať se nestahuje každou noc; známý se starými daty aktivní nezůstane
-                        filtered_out.append(external_id)
-                        if external_id in known and await db.deactivate_listing(
-                                self.SOURCE_CODE, external_id, reason="out of search filters (detail)"):
-                            self.retired_count += 1
-            except Exception as exc:
-                logger.error("Error processing %s: %s", item.get("url"), exc)
-                metrics.increment_failed()
-            await asyncio.sleep(DETAIL_DELAY_SECONDS)
+        slots = asyncio.Semaphore(self.CONCURRENCY)
+
+        async def process(item: Dict[str, Any]) -> None:
+            nonlocal saved_new, fetched
+            async with slots:
+                if self.out_of_time(started, time.monotonic()):
+                    return
+                await self._throttle(DETAIL_DELAY_SECONDS)
+                if self.out_of_time(started, time.monotonic()):
+                    return
+                fetched += 1
+                external_id = item["external_id"]
+                try:
+                    start = time.perf_counter()
+                    html = await self._fetch(item["url"])
+                    metrics.record_fetch(time.perf_counter() - start)
+                    if self.is_deleted_page(html):
+                        self.deleted_count += 1
+                        if external_id in known:
+                            if await db.deactivate_listing(self.SOURCE_CODE, external_id,
+                                                           reason="deleted on portal (soft 404)"):
+                                self.retired_count += 1
+                        logger.info("RealityCechy listing %s is no longer offered – not saved", item["url"])
+                    else:
+                        normalized = self.parse_detail_page(html, item, item["property_type"], item["offer_type"], item["district"])
+                        if normalized and await self._save_listing(normalized) is not None:
+                            metrics.increment_scraped()
+                            if external_id not in known or external_id in inactive:
+                                saved_new += 1      # nový nebo oživený stažený – touch ho nezapočítal
+                        elif normalized:
+                            # Výpisem prošel, detail ho vyřadil (typ nebo okres z detailu): zapamatovat,
+                            # ať se nestahuje každou noc; známý se starými daty aktivní nezůstane
+                            filtered_out.append(external_id)
+                            if external_id in known and await db.deactivate_listing(
+                                    self.SOURCE_CODE, external_id, reason="out of search filters (detail)"):
+                                self.retired_count += 1
+                except Exception as exc:
+                    logger.error("Error processing %s: %s", item.get("url"), exc)
+                    metrics.increment_failed()
+
+        await asyncio.gather(*(process(item) for item in details))
+        if fetched < len(details):
+            logger.info("RealityCechy time budget used up after %s details – %s left for the next run",
+                        fetched, len(details) - fetched)
 
         await db.remember_skipped(self.SOURCE_CODE, filtered_out, SKIP_FILTERED)
         logger.info("RealityCechy details: %s new saved, %s deleted on the portal, %s filtered out by detail, "
@@ -267,15 +292,22 @@ class RealityCechyScraper:
 
     async def _crawl_lists(self, max_pages: int, started: float, metrics: Any) -> List[Dict[str, Any]]:
         """Projde všechny výpisy a vrátí položky bez duplicit, každou s typem, nabídkou a okresem výpisu."""
+        slots = asyncio.Semaphore(self.CONCURRENCY)
+
+        async def crawl(path: str, property_type: str, offer_type: str, district: str, okres_id: int) -> List[Dict[str, Any]]:
+            async with slots:
+                if self.out_of_time(started, time.monotonic()):
+                    logger.warning("RealityCechy time budget used up while crawling lists")
+                    self.lists_complete = False
+                    return []
+                return await self._crawl_list(path, property_type, offer_type, district, okres_id,
+                                              max_pages, started, metrics)
+
+        # gather vrací výsledky v pořadí výpisů – položka ve dvou výpisech patří tomu prvnímu jako dřív
+        results = await asyncio.gather(*(crawl(*spec) for spec in self.lists))
         items: List[Dict[str, Any]] = []
         seen: set = set()
-        for path, property_type, offer_type, district, okres_id in self.lists:
-            if self.out_of_time(started, time.monotonic()):
-                logger.warning("RealityCechy time budget used up while crawling lists")
-                self.lists_complete = False
-                break
-            list_items = await self._crawl_list(path, property_type, offer_type, district, okres_id,
-                                                max_pages, started, metrics)
+        for list_items in results:
             for item in list_items:
                 if item["external_id"] not in seen:
                     seen.add(item["external_id"])
@@ -292,6 +324,7 @@ class RealityCechyScraper:
         complete = True
         page = 1
         while page <= last_page:
+            await self._throttle(LIST_DELAY_SECONDS)
             if page > 1 and self.out_of_time(started, time.monotonic()):
                 complete = False
                 break
@@ -329,7 +362,6 @@ class RealityCechyScraper:
             if not total and not has_next:
                 break
             page += 1
-            await asyncio.sleep(LIST_DELAY_SECONDS)
 
         if whole_list and len(list_seen) < total * MIN_LIST_COVERAGE:
             complete = False   # stránkování nevrátilo, co portál hlásí (např. ignoruje vp-page)
@@ -345,6 +377,14 @@ class RealityCechyScraper:
         if page > 1:
             query = f"vp-page={page}&{query}"
         return f"{urljoin(BASE_URL, path)}?{query}"
+
+    async def _throttle(self, interval: float) -> None:
+        """Počká, až od začátku předchozího požadavku (kteréhokoli ze souběžných) uplyne `interval`."""
+        async with self._gate:
+            wait = self._next_request_at - time.monotonic()
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._next_request_at = time.monotonic() + interval
 
     @http_retry
     async def _fetch(self, url: str) -> str:
