@@ -45,6 +45,13 @@ DEFAULT_HEADERS = {
     "Accept-Language": "cs-CZ,cs;q=0.9",
 }
 
+# Web odpovídá na každou stránku kolem 21 s (měřeno 20. 11. 2026 ve dne, robots.txt z Cloudflare
+# hned – pomalý je původní server, na User-Agentu nezáleží) a v noci přes 30 s: s 30s limitem
+# 19. 11. vypadl výpis /ostatni a 20. 11. všechny čtyři. Cloudflare čeká na server nejdéle 100 s.
+REQUEST_TIMEOUT_SECONDS = 90
+# Když web neodpovídá vůbec, 14 stránek × 3 pokusy by přetáhlo 45min limit úlohy
+TIME_BUDGET_SECONDS = 30 * 60
+
 
 class ZnojmoRealityScraper:
     """Scraper for Znojmo Reality (Realman platform)."""
@@ -54,6 +61,9 @@ class ZnojmoRealityScraper:
     def __init__(self) -> None:
         self.scraped_count = 0
         self._http_client: Optional[httpx.AsyncClient] = None
+        # False = některý výpis nebo detail se nestáhl; plný běh pak nesmí nic deaktivovat
+        # (19. 11. 2026: timeout výpisu /ostatni → 3 živé nabídky deaktivovány)
+        self.lists_complete = True
 
     async def run(self, full_rescan: bool = False) -> int:
         """Entry point from runner.py. No pagination, full_rescan has no effect."""
@@ -61,24 +71,37 @@ class ZnojmoRealityScraper:
 
     async def scrape(self) -> int:
         logger.info("Starting Znojmo Reality scraper")
+        self.lists_complete = True
+        self._deadline = time.monotonic() + TIME_BUDGET_SECONDS
 
         with scraper_metrics_context() as metrics:
             async with httpx.AsyncClient(
-                timeout=30,
+                timeout=REQUEST_TIMEOUT_SECONDS,
                 follow_redirects=True,
                 headers=DEFAULT_HEADERS,
             ) as client:
                 self._http_client = client
 
                 for config in LISTING_URLS:
+                    if time.monotonic() > self._deadline:
+                        logger.warning("Znojmo Reality: časový rozpočet vyčerpán před %s", config["url"])
+                        self.lists_complete = False
+                        break
                     try:
                         count = await self._scrape_listing(config, metrics)
                         self.scraped_count += count
                     except Exception as exc:
-                        logger.error("Error scraping %s: %s", config["url"], exc)
+                        logger.error("Error scraping %s: %s: %s", config["url"], type(exc).__name__, exc)
                         metrics.increment_failed()
+                        self.lists_complete = False
 
                 self._http_client = None
+
+        if not self.lists_complete:
+            kept = await get_db_manager().mark_active_seen(self.SOURCE_CODE)
+            logger.warning(
+                "Znojmo Reality: výpis neúplný – %s aktivních inzerátů zůstává, nic se nedeaktivuje", kept
+            )
 
         logger.info("Znojmo Reality scraper finished. Scraped %s listings", self.scraped_count)
         return self.scraped_count
@@ -95,6 +118,10 @@ class ZnojmoRealityScraper:
         logger.info("Found %s listings at %s", len(items), config["url"])
 
         for item in items:
+            if time.monotonic() > self._deadline:
+                logger.warning("Znojmo Reality: časový rozpočet vyčerpán u %s", item["detail_url"])
+                self.lists_complete = False
+                break
             try:
                 detail_html = await self._fetch(item["detail_url"])
                 normalized = self._parse_detail(detail_html, item)
@@ -110,8 +137,10 @@ class ZnojmoRealityScraper:
                 metrics.increment_scraped()
                 await asyncio.sleep(0.5)
             except Exception as exc:
-                logger.error("Error processing %s: %s", item.get("detail_url"), exc)
+                logger.error("Error processing %s: %s: %s", item.get("detail_url"), type(exc).__name__, exc)
                 metrics.increment_failed()
+                # Výpis nabídku ukazuje, jen detail se nestáhl – neviděná ≠ stažená z webu
+                self.lists_complete = False
 
         return scraped
 
